@@ -31,3 +31,9 @@ impl Parser {
         // }
     }
 }
+
+impl Default for Parser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
