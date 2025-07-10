@@ -1,11 +1,11 @@
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct Token {
-    pub payload: TokenPayload,
+pub struct Lexeme {
+    pub value: LexemeValue,
     pub pos: (usize, usize),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum TokenPayload {
+pub enum LexemeValue {
     Identifier(String),
     String(String),
     Colon,
@@ -114,14 +114,14 @@ impl Lexer {
         Err(LexerError::UnterminatedString)
     }
 
-    fn next_token(&mut self) -> Result<Token, LexerError> {
+    fn next_token(&mut self) -> Result<Lexeme, LexerError> {
         self.skip_whitespace();
 
         let pos = (self.line, self.column);
 
         if self.pos >= self.input.len() {
-            return Ok(Token {
-                payload: TokenPayload::Eof,
+            return Ok(Lexeme {
+                value: LexemeValue::Eof,
                 pos,
             });
         }
@@ -129,46 +129,46 @@ impl Lexer {
         let token = match self.peek() {
             '{' => {
                 self.advance();
-                TokenPayload::OpenBrace
+                LexemeValue::OpenBrace
             }
             '}' => {
                 self.advance();
-                TokenPayload::CloseBrace
+                LexemeValue::CloseBrace
             }
             ':' => {
                 self.advance();
-                TokenPayload::Colon
+                LexemeValue::Colon
             }
             ',' => {
                 self.advance();
-                TokenPayload::Comma
+                LexemeValue::Comma
             }
             '@' => {
                 self.advance();
-                TokenPayload::At
+                LexemeValue::At
             }
-            '"' => TokenPayload::String(self.read_string()?),
-            c if c.is_alphabetic() => TokenPayload::Identifier(self.read_identifier()),
+            '"' => LexemeValue::String(self.read_string()?),
+            c if c.is_alphabetic() => LexemeValue::Identifier(self.read_identifier()),
             _ => {
                 self.advance();
-                TokenPayload::Identifier(String::new())
+                LexemeValue::Identifier(String::new())
             }
         };
 
-        Ok(Token { payload: token, pos })
+        Ok(Lexeme { value: token, pos })
     }
 
-    pub fn lex(&mut self) -> Result<Vec<Token>, LexerError> {
+    pub fn lex(&mut self) -> Result<Vec<Lexeme>, LexerError> {
         let mut tokens = Vec::new();
         loop {
             let token = self.next_token()?;
-            if token.payload == TokenPayload::Eof {
+            if token.value == LexemeValue::Eof {
                 break;
             }
             tokens.push(token);
         }
-        tokens.push(Token {
-            payload: TokenPayload::Eof,
+        tokens.push(Lexeme {
+            value: LexemeValue::Eof,
             pos: (self.line, self.column),
         });
         Ok(tokens)
@@ -191,22 +191,22 @@ mod tests {
 
         let mut lexer = Lexer::new(code);
         let tokens = lexer.lex().unwrap();
-        let token_payloads = tokens.iter().map(|t| t.payload.clone()).collect::<Vec<_>>();
+        let token_payloads = tokens.iter().map(|t| t.value.clone()).collect::<Vec<_>>();
 
         assert_eq!(
             token_payloads,
             vec![
-                TokenPayload::Identifier("Person".to_string()),
-                TokenPayload::OpenBrace,
-                TokenPayload::Identifier("name".to_string()),
-                TokenPayload::Colon,
-                TokenPayload::Identifier("string".to_string()),
-                TokenPayload::Comma,
-                TokenPayload::Identifier("age".to_string()),
-                TokenPayload::Colon,
-                TokenPayload::Identifier("int".to_string()),
-                TokenPayload::CloseBrace,
-                TokenPayload::Eof
+                LexemeValue::Identifier("Person".to_string()),
+                LexemeValue::OpenBrace,
+                LexemeValue::Identifier("name".to_string()),
+                LexemeValue::Colon,
+                LexemeValue::Identifier("string".to_string()),
+                LexemeValue::Comma,
+                LexemeValue::Identifier("age".to_string()),
+                LexemeValue::Colon,
+                LexemeValue::Identifier("int".to_string()),
+                LexemeValue::CloseBrace,
+                LexemeValue::Eof
             ]
         );
     }
@@ -222,29 +222,29 @@ mod tests {
 
         assert_eq!(
             tokens[0],
-            Token {
-                payload: TokenPayload::Identifier("name".to_string()),
+            Lexeme {
+                value: LexemeValue::Identifier("name".to_string()),
                 pos: (1, 1)
             }
         );
         assert_eq!(
             tokens[1],
-            Token {
-                payload: TokenPayload::Colon,
+            Lexeme {
+                value: LexemeValue::Colon,
                 pos: (1, 5)
             }
         );
         assert_eq!(
             tokens[2],
-            Token {
-                payload: TokenPayload::Identifier("int".to_string()),
+            Lexeme {
+                value: LexemeValue::Identifier("int".to_string()),
                 pos: (1, 7),
             }
         );
         assert_eq!(
             tokens[3],
-            Token {
-                payload: TokenPayload::CloseBrace,
+            Lexeme {
+                value: LexemeValue::CloseBrace,
                 pos: (2, 1),
             }
         );
@@ -266,35 +266,35 @@ mod tests {
 
         let mut lexer = Lexer::new(code);
         let tokens = lexer.lex().unwrap();
-        let token_payloads = tokens.iter().map(|t| t.payload.clone()).collect::<Vec<_>>();
+        let token_payloads = tokens.iter().map(|t| t.value.clone()).collect::<Vec<_>>();
 
         assert_eq!(
             token_payloads,
             vec![
-                TokenPayload::Identifier("Person".to_string()),
-                TokenPayload::OpenBrace,
-                TokenPayload::Identifier("name".to_string()),
-                TokenPayload::Colon,
-                TokenPayload::Identifier("string".to_string()),
-                TokenPayload::Comma,
-                TokenPayload::Identifier("age".to_string()),
-                TokenPayload::Colon,
-                TokenPayload::Identifier("int".to_string()),
-                TokenPayload::Comma,
-                TokenPayload::Identifier("stats".to_string()),
-                TokenPayload::Colon,
-                TokenPayload::Identifier("PersonStats".to_string()),
-                TokenPayload::OpenBrace,
-                TokenPayload::Identifier("height_in_cm".to_string()),
-                TokenPayload::Colon,
-                TokenPayload::Identifier("int".to_string()),
-                TokenPayload::Comma,
-                TokenPayload::Identifier("weight_in_kg".to_string()),
-                TokenPayload::Colon,
-                TokenPayload::Identifier("int".to_string()),
-                TokenPayload::CloseBrace,
-                TokenPayload::CloseBrace,
-                TokenPayload::Eof
+                LexemeValue::Identifier("Person".to_string()),
+                LexemeValue::OpenBrace,
+                LexemeValue::Identifier("name".to_string()),
+                LexemeValue::Colon,
+                LexemeValue::Identifier("string".to_string()),
+                LexemeValue::Comma,
+                LexemeValue::Identifier("age".to_string()),
+                LexemeValue::Colon,
+                LexemeValue::Identifier("int".to_string()),
+                LexemeValue::Comma,
+                LexemeValue::Identifier("stats".to_string()),
+                LexemeValue::Colon,
+                LexemeValue::Identifier("PersonStats".to_string()),
+                LexemeValue::OpenBrace,
+                LexemeValue::Identifier("height_in_cm".to_string()),
+                LexemeValue::Colon,
+                LexemeValue::Identifier("int".to_string()),
+                LexemeValue::Comma,
+                LexemeValue::Identifier("weight_in_kg".to_string()),
+                LexemeValue::Colon,
+                LexemeValue::Identifier("int".to_string()),
+                LexemeValue::CloseBrace,
+                LexemeValue::CloseBrace,
+                LexemeValue::Eof
             ]
         );
     }
@@ -316,36 +316,36 @@ mod tests {
 
         let mut lexer = Lexer::new(code);
         let tokens = lexer.lex().unwrap();
-        let token_payloads = tokens.iter().map(|t| t.payload.clone()).collect::<Vec<_>>();
+        let token_payloads = tokens.iter().map(|t| t.value.clone()).collect::<Vec<_>>();
 
         assert_eq!(
             token_payloads,
             vec![
-                TokenPayload::Identifier("Person".to_string()),
-                TokenPayload::OpenBrace,
-                TokenPayload::Identifier("name".to_string()),
-                TokenPayload::Colon,
-                TokenPayload::Identifier("string".to_string()),
-                TokenPayload::Comma,
-                TokenPayload::Identifier("age".to_string()),
-                TokenPayload::Colon,
-                TokenPayload::Identifier("int".to_string()),
-                TokenPayload::Comma,
-                TokenPayload::Identifier("stats".to_string()),
-                TokenPayload::Colon,
-                TokenPayload::Identifier("PersonStats".to_string()),
-                TokenPayload::CloseBrace,
-                TokenPayload::Identifier("PersonStats".to_string()),
-                TokenPayload::OpenBrace,
-                TokenPayload::Identifier("height_in_cm".to_string()),
-                TokenPayload::Colon,
-                TokenPayload::Identifier("int".to_string()),
-                TokenPayload::Comma,
-                TokenPayload::Identifier("weight_in_kg".to_string()),
-                TokenPayload::Colon,
-                TokenPayload::Identifier("int".to_string()),
-                TokenPayload::CloseBrace,
-                TokenPayload::Eof
+                LexemeValue::Identifier("Person".to_string()),
+                LexemeValue::OpenBrace,
+                LexemeValue::Identifier("name".to_string()),
+                LexemeValue::Colon,
+                LexemeValue::Identifier("string".to_string()),
+                LexemeValue::Comma,
+                LexemeValue::Identifier("age".to_string()),
+                LexemeValue::Colon,
+                LexemeValue::Identifier("int".to_string()),
+                LexemeValue::Comma,
+                LexemeValue::Identifier("stats".to_string()),
+                LexemeValue::Colon,
+                LexemeValue::Identifier("PersonStats".to_string()),
+                LexemeValue::CloseBrace,
+                LexemeValue::Identifier("PersonStats".to_string()),
+                LexemeValue::OpenBrace,
+                LexemeValue::Identifier("height_in_cm".to_string()),
+                LexemeValue::Colon,
+                LexemeValue::Identifier("int".to_string()),
+                LexemeValue::Comma,
+                LexemeValue::Identifier("weight_in_kg".to_string()),
+                LexemeValue::Colon,
+                LexemeValue::Identifier("int".to_string()),
+                LexemeValue::CloseBrace,
+                LexemeValue::Eof
             ]
         );
     }
@@ -356,7 +356,7 @@ mod tests {
         let mut lexer = Lexer::new(code);
         let tokens = lexer.lex().unwrap();
 
-        assert_eq!(tokens[0].payload, TokenPayload::String("Hello\n\t\"World\"".to_string()));
+        assert_eq!(tokens[0].value, LexemeValue::String("Hello\n\t\"World\"".to_string()));
     }
 
     #[test]
