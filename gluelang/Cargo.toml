@@ -1,0 +1,10 @@
+[package]
+name = "gluelang"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+colored = "3.0.0"
+indoc = "2.0.6"
+miette = { version = "7.6.0", features = ["fancy"] }
+thiserror = "2.0.16"
