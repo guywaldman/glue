@@ -1,12 +1,12 @@
 use crate::lexer::{Span, Token, TokenKind};
-use colored::Colorize;
 use miette::{Diagnostic, LabeledSpan, NamedSource, SourceCode};
-use std::{error::Error, fmt};
+use std::{error::Error, fmt, str::FromStr};
 
-#[allow(dead_code)]
+// ================= Raw AST (syntax only) =================
 #[derive(Debug, Clone)]
 pub struct Program<'a> {
     pub models: Vec<Model<'a>>,
+    pub endpoints: Vec<Endpoint<'a>>,
 }
 
 #[allow(dead_code)]
@@ -18,71 +18,93 @@ pub struct Model<'a> {
     pub span: Span,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SingleFieldType {
-    String,
-    Int,
-    Bool,
-    Float,
-    Ref(String),
-}
-
-impl SingleFieldType {
-    const STRING: &'static str = "string";
-    const INT: &'static str = "int";
-    const BOOL: &'static str = "bool";
-    const FLOAT: &'static str = "float";
-    const REF: &'static str = "ref";
-
-    fn from_str(s: &str) -> Option<Self> {
-        Some(match s {
-            Self::STRING => Self::String,
-            Self::INT => Self::Int,
-            Self::BOOL => Self::Bool,
-            Self::FLOAT => Self::Float,
-            _ => return None,
-        })
-    }
-}
-
-impl fmt::Display for SingleFieldType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let s = match self {
-            Self::String => Self::STRING,
-            Self::Int => Self::INT,
-            Self::Bool => Self::BOOL,
-            Self::Float => Self::FLOAT,
-            Self::Ref(s) => return write!(f, "ref({s})"),
-        };
-        write!(f, "{s}")
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum FieldType {
-    Single(SingleFieldType),
-    Union(Vec<SingleFieldType>),
-}
-
-impl fmt::Display for FieldType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            FieldType::Single(t) => write!(f, "{t}"),
-            FieldType::Union(types) => {
-                let type_strs: Vec<String> = types.iter().map(|t| t.to_string()).collect();
-                write!(f, "{}", type_strs.join(" | "))
-            }
-        }
-    }
-}
-
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct Field<'a> {
     pub name: &'a str,
-    pub ty: FieldType,
+    pub ty: RawType,
     pub doc: Option<String>,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FieldDecorator {
+    // Endpoint field decorators
+    Path,
+    Query,
+    Body,
+    Header,
+}
+
+impl FromStr for FieldDecorator {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "path" => Ok(FieldDecorator::Path),
+            "query" => Ok(FieldDecorator::Query),
+            "body" => Ok(FieldDecorator::Body),
+            "header" => Ok(FieldDecorator::Header),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DecoratedField<'a> {
+    pub field: Field<'a>,
+    pub decorator: FieldDecorator,
+}
+
+#[derive(Debug, Clone)]
+pub struct Endpoint<'a> {
+    pub doc: Option<String>,
+    pub annotation: Option<Annotation<'a>>,
+    pub fields: Vec<DecoratedField<'a>>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub enum AnnotationArgument<'a> {
+    NamedArg { name: &'a str, value: &'a str },
+    PositionalArg { index: usize, value: &'a str },
+}
+
+#[derive(Debug, Clone)]
+pub struct Annotation<'a> {
+    pub name: &'a str,
+    pub args: Vec<AnnotationArgument<'a>>,
+    pub span: Span,
+}
+
+// A type like: int | #User? | string
+#[derive(Debug, Clone)]
+pub struct RawType {
+    pub atoms: Vec<TypeAtom>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TypeAtom {
+    pub is_ref: bool,
+    pub name: String,
+    pub optional: bool,
+    pub span: Span,
+}
+
+impl fmt::Display for RawType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let parts: Vec<String> = self.atoms.iter().map(|a| a.to_string()).collect();
+        write!(f, "{}", parts.join(" | "))
+    }
+}
+impl fmt::Display for TypeAtom {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.is_ref {
+            write!(f, "#{}{}", self.name, if self.optional { "?" } else { "" })
+        } else {
+            write!(f, "{}{}", self.name, if self.optional { "?" } else { "" })
+        }
+    }
 }
 
 // ================= Errors =================
@@ -150,10 +172,114 @@ impl<'a> Parser<'a> {
 
     pub fn parse_program(&mut self) -> Result<Program<'a>, ParseError> {
         let mut models = Vec::new();
+        let mut endpoints = Vec::new();
         while !self.peek_is(&TokenKind::Eof) {
-            models.push(self.parse_model()?);
+            // Look ahead past any doc blocks to decide what production to parse.
+            let mut j = self.i;
+            while let Some(Token {
+                kind: TokenKind::DocBlock(_),
+                ..
+            }) = self.tokens.get(j)
+            {
+                j += 1;
+            }
+            match self.tokens.get(j).map(|t| &t.kind) {
+                Some(TokenKind::Model) => models.push(self.parse_model()?),
+                Some(TokenKind::Endpoint) | Some(TokenKind::PoundSign) => {
+                    endpoints.push(self.parse_endpoint()?)
+                }
+                Some(TokenKind::Eof) => break,
+                None => break,
+                _ => return Err(self.error_here("expected 'model' or 'endpoint'", None, None)),
+            }
         }
-        Ok(Program { models })
+        Ok(Program { models, endpoints })
+    }
+
+    /// Parse an endpoint (syntax only). Annotation & contents are left uninterpreted.
+    fn parse_endpoint(&mut self) -> Result<Endpoint<'a>, ParseError> {
+        // Parse doc
+        let start = self.peek_span();
+        let doc = self.consume_doc_blocks();
+
+        // Parse annotation
+        let annotation = if self.peek_is(&TokenKind::PoundSign) {
+            Some(self.parse_annotation()?)
+        } else {
+            None
+        };
+        self.expect(&TokenKind::Endpoint)?;
+        self.expect(&TokenKind::LBrace)?;
+
+        // Parse fields
+        let mut fields = Vec::new();
+        while self.peek_is(&TokenKind::AtSign) || matches!(self.peek().kind, TokenKind::DocBlock(_))
+        {
+            // Expecting a decorated field (e.g., @path id). The string type is implicit.
+            let doc = self.consume_doc_blocks();
+            self.advance()?; // consume '@'
+            let start = self.peek_span();
+            let decorator = match self.advance()?.kind {
+                TokenKind::Ident(s) => s,
+                _ => return Err(self.error_prev("expected field name", None, None)),
+            };
+            let decorator = FieldDecorator::from_str(decorator).map_err(|_| {
+                self.error_here(
+                    "expected field decorator (path, query, body, header)",
+                    None,
+                    None,
+                )
+            })?;
+            let name = match self.advance()?.kind {
+                TokenKind::Ident(s) => s,
+                _ => return Err(self.error_prev("expected field name", None, None)),
+            };
+            let end = self.prev_span();
+
+            fields.push(DecoratedField {
+                field: Field {
+                    name,
+                    ty: RawType {
+                        atoms: vec![TypeAtom {
+                            is_ref: false,
+                            name: "string".to_string(),
+                            optional: false,
+                            span: Span {
+                                start: start.start,
+                                end: end.end,
+                                line: start.line,
+                                col: start.col,
+                            },
+                        }],
+                    },
+                    doc,
+                    span: Span {
+                        start: start.start,
+                        end: end.end,
+                        line: start.line,
+                        col: start.col,
+                    },
+                },
+                decorator,
+            });
+        }
+
+        // Parse anything else.
+        while !self.peek_is(&TokenKind::RBrace) && !self.peek_is(&TokenKind::Eof) {
+            self.advance()?;
+        }
+        let end = self.expect(&TokenKind::RBrace)?.span;
+        Ok(Endpoint {
+            doc,
+            annotation,
+            fields,
+            span: Span {
+                start: start.start,
+                end: end.end,
+                line: start.line,
+                col: start.col,
+            },
+        })
     }
 
     fn parse_model(&mut self) -> Result<Model<'a>, ParseError> {
@@ -190,15 +316,8 @@ impl<'a> Parser<'a> {
             TokenKind::Ident(s) => s,
             _ => return Err(self.error_prev("expected field name", None, None)),
         };
-        self.expect(&TokenKind::Colon).map_err(|mut err| {
-            err.message = "expected ':'".into();
-            err.note = Some(format!(
-                "Try defining the field type, e.g., {}",
-                format!("`{name}: string`").bright_blue().bold()
-            ));
-            err
-        })?;
-        let ty = self.parse_field_type()?;
+        self.expect(&TokenKind::Colon)?;
+        let ty = self.parse_type()?;
         let end = self.prev_span();
         Ok(Field {
             name,
@@ -213,55 +332,103 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// Parse a field type, which may also be a union of types (e.g., `int | @User`)
-    fn parse_field_type(&mut self) -> Result<FieldType, ParseError> {
-        let mut types = Vec::new();
-        types.push(self.parse_single_field_type()?);
-
-        // Check if this is a union of types, e.g., `int | @User`
-        while self.peek_is(&TokenKind::Pipe) {
-            self.advance()?; // consume the '|'
-            types.push(self.parse_single_field_type()?);
+    fn parse_annotation(&mut self) -> Result<Annotation<'a>, ParseError> {
+        let start = self.peek_span();
+        self.expect(&TokenKind::PoundSign)?;
+        self.expect(&TokenKind::LBracket)?;
+        let name = match &self.advance()?.kind {
+            TokenKind::Ident(s) => *s,
+            TokenKind::Endpoint => "endpoint",
+            _ => return Err(self.error_prev("expected annotation name", None, None)),
+        };
+        self.expect(&TokenKind::LParen)?;
+        let mut args = Vec::new();
+        let mut arg_index = 0;
+        while !self.peek_is(&TokenKind::RParen) && !self.peek_is(&TokenKind::Eof) {
+            // Optionally consume a comma before each argument
+            self.expect(&TokenKind::Comma).ok();
+            match &self.peek().kind {
+                TokenKind::Ident(s) | TokenKind::StringLiteral(s) => {
+                    if self.peek_ahead(1).kind == TokenKind::Equals {
+                        let name = *s;
+                        self.advance()?; // consume name
+                        self.expect(&TokenKind::Equals)?; // consume '='
+                        let value = match &self.advance()?.kind {
+                            TokenKind::Ident(v) | TokenKind::StringLiteral(v) => *v,
+                            _ => {
+                                return Err(self.error_prev(
+                                    "expected value after '='",
+                                    None,
+                                    None,
+                                ));
+                            }
+                        };
+                        args.push(AnnotationArgument::NamedArg { name, value });
+                    } else {
+                        args.push(AnnotationArgument::PositionalArg {
+                            index: arg_index,
+                            value: *s,
+                        });
+                        self.advance()?;
+                    }
+                }
+                _ => break,
+            }
+            arg_index += 1;
         }
-
-        match &types[..] {
-            [] => Err(self.error_prev("expected field type", None, None)),
-            [single] => Ok(FieldType::Single(single.clone())),
-            multiple => Ok(FieldType::Union(multiple.to_vec())),
-        }
+        self.expect(&TokenKind::RParen)?;
+        self.expect(&TokenKind::RBracket)?;
+        let end = self.prev_span();
+        Ok(Annotation {
+            name,
+            args,
+            span: Span {
+                start: start.start,
+                end: end.end,
+                line: start.line,
+                col: start.col,
+            },
+        })
     }
 
-    /// Parse a single field type
-    fn parse_single_field_type(&mut self) -> Result<SingleFieldType, ParseError> {
-        // Handle ref (e.g., `@User`)
-        // TODO: Make matching more idiomatic, this is not the right way.
-        if let TokenKind::At = &self.peek().kind {
-            self.advance()?; // consume the `@`
-            let type_name = match self.advance()?.kind {
-                TokenKind::Ident(s) => s.to_string(),
-                _ => {
-                    return Err(self.error_prev("expected type name after '@'", None, None));
-                }
-            };
-            return Ok(SingleFieldType::Ref(type_name));
+    // type := type_atom ('|' type_atom)*
+    fn parse_type(&mut self) -> Result<RawType, ParseError> {
+        let mut atoms = Vec::new();
+        atoms.push(self.parse_type_atom()?);
+        while self.peek_is(&TokenKind::Pipe) {
+            self.advance()?;
+            atoms.push(self.parse_type_atom()?);
         }
-        let valid_fields = ["string", "int", "bool", "float"].join(", ");
-        let ty_ident = match self.advance()?.kind {
-            TokenKind::Ident(s) => s,
-            _ => {
-                return Err(self.error_prev(
-                    "expected type",
-                    Some(format!("valid types are: {valid_fields}").as_str()),
-                    None,
-                ));
-            }
+        Ok(RawType { atoms })
+    }
+    fn parse_type_atom(&mut self) -> Result<TypeAtom, ParseError> {
+        let start = self.peek_span();
+        let mut is_ref = false;
+        if self.peek_is(&TokenKind::PoundSign) {
+            self.advance()?;
+            is_ref = true;
+        }
+        let name = match self.advance()?.kind {
+            TokenKind::Ident(s) => s.to_string(),
+            _ => return Err(self.error_prev("expected type name", None, None)),
         };
-        SingleFieldType::from_str(ty_ident).ok_or_else(|| {
-            self.error_prev(
-                "invalid field type",
-                Some(format!("valid types are: {valid_fields}").as_str()),
-                None,
-            )
+        let optional = if self.peek_is(&TokenKind::QuestionMark) {
+            self.advance()?;
+            true
+        } else {
+            false
+        };
+        let end = self.prev_span();
+        Ok(TypeAtom {
+            is_ref,
+            name,
+            optional,
+            span: Span {
+                start: start.start,
+                end: end.end,
+                line: start.line,
+                col: start.col,
+            },
         })
     }
 
@@ -286,8 +453,12 @@ impl<'a> Parser<'a> {
     }
 
     fn peek(&self) -> &Token<'a> {
+        self.peek_ahead(0)
+    }
+
+    fn peek_ahead(&self, n: usize) -> &Token<'a> {
         self.tokens
-            .get(self.i)
+            .get(self.i + n)
             .unwrap_or(self.tokens.last().unwrap())
     }
 
@@ -322,8 +493,9 @@ impl<'a> Parser<'a> {
         }
         Err(self.error_here(
             format!(
-                "unexpected token; expected `{}`",
-                want.to_string().cyan().bold()
+                "unexpected token; expected `{}`, got `{}`",
+                want.to_string(),
+                self.peek().kind.to_string()
             )
             .as_str(),
             None,
@@ -333,12 +505,23 @@ impl<'a> Parser<'a> {
 
     #[inline]
     fn error_here(&self, msg: &str, note: Option<&str>, error_code: Option<&str>) -> ParseError {
-        self.make_error(self.peek_span(), msg, note, error_code)
+        self.error_at_span(self.peek_span(), msg, note, error_code)
+    }
+
+    #[inline]
+    fn error_at_span(
+        &self,
+        span: Span,
+        msg: &str,
+        note: Option<&str>,
+        error_code: Option<&str>,
+    ) -> ParseError {
+        self.make_error(span, msg, note, error_code)
     }
 
     #[inline]
     fn error_prev(&self, msg: &str, note: Option<&str>, error_code: Option<&str>) -> ParseError {
-        self.make_error(self.prev_span(), msg, note, error_code)
+        self.error_at_span(self.prev_span(), msg, note, error_code)
     }
 
     #[inline]
@@ -390,12 +573,14 @@ mod tests {
     }
     #[test]
     fn test_parser_error_field() {
+        // Previously this produced a semantic error; now it's accepted syntactically.
         let src = indoc!("model User { id: foo }");
         let tokens = Lexer::new(src).lex();
         let mut p = Parser::new("test.glue", src, tokens);
-        let err = p.parse_program().expect_err("parse error");
-        assert_eq!(err.message, "invalid field type");
+        let program = p.parse_program().expect("should parse");
+        assert_eq!(program.models[0].fields[0].ty.atoms[0].name, "foo");
     }
+
     #[test]
     fn test_model_doc() {
         let src = indoc!("/// A user in the system\n/// second line\nmodel User { id: int }");

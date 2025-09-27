@@ -7,4 +7,5 @@ edition = "2024"
 colored = "3.0.0"
 indoc = "2.0.6"
 miette = { version = "7.6.0", features = ["fancy"] }
+regex = "1.11.3"
 thiserror = "2.0.16"

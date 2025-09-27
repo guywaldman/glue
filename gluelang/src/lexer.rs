@@ -2,14 +2,23 @@ use core::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TokenKind<'a> {
-    // syntax
     Model,
+    Endpoint,
     LBrace,
     RBrace,
+    LBracket,
+    RBracket,
+    LParen,
+    RParen,
+    Comma,
+    Equals,
+    QuestionMark,
     Colon,
+    PoundSign,
     Pipe,
-    At,
+    AtSign,
     Ident(&'a str),
+    StringLiteral(&'a str),
     Number(i64),
     DocBlock(Vec<&'a str>),
     Eof,
@@ -20,13 +29,23 @@ impl fmt::Display for TokenKind<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             TokenKind::Model => write!(f, "model"),
+            TokenKind::Endpoint => write!(f, "endpoint"),
             TokenKind::LBrace => write!(f, "{{"),
             TokenKind::RBrace => write!(f, "}}"),
+            TokenKind::LBracket => write!(f, "["),
+            TokenKind::RBracket => write!(f, "]"),
+            TokenKind::LParen => write!(f, "("),
+            TokenKind::RParen => write!(f, ")"),
+            TokenKind::QuestionMark => write!(f, "?"),
+            TokenKind::Comma => write!(f, ","),
+            TokenKind::Equals => write!(f, "="),
             TokenKind::Colon => write!(f, ":"),
+            TokenKind::PoundSign => write!(f, "#"),
             TokenKind::Pipe => write!(f, "|"),
-            TokenKind::At => write!(f, "@"),
+            TokenKind::AtSign => write!(f, "@"),
             TokenKind::Number(n) => write!(f, "number({n})"),
             TokenKind::Ident(s) => write!(f, "identifier({s})"),
+            TokenKind::StringLiteral(s) => write!(f, "string(\"{s}\")"),
             TokenKind::DocBlock(_) => write!(f, "doc block"),
             TokenKind::Eof => write!(f, "end of file"),
             TokenKind::Error(s) => write!(f, "error({s})"),
@@ -111,9 +130,41 @@ impl<'a> Lexer<'a> {
                     self.advance();
                     return self.make(TokenKind::RBrace, sp);
                 }
+                b'[' => {
+                    self.advance();
+                    return self.make(TokenKind::LBracket, sp);
+                }
+                b']' => {
+                    self.advance();
+                    return self.make(TokenKind::RBracket, sp);
+                }
+                b'(' => {
+                    self.advance();
+                    return self.make(TokenKind::LParen, sp);
+                }
+                b')' => {
+                    self.advance();
+                    return self.make(TokenKind::RParen, sp);
+                }
+                b',' => {
+                    self.advance();
+                    return self.make(TokenKind::Comma, sp);
+                }
+                b'=' => {
+                    self.advance();
+                    return self.make(TokenKind::Equals, sp);
+                }
+                b'?' => {
+                    self.advance();
+                    return self.make(TokenKind::QuestionMark, sp);
+                }
                 b':' => {
                     self.advance();
                     return self.make(TokenKind::Colon, sp);
+                }
+                b'#' => {
+                    self.advance();
+                    return self.make(TokenKind::PoundSign, sp);
                 }
                 b'|' => {
                     self.advance();
@@ -121,7 +172,24 @@ impl<'a> Lexer<'a> {
                 }
                 b'@' => {
                     self.advance();
-                    return self.make(TokenKind::At, sp);
+                    return self.make(TokenKind::AtSign, sp);
+                }
+                b'"' => {
+                    self.advance(); // consume opening quote
+                    let start = self.i;
+                    while !self.at_end() && self.peek() != b'"' {
+                        self.advance();
+                    }
+                    let end = self.i;
+                    if self.at_end() {
+                        // Unterminated string
+                        let slice = &self.src[start - 1..self.i];
+                        return self.make(TokenKind::Error(slice), sp);
+                    } else {
+                        self.advance(); // consume closing quote
+                        let s = &self.src[start..end];
+                        return self.make(TokenKind::StringLiteral(s), sp);
+                    }
                 }
                 b'1'..=b'9' => {
                     return self.scan_number(sp);
@@ -160,6 +228,7 @@ impl<'a> Lexer<'a> {
 
         let kind = match s {
             "model" => TokenKind::Model,
+            "endpoint" => TokenKind::Endpoint,
             _ => TokenKind::Ident(s),
         };
         self.make(kind, sp)
@@ -202,12 +271,6 @@ impl<'a> Lexer<'a> {
             }
         }
         self.make(TokenKind::DocBlock(lines), sp)
-    }
-
-    fn consume_whitespace_no_newlines(&mut self) {
-        while !self.at_end() && self.peek().is_ascii_whitespace() && self.peek() != b'\n' {
-            self.advance();
-        }
     }
 
     fn skip_line_comment(&mut self) {
@@ -283,9 +346,10 @@ impl<'a> Lexer<'a> {
     fn is_id_start(c: u8) -> bool {
         c.is_ascii_alphabetic() || c == b'_'
     }
+
     #[inline]
     fn is_id_cont(c: u8) -> bool {
-        c.is_ascii_alphanumeric() || c == b'_'
+        c.is_ascii_alphanumeric() || c == b'_' || c == b'-' || c == b'/' || c == b'.'
     }
 }
 
@@ -411,7 +475,7 @@ mod tests {
         let src = r#"
         model Post {
             id: string
-            user: int | @User
+            user: int | #User
         }
 
         model User {
@@ -436,7 +500,7 @@ mod tests {
                 &super::TokenKind::Colon,
                 &super::TokenKind::Ident("int"),
                 &super::TokenKind::Pipe,
-                &super::TokenKind::At,
+                &super::TokenKind::PoundSign,
                 &super::TokenKind::Ident("User"),
                 &super::TokenKind::RBrace,
                 &super::TokenKind::Model,
@@ -448,6 +512,35 @@ mod tests {
                 &super::TokenKind::Ident("email"),
                 &super::TokenKind::Colon,
                 &super::TokenKind::Ident("string"),
+                &super::TokenKind::RBrace,
+                &super::TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_lexer_endpoint_empty() {
+        let src = r#"
+        #[endpoint("/users/{id}")]
+        endpoint {
+        }
+        "#
+        .trim();
+
+        let tokens = super::Lexer::new(src).lex();
+        let token_kinds = tokens.iter().map(|t| &t.kind).collect::<Vec<_>>();
+        assert_eq!(
+            token_kinds,
+            vec![
+                &super::TokenKind::PoundSign,
+                &super::TokenKind::LBracket,
+                &super::TokenKind::Endpoint,
+                &super::TokenKind::LParen,
+                &super::TokenKind::StringLiteral("/users/{id}"),
+                &super::TokenKind::RParen,
+                &super::TokenKind::RBracket,
+                &super::TokenKind::Endpoint,
+                &super::TokenKind::LBrace,
                 &super::TokenKind::RBrace,
                 &super::TokenKind::Eof,
             ]
