@@ -7,11 +7,11 @@ pub enum TokenKind<'a> {
     LBrace,
     RBrace,
     Colon,
-    // data
+    Pipe,
+    At,
     Ident(&'a str),
     Number(i64),
-    DocBlock(Vec<&'a str>), // consecutive `///` lines; join with '\n' when needed
-    // control
+    DocBlock(Vec<&'a str>),
     Eof,
     Error(&'a str),
 }
@@ -23,6 +23,8 @@ impl fmt::Display for TokenKind<'_> {
             TokenKind::LBrace => write!(f, "{{"),
             TokenKind::RBrace => write!(f, "}}"),
             TokenKind::Colon => write!(f, ":"),
+            TokenKind::Pipe => write!(f, "|"),
+            TokenKind::At => write!(f, "@"),
             TokenKind::Number(n) => write!(f, "number({n})"),
             TokenKind::Ident(s) => write!(f, "identifier({s})"),
             TokenKind::DocBlock(_) => write!(f, "doc block"),
@@ -113,6 +115,14 @@ impl<'a> Lexer<'a> {
                     self.advance();
                     return self.make(TokenKind::Colon, sp);
                 }
+                b'|' => {
+                    self.advance();
+                    return self.make(TokenKind::Pipe, sp);
+                }
+                b'@' => {
+                    self.advance();
+                    return self.make(TokenKind::At, sp);
+                }
                 b'1'..=b'9' => {
                     return self.scan_number(sp);
                 }
@@ -147,10 +157,10 @@ impl<'a> Lexer<'a> {
             self.advance();
         }
         let s = &self.src[start..self.i];
-        let kind = if s == "model" {
-            TokenKind::Model
-        } else {
-            TokenKind::Ident(s)
+
+        let kind = match s {
+            "model" => TokenKind::Model,
+            _ => TokenKind::Ident(s),
         };
         self.make(kind, sp)
     }
@@ -158,10 +168,8 @@ impl<'a> Lexer<'a> {
     fn scan_doc_block(&mut self, sp: Span) -> Token<'a> {
         let mut lines: Vec<&'a str> = Vec::new();
         loop {
-            // must be at "///"
-            self.advance();
-            self.advance();
-            self.advance();
+            self.advance_n(3); // "///"
+
             // optional single space after "///"
             while !self.at_end() && self.peek() == b' ' {
                 self.advance();
@@ -196,9 +204,14 @@ impl<'a> Lexer<'a> {
         self.make(TokenKind::DocBlock(lines), sp)
     }
 
+    fn consume_whitespace_no_newlines(&mut self) {
+        while !self.at_end() && self.peek().is_ascii_whitespace() && self.peek() != b'\n' {
+            self.advance();
+        }
+    }
+
     fn skip_line_comment(&mut self) {
-        self.advance();
-        self.advance(); // "//"
+        self.advance_n(2); // "//"
         while !self.at_end() {
             let c = self.advance().unwrap();
             if c == b'\n' {
@@ -243,6 +256,13 @@ impl<'a> Lexer<'a> {
             self.col += 1;
         }
         Some(c)
+    }
+
+    #[inline]
+    fn advance_n(&mut self, n: usize) {
+        for _ in 0..n {
+            self.advance();
+        }
     }
 
     fn span_start(&self) -> Span {
@@ -378,6 +398,54 @@ mod tests {
                 &super::TokenKind::Ident("string"),
                 &super::TokenKind::DocBlock(vec!["The ID of the user who created the post."]),
                 &super::TokenKind::Ident("author_id"),
+                &super::TokenKind::Colon,
+                &super::TokenKind::Ident("string"),
+                &super::TokenKind::RBrace,
+                &super::TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_lexer_ref() {
+        let src = r#"
+        model Post {
+            id: string
+            user: int | @User
+        }
+
+        model User {
+            id: string
+            email: string
+        }
+        "#
+        .trim();
+
+        let tokens = super::Lexer::new(src).lex();
+        let token_kinds = tokens.iter().map(|t| &t.kind).collect::<Vec<_>>();
+        assert_eq!(
+            token_kinds,
+            vec![
+                &super::TokenKind::Model,
+                &super::TokenKind::Ident("Post"),
+                &super::TokenKind::LBrace,
+                &super::TokenKind::Ident("id"),
+                &super::TokenKind::Colon,
+                &super::TokenKind::Ident("string"),
+                &super::TokenKind::Ident("user"),
+                &super::TokenKind::Colon,
+                &super::TokenKind::Ident("int"),
+                &super::TokenKind::Pipe,
+                &super::TokenKind::At,
+                &super::TokenKind::Ident("User"),
+                &super::TokenKind::RBrace,
+                &super::TokenKind::Model,
+                &super::TokenKind::Ident("User"),
+                &super::TokenKind::LBrace,
+                &super::TokenKind::Ident("id"),
+                &super::TokenKind::Colon,
+                &super::TokenKind::Ident("string"),
+                &super::TokenKind::Ident("email"),
                 &super::TokenKind::Colon,
                 &super::TokenKind::Ident("string"),
                 &super::TokenKind::RBrace,

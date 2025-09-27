@@ -18,19 +18,21 @@ pub struct Model<'a> {
     pub span: Span,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FieldType {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SingleFieldType {
     String,
     Int,
     Bool,
     Float,
+    Ref(String),
 }
 
-impl FieldType {
+impl SingleFieldType {
     const STRING: &'static str = "string";
     const INT: &'static str = "int";
     const BOOL: &'static str = "bool";
     const FLOAT: &'static str = "float";
+    const REF: &'static str = "ref";
 
     fn from_str(s: &str) -> Option<Self> {
         Some(match s {
@@ -43,15 +45,34 @@ impl FieldType {
     }
 }
 
-impl fmt::Display for FieldType {
+impl fmt::Display for SingleFieldType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = match self {
             Self::String => Self::STRING,
             Self::Int => Self::INT,
             Self::Bool => Self::BOOL,
             Self::Float => Self::FLOAT,
+            Self::Ref(s) => return write!(f, "ref({s})"),
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum FieldType {
+    Single(SingleFieldType),
+    Union(Vec<SingleFieldType>),
+}
+
+impl fmt::Display for FieldType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FieldType::Single(t) => write!(f, "{t}"),
+            FieldType::Union(types) => {
+                let type_strs: Vec<String> = types.iter().map(|t| t.to_string()).collect();
+                write!(f, "{}", type_strs.join(" | "))
+            }
+        }
     }
 }
 
@@ -116,6 +137,7 @@ pub struct Parser<'a> {
     file_name: &'a str,
     i: usize,
 }
+
 impl<'a> Parser<'a> {
     pub fn new(file_name: &'a str, src: &'a str, tokens: Vec<Token<'a>>) -> Self {
         Self {
@@ -191,7 +213,38 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// Parse a field type, which may also be a union of types (e.g., `int | @User`)
     fn parse_field_type(&mut self) -> Result<FieldType, ParseError> {
+        let mut types = Vec::new();
+        types.push(self.parse_single_field_type()?);
+
+        // Check if this is a union of types, e.g., `int | @User`
+        while self.peek_is(&TokenKind::Pipe) {
+            self.advance()?; // consume the '|'
+            types.push(self.parse_single_field_type()?);
+        }
+
+        match &types[..] {
+            [] => Err(self.error_prev("expected field type", None, None)),
+            [single] => Ok(FieldType::Single(single.clone())),
+            multiple => Ok(FieldType::Union(multiple.to_vec())),
+        }
+    }
+
+    /// Parse a single field type
+    fn parse_single_field_type(&mut self) -> Result<SingleFieldType, ParseError> {
+        // Handle ref (e.g., `@User`)
+        // TODO: Make matching more idiomatic, this is not the right way.
+        if let TokenKind::At = &self.peek().kind {
+            self.advance()?; // consume the `@`
+            let type_name = match self.advance()?.kind {
+                TokenKind::Ident(s) => s.to_string(),
+                _ => {
+                    return Err(self.error_prev("expected type name after '@'", None, None));
+                }
+            };
+            return Ok(SingleFieldType::Ref(type_name));
+        }
         let valid_fields = ["string", "int", "bool", "float"].join(", ");
         let ty_ident = match self.advance()?.kind {
             TokenKind::Ident(s) => s,
@@ -203,7 +256,7 @@ impl<'a> Parser<'a> {
                 ));
             }
         };
-        FieldType::from_str(ty_ident).ok_or_else(|| {
+        SingleFieldType::from_str(ty_ident).ok_or_else(|| {
             self.error_prev(
                 "invalid field type",
                 Some(format!("valid types are: {valid_fields}").as_str()),

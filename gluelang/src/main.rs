@@ -23,8 +23,8 @@ fn main() -> miette::Result<()> {
     model Post {
         /// The post's unique identifier
         id: int
-        /// The ID of the user who made the post
-        user_id: int
+        /// Either the ID of the user who made the post, or its data
+        user: int | @User
         /// The content of the post
         content: string
         /// An optional URL to an image associated with the post
