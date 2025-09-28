@@ -87,28 +87,21 @@ fn run_cli(cli_args: &[&str]) -> Result<()> {
                 Some(path) => Box::new(io::BufReader::new(std::fs::File::open(path).unwrap())),
                 None => Box::new(io::BufReader::new(io::stdin())),
             };
-            check(&file_name, file_contents)
-                .map(|_| {})
-                .map_err(CliError::AnalyzerError)?;
+            check(&file_name, file_contents).map(|_| {}).map_err(CliError::AnalyzerError)?;
         }
         CliSubcommand::Gen { command } => match command {
             CliGenSubcommand::TypeScriptDef { input, output } => {
                 let (file_name, file_contents) = handle_file(input.clone())?;
 
                 let program = check(&file_name, file_contents).map_err(CliError::AnalyzerError)?;
-                let generated_code = TypeScriptDefCodeGen::new()
-                    .generate(&program)
-                    .map_err(CliError::CodeGenError)?;
-                std::fs::write(output, generated_code)
-                    .with_context(|| format!("failed to write to {}", output.display()))?;
+                let generated_code = TypeScriptDefCodeGen::new().generate(&program).map_err(CliError::CodeGenError)?;
+                std::fs::write(output, generated_code).with_context(|| format!("failed to write to {}", output.display()))?;
             }
             CliGenSubcommand::TypeScriptZod { input, output } => {
                 let (file_name, file_contents) = handle_file(input.clone())?;
 
                 let program = check(&file_name, file_contents).map_err(CliError::AnalyzerError)?;
-                let generated_code = TypeScriptZodCodeGen::new()
-                    .generate(&program)
-                    .map_err(CliError::CodeGenError)?;
+                let generated_code = TypeScriptZodCodeGen::new().generate(&program).map_err(CliError::CodeGenError)?;
                 std::fs::write(output, generated_code)?;
             }
         },
@@ -123,8 +116,7 @@ fn handle_file(input: Option<PathBuf>) -> Result<(String, Box<dyn io::BufRead>)>
     };
     let file_contents: Box<dyn io::BufRead> = match &input {
         Some(path) => Box::new(io::BufReader::new(
-            std::fs::File::open(path)
-                .with_context(|| format!("failed to open file '{}'", path.display()))?,
+            std::fs::File::open(path).with_context(|| format!("failed to open file '{}'", path.display()))?,
         )),
         None => Box::new(io::BufReader::new(io::stdin())),
     };
@@ -194,6 +186,14 @@ mod tests {
           /// The author of the post
           /// Can be either the user ID or the full user object
           author: int | #User
+
+          /// Optional additional details about the post
+          additional_details: #AdditionalPostDetails?
+
+          model AdditionalPostDetails {
+            /// The number of likes the post has received
+            likes: int
+          }
         }
     "#};
 
@@ -210,15 +210,7 @@ mod tests {
         let out_path = temp_dir.join("out.d.ts");
         let input_path = format!("{snapshot_dir_path}/in.glue");
         std::fs::write(&input_path, glue)?;
-        run_cli(&[
-            "gluegen",
-            "gen",
-            gen_command,
-            "-i",
-            &input_path,
-            "-o",
-            out_path.to_str().unwrap(),
-        ])?;
+        run_cli(&["gluegen", "gen", gen_command, "-i", &input_path, "-o", out_path.to_str().unwrap()])?;
         let actual_out = std::fs::read_to_string(&out_path)?;
         Ok(actual_out)
     }

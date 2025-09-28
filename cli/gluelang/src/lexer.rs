@@ -12,7 +12,7 @@ pub enum TokenKind<'a> {
     Equals,
     QuestionMark,
     Colon,
-    PoundSign,
+    Hash,
     Pipe,
     AtSign,
     Ident(&'a str),
@@ -43,7 +43,7 @@ impl fmt::Display for TokenKind<'_> {
             TokenKind::Comma => write!(f, ","),
             TokenKind::Equals => write!(f, "="),
             TokenKind::Colon => write!(f, ":"),
-            TokenKind::PoundSign => write!(f, "#"),
+            TokenKind::Hash => write!(f, "#"),
             TokenKind::Pipe => write!(f, "|"),
             TokenKind::AtSign => write!(f, "@"),
             TokenKind::Number(n) => write!(f, "number({n})"),
@@ -167,7 +167,7 @@ impl<'a> Lexer<'a> {
                 }
                 b'#' => {
                     self.advance();
-                    return self.make(TokenKind::PoundSign, sp);
+                    return self.make(TokenKind::Hash, sp);
                 }
                 b'|' => {
                     self.advance();
@@ -255,10 +255,7 @@ impl<'a> Lexer<'a> {
             let mut end = self.i;
 
             // trim trailing spaces (but not newline)
-            while end > start
-                && self.bytes[end - 1].is_ascii_whitespace()
-                && self.bytes[end - 1] != b'\n'
-            {
+            while end > start && self.bytes[end - 1].is_ascii_whitespace() && self.bytes[end - 1] != b'\n' {
                 end -= 1;
             }
 
@@ -504,7 +501,7 @@ mod tests {
                 &super::TokenKind::Colon,
                 &super::TokenKind::Ident("int"),
                 &super::TokenKind::Pipe,
-                &super::TokenKind::PoundSign,
+                &super::TokenKind::Hash,
                 &super::TokenKind::Ident("User"),
                 &super::TokenKind::RBrace,
                 &super::TokenKind::KeywordModel,
@@ -536,7 +533,7 @@ mod tests {
         assert_eq!(
             token_kinds,
             vec![
-                &super::TokenKind::PoundSign,
+                &super::TokenKind::Hash,
                 &super::TokenKind::LBracket,
                 &super::TokenKind::KeywordEndpoint,
                 &super::TokenKind::LParen,

@@ -12,29 +12,34 @@ import { z } from 'zod';
   /** A user of the system */
 const User = z.object({
   /** The unique ID of the user */
-  id: z.number().meta( { "description": `The unique ID of the user` }),
+  id: z.number(),
   /** The user's name */
-  name: z.string().meta( { "description": `The user's name` }),
+  name: z.string(),
   /** The user's email address */
-  email: z.string().meta( { "description": `The user's email address` }),
+  email: z.string(),
   /** Whether the user is active */
-  is_active: z.boolean().meta( { "description": `Whether the user is active` }),
+  is_active: z.boolean(),
+});
+
+const PostAdditionalPostDetails = z.object({
+  /** The number of likes the post has received */
+  likes: z.number(),
 });
 
   /** A blog post */
 const Post = z.object({
   /** The unique ID of the post */
-  id: z.number().meta( { "description": `The unique ID of the post` }),
+  id: z.number(),
   /** The title of the post */
-  title: z.string().meta( { "description": `The title of the post` }),
+  title: z.string(),
   /** The content of the post */
-  content: z.string().meta( { "description": `The content of the post` }),
+  content: z.string(),
   /**
  * The author of the post
  * 
  * Can be either the user ID or the full user object
  */
-  author: z.number().or(User).meta( { "description": `The author of the post
-
-Can be either the user ID or the full user object` }),
+  author: z.number().or(User),
+  /** Optional additional details about the post */
+  additional_details: PostAdditionalPostDetails,
 });

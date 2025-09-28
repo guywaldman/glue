@@ -1,5 +1,5 @@
 use crate::codegen::{CodeGen, CodeGenError};
-use gluelang::Program;
+use gluelang::{Model, Program};
 
 pub struct TypeScriptZodCodeGen;
 
@@ -21,9 +21,9 @@ impl CodeGen for TypeScriptZodCodeGen {
         for model in &program.models {
             if let Some(doc) = &model.doc {
                 output.push_str("  ");
-                output.push_str(self.generate_doc(doc)?.as_str());
+                output.push_str(generate_doc(doc)?.as_str());
             }
-            output.push_str(&format!("const {} = z.object({{\n", model.name));
+            output.push_str(&format!("const {} = z.object({{\n", model.effective_name()));
             for field in &model.fields {
                 let mut ty_strings = Vec::new();
                 for atom in &field.ty.atoms {
@@ -33,13 +33,11 @@ impl CodeGen for TypeScriptZodCodeGen {
                         "bool" => "z.boolean()".to_string(),
                         other => {
                             if atom.is_ref {
-                                if program.models.iter().any(|m| m.name == other) {
+                                if let Some(model) = program.models.iter().find(|m| m.name == other) {
                                     // Check refs
-                                    other.to_string()
+                                    model.effective_name()
                                 } else {
-                                    return Err(CodeGenError::UnresolvedReference(
-                                        other.to_string(),
-                                    ));
+                                    return Err(CodeGenError::UnresolvedReference(other.to_string()));
                                 }
                             } else {
                                 return Err(CodeGenError::UnsupportedError(format!(
@@ -53,7 +51,7 @@ impl CodeGen for TypeScriptZodCodeGen {
 
                 if let Some(doc) = &field.doc {
                     output.push_str("  ");
-                    output.push_str(self.generate_doc(doc)?.as_str());
+                    output.push_str(generate_doc(doc)?.as_str());
                 }
                 let type_expression = if ty_strings.len() == 1 {
                     ty_strings[0].clone()
@@ -61,9 +59,7 @@ impl CodeGen for TypeScriptZodCodeGen {
                     ty_strings.join(".or(") + ")"
                 };
                 output.push_str(&format!("  {}: {}", field.name, type_expression));
-                if let Some(doc) = &field.doc {
-                    output.push_str(format!(r#".meta( {{ "description": `{doc}` }})"#).as_str());
-                }
+                // TODO: Add descriptions to Zod - `.meta({ description: "..." })`. Trouble is newlines.
                 // TODO: Support alias in Zod (https://github.com/colinhacks/zod/discussions/1143#discussioncomment-4314155)
                 output.push_str(",\n");
             }
@@ -73,20 +69,17 @@ impl CodeGen for TypeScriptZodCodeGen {
     }
 }
 
-// Helper method
-impl TypeScriptZodCodeGen {
-    fn generate_doc(&self, doc: &str) -> Result<String, CodeGenError> {
-        let lines_count = doc.lines().count();
-        let mut output = String::with_capacity(doc.len() + lines_count * 5);
-        if lines_count == 1 {
-            output.push_str(&format!("/** {doc} */\n"));
-        } else {
-            output.push_str("/**\n");
-            for line in doc.lines() {
-                output.push_str(&format!(" * {line}\n"));
-            }
-            output.push_str(" */\n");
+fn generate_doc(doc: &str) -> Result<String, CodeGenError> {
+    let lines_count = doc.lines().count();
+    let mut output = String::with_capacity(doc.len() + lines_count * 5);
+    if lines_count == 1 {
+        output.push_str(&format!("/** {doc} */\n"));
+    } else {
+        output.push_str("/**\n");
+        for line in doc.lines() {
+            output.push_str(&format!(" * {line}\n"));
         }
-        Ok(output)
+        output.push_str(" */\n");
     }
+    Ok(output)
 }

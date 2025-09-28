@@ -1,4 +1,4 @@
-use gluelang::{AnnotationArgument, Program};
+use gluelang::Program;
 
 use crate::codegen::{CodeGen, CodeGenError};
 
@@ -50,25 +50,7 @@ impl CodeGen for TypeScriptDefCodeGen {
                     output.push_str("  ");
                     output.push_str(self.generate_doc(doc)?.as_str());
                 }
-                if let Some(annotation) = &field.annotation {
-                    // TODO: Extract annotation argument lookup to helper method
-                    let alias_arg = annotation
-                        .args
-                        .iter()
-                        .find_map(|arg| {
-                            if let AnnotationArgument::NamedArg { name, value } = arg {
-                                if name == "alias" { Some(value) } else { None }
-                            } else {
-                                None
-                            }
-                        })
-                        .ok_or_else(|| {
-                            CodeGenError::UnsupportedError(
-                                "TypeScript codegen only supports 'alias' annotation".to_string(),
-                            )
-                        })?;
-                    output.push_str(&format!("  // Alias: {alias_arg}\n"));
-                }
+
                 output.push_str(&format!("  {}: {};\n", field.name, ty_strings.join(" | ")));
             }
             output.push_str("}\n\n");
