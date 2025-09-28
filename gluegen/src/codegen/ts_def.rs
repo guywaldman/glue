@@ -1,35 +1,16 @@
-use std::error::Error;
+use gluelang::{AnnotationArgument, Program};
 
-use gluelang::Program;
-use thiserror::Error;
+use crate::codegen::{CodeGen, CodeGenError};
 
-#[derive(Debug, Error)]
-pub enum CodeGenError {
-    #[error("I/O error: {0}")]
-    IoError(std::io::Error),
-    #[error("Unsupported feature: {0}")]
-    UnsupportedError(String),
-    #[error("Unresolved reference: {0}")]
-    UnresolvedReference(String),
-    #[error("Other error: {0}")]
-    Other(String),
-    #[error("Multiple errors: {0:?}")]
-    AggregatedError(Vec<CodeGenError>),
-}
+pub struct TypeScriptDefCodeGen;
 
-pub trait CodeGen {
-    fn generate(&self, program: &Program) -> Result<String, CodeGenError>;
-}
-
-pub struct TypeScriptCodeGen;
-
-impl TypeScriptCodeGen {
+impl TypeScriptDefCodeGen {
     pub fn new() -> Self {
-        TypeScriptCodeGen
+        TypeScriptDefCodeGen
     }
 }
 
-impl CodeGen for TypeScriptCodeGen {
+impl CodeGen for TypeScriptDefCodeGen {
     fn generate(&self, program: &Program) -> Result<String, CodeGenError> {
         let mut output = String::new();
         for model in &program.models {
@@ -69,6 +50,25 @@ impl CodeGen for TypeScriptCodeGen {
                     output.push_str("  ");
                     output.push_str(self.generate_doc(doc)?.as_str());
                 }
+                if let Some(annotation) = &field.annotation {
+                    // TODO: Extract annotation argument lookup to helper method
+                    let alias_arg = annotation
+                        .args
+                        .iter()
+                        .find_map(|arg| {
+                            if let AnnotationArgument::NamedArg { name, value } = arg {
+                                if name == "alias" { Some(value) } else { None }
+                            } else {
+                                None
+                            }
+                        })
+                        .ok_or_else(|| {
+                            CodeGenError::UnsupportedError(
+                                "TypeScript codegen only supports 'alias' annotation".to_string(),
+                            )
+                        })?;
+                    output.push_str(&format!("  // Alias: {alias_arg}\n"));
+                }
                 output.push_str(&format!("  {}: {};\n", field.name, ty_strings.join(" | ")));
             }
             output.push_str("}\n\n");
@@ -78,7 +78,7 @@ impl CodeGen for TypeScriptCodeGen {
 }
 
 // Helper method
-impl TypeScriptCodeGen {
+impl TypeScriptDefCodeGen {
     fn generate_doc(&self, doc: &str) -> Result<String, CodeGenError> {
         let lines_count = doc.lines().count();
         let mut output = String::with_capacity(doc.len() + lines_count * 5);

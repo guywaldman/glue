@@ -1,4 +1,4 @@
-use gluelang::{Analyzer, AnalyzerError};
+use gluelang::AnalyzerError;
 use indoc::indoc;
 use miette::GraphicalReportHandler;
 

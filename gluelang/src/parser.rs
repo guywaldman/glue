@@ -26,6 +26,7 @@ pub struct Field {
     pub name: String,
     pub ty: RawType,
     pub doc: Option<String>,
+    pub annotation: Option<Annotation>,
     pub decorator: Option<FieldDecorator>,
     pub span: Span,
 }
@@ -375,7 +376,14 @@ impl<'a> Parser<'a> {
         &mut self,
         implicit_type: Option<&'a str>,
     ) -> Result<Field, ParseError> {
+        // Optional doc
         let doc = self.consume_doc_blocks();
+
+        // Optional annotation
+        let mut annotation = None;
+        if self.peek_is(&TokenKind::PoundSign) {
+            annotation = Some(self.parse_annotation()?);
+        }
 
         // Optional decorator
         let mut decorator = None;
@@ -437,6 +445,7 @@ impl<'a> Parser<'a> {
             ty,
             doc,
             decorator,
+            annotation,
             span: Span {
                 start: start.start,
                 end: end.end,

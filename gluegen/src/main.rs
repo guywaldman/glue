@@ -1,16 +1,17 @@
 mod codegen;
 
 use std::{
-    error::Error,
     io::{self},
     path::PathBuf,
 };
 
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use gluelang::{Analyzer, AnalyzerError, Program};
 use miette::GraphicalReportHandler;
+use thiserror::Error;
 
-use crate::codegen::{CodeGen, TypeScriptCodeGen};
+use crate::codegen::{CodeGen, TypeScriptDefCodeGen, TypeScriptZodCodeGen};
 
 #[derive(Parser)]
 struct Cli {
@@ -34,9 +35,19 @@ enum CliSubcommand {
 
 #[derive(Subcommand)]
 enum CliGenSubcommand {
-    /// Generate TypeScript definitions from a .glue file
-    #[command(name = "ts")]
-    TypeScript {
+    /// Generate TypeScript definitions (.d.ts) from a .glue file
+    #[command(name = "ts-def")]
+    TypeScriptDef {
+        /// Path to the input .glue file (defaults to stdin if not provided)
+        #[arg(short = 'i', long)]
+        input: Option<PathBuf>,
+        /// Output directory for generated code
+        #[arg(short = 'o', long)]
+        output: PathBuf,
+    },
+    /// Generate TypeScript Zod schemas from a .glue file
+    #[command(name = "ts-zod")]
+    TypeScriptZod {
         /// Path to the input .glue file (defaults to stdin if not provided)
         #[arg(short = 'i', long)]
         input: Option<PathBuf>,
@@ -46,10 +57,10 @@ enum CliGenSubcommand {
     },
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Error)]
 pub enum CliError {
     #[error("I/O error")]
-    IoError(std::io::Error),
+    IoError(#[from] std::io::Error),
     #[error("Analyzer error")]
     AnalyzerError(AnalyzerError),
     #[error("Code generation error: {0}")]
@@ -57,8 +68,14 @@ pub enum CliError {
 }
 
 // TODO: Don't return miette::Result from main functions, handle errors properly.
-fn main() -> Result<(), CliError> {
-    let args = Cli::parse();
+fn main() -> Result<()> {
+    let args = std::env::args().collect::<Vec<String>>();
+    run_cli(&args.iter().map(String::as_str).collect::<Vec<&str>>())
+}
+
+fn run_cli(cli_args: &[&str]) -> Result<()> {
+    let args = Cli::parse_from(cli_args);
+
     match &args.command {
         CliSubcommand::Check { input } => {
             let file_name = match input {
@@ -75,26 +92,43 @@ fn main() -> Result<(), CliError> {
                 .map_err(CliError::AnalyzerError)?;
         }
         CliSubcommand::Gen { command } => match command {
-            CliGenSubcommand::TypeScript { input, output } => {
-                let file_name = match input {
-                    Some(path) => path.display().to_string(),
-                    None => "stdin".to_string(),
-                };
-                let file_contents: Box<dyn io::BufRead> = match input {
-                    // TODO: Handle file open errors
-                    Some(path) => Box::new(io::BufReader::new(std::fs::File::open(path).unwrap())),
-                    None => Box::new(io::BufReader::new(io::stdin())),
-                };
+            CliGenSubcommand::TypeScriptDef { input, output } => {
+                let (file_name, file_contents) = handle_file(input.clone())?;
 
                 let program = check(&file_name, file_contents).map_err(CliError::AnalyzerError)?;
-                let generated_code = TypeScriptCodeGen::new()
+                let generated_code = TypeScriptDefCodeGen::new()
                     .generate(&program)
                     .map_err(CliError::CodeGenError)?;
-                std::fs::write(output, generated_code).map_err(CliError::IoError)?;
+                std::fs::write(output, generated_code)
+                    .with_context(|| format!("failed to write to {}", output.display()))?;
+            }
+            CliGenSubcommand::TypeScriptZod { input, output } => {
+                let (file_name, file_contents) = handle_file(input.clone())?;
+
+                let program = check(&file_name, file_contents).map_err(CliError::AnalyzerError)?;
+                let generated_code = TypeScriptZodCodeGen::new()
+                    .generate(&program)
+                    .map_err(CliError::CodeGenError)?;
+                std::fs::write(output, generated_code)?;
             }
         },
     }
     Ok(())
+}
+
+fn handle_file(input: Option<PathBuf>) -> Result<(String, Box<dyn io::BufRead>)> {
+    let file_name = match &input {
+        Some(path) => path.display().to_string(),
+        None => "stdin".to_string(),
+    };
+    let file_contents: Box<dyn io::BufRead> = match &input {
+        Some(path) => Box::new(io::BufReader::new(
+            std::fs::File::open(path)
+                .with_context(|| format!("failed to open file '{}'", path.display()))?,
+        )),
+        None => Box::new(io::BufReader::new(io::stdin())),
+    };
+    Ok((file_name, file_contents))
 }
 
 fn check<T: io::BufRead>(file_name: &str, mut file_contents: T) -> Result<Program, AnalyzerError> {
@@ -127,5 +161,65 @@ fn report_errors(errs: &[impl miette::Diagnostic]) {
             .expect("Rendering report failed");
         eprintln!("----");
         eprintln!("{out}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SNAPSHOTS_DIR_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/snapshots");
+
+    const USER_AND_POST_GLUE: &str = indoc::indoc! {r#"
+        /// A user of the system
+        model User {
+          /// The unique ID of the user
+          id: int
+          /// The user's name
+          name: string
+          /// The user's email address
+          email: string
+          /// Whether the user is active
+          is_active: bool
+        }
+
+        /// A blog post
+        model Post {
+          /// The unique ID of the post
+          id: int
+          /// The title of the post
+          title: string
+          /// The content of the post
+          content: string
+          /// The author of the post
+          /// Can be either the user ID or the full user object
+          author: int | #User
+        }
+    "#};
+
+    #[test]
+    fn test_zod_basic() {
+        let snapshot = run_snapshot_test("zod_basic", USER_AND_POST_GLUE, "ts-zod").unwrap();
+        insta::assert_snapshot!(snapshot)
+    }
+
+    fn run_snapshot_test(test_name: &str, glue: &str, gen_command: &str) -> Result<String> {
+        let snapshot_dir_path = format!("{SNAPSHOTS_DIR_PATH}/{test_name}");
+        std::fs::create_dir_all(&snapshot_dir_path)?;
+        let temp_dir = std::env::temp_dir();
+        let out_path = temp_dir.join("out.d.ts");
+        let input_path = format!("{snapshot_dir_path}/in.glue");
+        std::fs::write(&input_path, glue)?;
+        run_cli(&[
+            "gluegen",
+            "gen",
+            gen_command,
+            "-i",
+            &input_path,
+            "-o",
+            out_path.to_str().unwrap(),
+        ])?;
+        let actual_out = std::fs::read_to_string(&out_path)?;
+        Ok(actual_out)
     }
 }
