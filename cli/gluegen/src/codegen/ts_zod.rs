@@ -1,5 +1,5 @@
 use crate::codegen::{CodeGen, CodeGenError};
-use gluelang::{Model, Program};
+use gluelang::Program;
 
 pub struct TypeScriptZodCodeGen;
 

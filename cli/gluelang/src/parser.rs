@@ -261,7 +261,7 @@ impl<'a> Parser<'a> {
 
     fn peek_ahead_is(&self, n: usize, kind: &TokenKind<'a>) -> bool {
         if let Some(t) = self.tokens.get(self.i + n) {
-            std::mem::discriminant(&t.kind) == std::mem::discriminant(&TokenKind::KeywordModel)
+            std::mem::discriminant(&t.kind) == std::mem::discriminant(kind)
         } else {
             false
         }

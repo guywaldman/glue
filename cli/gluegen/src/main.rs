@@ -160,8 +160,6 @@ fn report_errors(errs: &[impl miette::Diagnostic]) {
 mod tests {
     use super::*;
 
-    const SNAPSHOTS_DIR_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/snapshots");
-
     const USER_AND_POST_GLUE: &str = indoc::indoc! {r#"
         /// A user of the system
         model User {
@@ -204,11 +202,12 @@ mod tests {
     }
 
     fn run_snapshot_test(test_name: &str, glue: &str, gen_command: &str) -> Result<String> {
-        let snapshot_dir_path = format!("{SNAPSHOTS_DIR_PATH}/{test_name}");
-        std::fs::create_dir_all(&snapshot_dir_path)?;
         let temp_dir = std::env::temp_dir();
+        let test_id: u64 = rand::random();
+        let test_dir_path = format!("{}/{}_{}", temp_dir.display(), test_name, test_id);
+        std::fs::create_dir_all(&test_dir_path)?;
         let out_path = temp_dir.join("out.d.ts");
-        let input_path = format!("{snapshot_dir_path}/in.glue");
+        let input_path = format!("{test_dir_path}/in.glue");
         std::fs::write(&input_path, glue)?;
         run_cli(&["gluegen", "gen", gen_command, "-i", &input_path, "-o", out_path.to_str().unwrap()])?;
         let actual_out = std::fs::read_to_string(&out_path)?;
