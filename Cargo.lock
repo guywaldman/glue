@@ -191,6 +191,7 @@ dependencies = [
  "gluelang",
  "indoc",
  "miette",
+ "thiserror",
 ]
 
 [[package]]

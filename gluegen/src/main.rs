@@ -1,45 +1,95 @@
-use std::path::PathBuf;
+mod codegen;
+
+use std::{
+    error::Error,
+    io::{self},
+    path::PathBuf,
+};
 
 use clap::{Parser, Subcommand};
-use gluelang::{Analyzer, AnalyzerError};
+use gluelang::{Analyzer, AnalyzerError, Program};
 use miette::GraphicalReportHandler;
+
+use crate::codegen::{CodeGen, TypeScriptCodeGen};
 
 #[derive(Parser)]
 struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    command: CliSubcommand,
 }
 
 #[derive(Subcommand)]
-enum Commands {
+enum CliSubcommand {
     #[command(name = "check")]
     Check {
-        /// Path to the input .glue file
-        input: PathBuf,
+        /// Path to the input .glue file (defaults to stdin if not provided)
+        input: Option<PathBuf>,
+    },
+
+    Gen {
+        #[command(subcommand)]
+        command: CliGenSubcommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum CliGenSubcommand {
+    /// Generate TypeScript definitions from a .glue file
+    #[command(name = "ts")]
+    TypeScript {
+        /// Path to the input .glue file (defaults to stdin if not provided)
+        #[arg(short = 'i', long)]
+        input: Option<PathBuf>,
+        /// Output directory for generated code
+        #[arg(short = 'o', long)]
+        output: PathBuf,
     },
 }
 
 // TODO: Don't return miette::Result from main functions, handle errors properly.
-fn main() -> miette::Result<()> {
+fn main() -> Result<(), Box<dyn Error>> {
     let args = Cli::parse();
     match &args.command {
-        Commands::Check { input } => {
-            check(input.clone())?;
+        CliSubcommand::Check { input } => {
+            let file_name = match input {
+                Some(path) => path.display().to_string(),
+                None => "stdin".to_string(),
+            };
+            let file_contents: Box<dyn io::BufRead> = match input {
+                // TODO: Handle file open errors
+                Some(path) => Box::new(io::BufReader::new(std::fs::File::open(path).unwrap())),
+                None => Box::new(io::BufReader::new(io::stdin())),
+            };
+            check(&file_name, file_contents).map(|_| {})?;
         }
+        CliSubcommand::Gen { command } => match command {
+            CliGenSubcommand::TypeScript { input, output } => {
+                let file_name = match input {
+                    Some(path) => path.display().to_string(),
+                    None => "stdin".to_string(),
+                };
+                let file_contents: Box<dyn io::BufRead> = match input {
+                    // TODO: Handle file open errors
+                    Some(path) => Box::new(io::BufReader::new(std::fs::File::open(path).unwrap())),
+                    None => Box::new(io::BufReader::new(io::stdin())),
+                };
+
+                let program = check(&file_name, file_contents)?;
+                let generated_code = TypeScriptCodeGen::new().generate(&program)?;
+                std::fs::write(output, generated_code)?;
+            }
+        },
     }
     Ok(())
 }
 
-fn check(file_path: PathBuf) -> miette::Result<()> {
-    let file_contents = std::fs::read_to_string(&file_path)
-        .map_err(|e| miette::miette!("Failed to read file {}: {}", file_path.display(), e))?;
-    let file_name = file_path
-        .to_str()
-        .ok_or_else(|| miette::miette!("Invalid UTF-8 in file path"))?;
-    let analyzer = Analyzer::new(file_name, &file_contents);
+fn check(file_name: &str, mut file_contents: impl io::BufRead) -> miette::Result<Program> {
+    let mut buf = String::new();
+    let _ = file_contents.read_to_string(&mut buf);
+    let analyzer = Analyzer::new(file_name, &buf);
     let program = analyzer.analyze();
 
-    let _ = match program {
+    let program = match program {
         Ok(program) => program,
         Err(err) => {
             // TOOD: Use IntoDiagnostic
@@ -47,8 +97,7 @@ fn check(file_path: PathBuf) -> miette::Result<()> {
             unreachable!();
         }
     };
-
-    Ok(())
+    Ok(program)
 }
 
 fn handle_analyzer_errors(err: AnalyzerError) -> miette::Result<()> {

@@ -6,9 +6,9 @@ use miette::{Diagnostic, LabeledSpan, NamedSource, SourceCode};
 use std::{error::Error, fmt, str::FromStr};
 
 #[derive(Debug, Clone)]
-pub struct Program<'a> {
+pub struct Program {
     pub models: Vec<Model>,
-    pub endpoints: Vec<Endpoint<'a>>,
+    pub endpoints: Vec<Endpoint>,
 }
 
 #[allow(dead_code)]
@@ -89,25 +89,25 @@ impl fmt::Display for FieldDecorator {
 }
 
 #[derive(Debug, Clone)]
-pub struct Endpoint<'a> {
-    pub name: Option<&'a str>,
+pub struct Endpoint {
+    pub name: Option<String>,
     pub doc: Option<String>,
-    pub annotation: Option<Annotation<'a>>,
+    pub annotation: Option<Annotation>,
     pub fields: Vec<Field>,
     pub responses: Vec<Vec<Field>>,
     pub span: Span,
 }
 
 #[derive(Debug, Clone)]
-pub enum AnnotationArgument<'a> {
-    NamedArg { name: &'a str, value: &'a str },
-    PositionalArg { index: usize, value: &'a str },
+pub enum AnnotationArgument {
+    NamedArg { name: String, value: String },
+    PositionalArg { index: usize, value: String },
 }
 
 #[derive(Debug, Clone)]
-pub struct Annotation<'a> {
-    pub name: &'a str,
-    pub args: Vec<AnnotationArgument<'a>>,
+pub struct Annotation {
+    pub name: String,
+    pub args: Vec<AnnotationArgument>,
     pub span: Span,
 }
 
@@ -204,7 +204,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse_program(&mut self) -> Result<Program<'a>, ParseError> {
+    pub fn parse_program(&mut self) -> Result<Program, ParseError> {
         let mut models = Vec::new();
         let mut endpoints = Vec::new();
         while !self.peek_is(&TokenKind::Eof) {
@@ -252,7 +252,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse an endpoint (syntax only). Annotation & contents are left uninterpreted.
-    fn parse_endpoint(&mut self) -> Result<Endpoint<'a>, ParseError> {
+    fn parse_endpoint(&mut self) -> Result<Endpoint, ParseError> {
         // Parse doc
         let start = self.peek_span();
         let doc = self.consume_doc_blocks();
@@ -267,7 +267,7 @@ impl<'a> Parser<'a> {
         // Optional name for the endpoint
         let mut name = None;
         if let TokenKind::Ident(s) = self.peek().kind {
-            name = Some(s);
+            name = Some(s.to_string());
             self.advance()?;
         }
         self.expect(&TokenKind::LBrace)?;
@@ -444,13 +444,13 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_annotation(&mut self) -> Result<Annotation<'a>, ParseError> {
+    fn parse_annotation(&mut self) -> Result<Annotation, ParseError> {
         let start = self.peek_span();
         self.expect(&TokenKind::PoundSign)?;
         self.expect(&TokenKind::LBracket)?;
         let name = match &self.advance()?.kind {
-            TokenKind::Ident(s) => *s,
-            TokenKind::KeywordEndpoint => "endpoint",
+            TokenKind::Ident(s) => s.to_string(),
+            TokenKind::KeywordEndpoint => "endpoint".to_string(),
             _ => return Err(self.error_prev("expected annotation name", None, None)),
         };
         self.expect(&TokenKind::LParen)?;
@@ -462,11 +462,11 @@ impl<'a> Parser<'a> {
             match &self.peek().kind {
                 TokenKind::Ident(s) | TokenKind::StringLiteral(s) => {
                     if self.peek_ahead(1).kind == TokenKind::Equals {
-                        let name = *s;
+                        let name = s.to_string();
                         self.advance()?; // consume name
                         self.expect(&TokenKind::Equals)?; // consume '='
                         let value = match &self.advance()?.kind {
-                            TokenKind::Ident(v) | TokenKind::StringLiteral(v) => *v,
+                            TokenKind::Ident(v) | TokenKind::StringLiteral(v) => v.to_string(),
                             _ => {
                                 return Err(self.error_prev(
                                     "expected value after '='",
@@ -479,7 +479,7 @@ impl<'a> Parser<'a> {
                     } else {
                         args.push(AnnotationArgument::PositionalArg {
                             index: arg_index,
-                            value: *s,
+                            value: s.to_string(),
                         });
                         self.advance()?;
                     }
