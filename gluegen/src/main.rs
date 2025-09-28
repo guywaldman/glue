@@ -1,54 +1,42 @@
+use std::path::PathBuf;
+
+use clap::{Parser, Subcommand};
 use gluelang::{Analyzer, AnalyzerError};
-use indoc::indoc;
 use miette::GraphicalReportHandler;
 
-fn main() -> miette::Result<()> {
-    let src = indoc! {r#"
-    
-    /// Fetch user information by their ID.
-    #[endpoint(method="GET", path="/users/{id}")]
-    endpoint {
-        /// The user's unique identifier
-        @path id
-        /// Whether to include verbose information. False by default
-        @query verbose: bool?
-        /// A request ID for tracing
-        @header X-Request-ID: int
+#[derive(Parser)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
 
-        response {
-            @status 200
-            @mime application/json
-            @header X-Response-ID: string
-            body: #User
+#[derive(Subcommand)]
+enum Commands {
+    #[command(name = "check")]
+    Check {
+        /// Path to the input .glue file
+        input: PathBuf,
+    },
+}
+
+// TODO: Don't return miette::Result from main functions, handle errors properly.
+fn main() -> miette::Result<()> {
+    let args = Cli::parse();
+    match &args.command {
+        Commands::Check { input } => {
+            check(input.clone())?;
         }
     }
+    Ok(())
+}
 
-    /// A user in the system.
-    model User {
-        /// The user's unique identifier
-        id: int
-        /// The user's name
-        name: string
-        /// The user's email address
-        email: string
-        /// Whether the user is active
-        is_active: bool
-    }
-
-    /// A post made by a user.
-    /// It can contain text and an optional image
-    model Post {
-        /// The post's unique identifier
-        id: #User
-        /// Either the ID of the user who made the post, or its data
-        user: int | #User
-        /// The content of the post
-        content: string
-        /// An optional URL to an image associated with the post
-        image_url: string
-    }
-    "#};
-    let analyzer = Analyzer::new("example.glue", src);
+fn check(file_path: PathBuf) -> miette::Result<()> {
+    let file_contents = std::fs::read_to_string(&file_path)
+        .map_err(|e| miette::miette!("Failed to read file {}: {}", file_path.display(), e))?;
+    let file_name = file_path
+        .to_str()
+        .ok_or_else(|| miette::miette!("Invalid UTF-8 in file path"))?;
+    let analyzer = Analyzer::new(file_name, &file_contents);
     let program = analyzer.analyze();
 
     let _ = match program {
@@ -59,8 +47,6 @@ fn main() -> miette::Result<()> {
             unreachable!();
         }
     };
-
-    println!("!!!");
 
     Ok(())
 }

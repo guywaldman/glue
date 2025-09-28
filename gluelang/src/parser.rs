@@ -90,6 +90,7 @@ impl fmt::Display for FieldDecorator {
 
 #[derive(Debug, Clone)]
 pub struct Endpoint<'a> {
+    pub name: Option<&'a str>,
     pub doc: Option<String>,
     pub annotation: Option<Annotation<'a>>,
     pub fields: Vec<Field>,
@@ -263,6 +264,12 @@ impl<'a> Parser<'a> {
             None
         };
         self.expect(&TokenKind::KeywordEndpoint)?;
+        // Optional name for the endpoint
+        let mut name = None;
+        if let TokenKind::Ident(s) = self.peek().kind {
+            name = Some(s);
+            self.advance()?;
+        }
         self.expect(&TokenKind::LBrace)?;
 
         let mut fields = Vec::new();
@@ -310,6 +317,7 @@ impl<'a> Parser<'a> {
 
         let end = self.expect(&TokenKind::RBrace)?.span;
         Ok(Endpoint {
+            name,
             doc,
             annotation,
             fields,
