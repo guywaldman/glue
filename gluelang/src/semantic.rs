@@ -1,8 +1,14 @@
 use crate::lexer::Span;
-use crate::parser::{AnnotationArgument, Endpoint, Field, FieldDecorator, Program};
+use crate::parser::{AnnotationArgument, Endpoint, Field, FieldDecorator, ParseError, Program};
 use crate::utils;
 use miette::{Diagnostic, LabeledSpan, NamedSource, SourceCode};
 use std::{error::Error, fmt};
+
+#[derive(Debug, Clone)]
+pub enum AnalyzerError {
+    SemanticErrors(Vec<SemanticError>),
+    ParserErrors(Vec<ParseError>),
+}
 
 #[derive(Debug, Clone)]
 pub struct SemanticError {
@@ -66,7 +72,15 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    pub fn analyze(&self, program: &Program<'a>) -> Vec<SemanticError> {
+    pub fn analyze(&self) -> Result<Program, AnalyzerError> {
+        let program = crate::parser::Parser::new(
+            self.file_name,
+            self.src,
+            crate::lexer::Lexer::new(self.src).lex(),
+        )
+        .parse_program()
+        .map_err(|errs| AnalyzerError::ParserErrors(vec![errs]))?;
+
         let mut errs = Vec::new();
         // Collect model names for reference resolution
         let model_names: std::collections::HashSet<&str> =
@@ -80,7 +94,11 @@ impl<'a> Analyzer<'a> {
         for e in &program.endpoints {
             errs.extend(self.check_endpoint(e, &model_names));
         }
-        errs
+
+        if !errs.is_empty() {
+            return Err(AnalyzerError::SemanticErrors(errs));
+        }
+        Ok(program)
     }
 
     fn check_field_type(

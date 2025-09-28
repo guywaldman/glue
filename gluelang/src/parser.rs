@@ -5,7 +5,6 @@ use crate::{
 use miette::{Diagnostic, LabeledSpan, NamedSource, SourceCode};
 use std::{error::Error, fmt, str::FromStr};
 
-// ================= Raw AST (syntax only) =================
 #[derive(Debug, Clone)]
 pub struct Program<'a> {
     pub models: Vec<Model>,

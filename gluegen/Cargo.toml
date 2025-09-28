@@ -1,0 +1,9 @@
+[package]
+name = "gluegen"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+gluelang = { path = "../gluelang" }
+indoc = "2.0.6"
+miette = { version = "7.6.0", features = ["fancy"] }

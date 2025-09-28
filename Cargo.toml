@@ -1,3 +1,3 @@
 [workspace]
 resolver = "3"
-members = ["gluelang"]
+members = [ "gluegen","gluelang"]
