@@ -46,8 +46,18 @@ enum CliGenSubcommand {
     },
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum CliError {
+    #[error("I/O error")]
+    IoError(std::io::Error),
+    #[error("Analyzer error")]
+    AnalyzerError(AnalyzerError),
+    #[error("Code generation error: {0}")]
+    CodeGenError(codegen::CodeGenError),
+}
+
 // TODO: Don't return miette::Result from main functions, handle errors properly.
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<(), CliError> {
     let args = Cli::parse();
     match &args.command {
         CliSubcommand::Check { input } => {
@@ -60,7 +70,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                 Some(path) => Box::new(io::BufReader::new(std::fs::File::open(path).unwrap())),
                 None => Box::new(io::BufReader::new(io::stdin())),
             };
-            check(&file_name, file_contents).map(|_| {})?;
+            check(&file_name, file_contents)
+                .map(|_| {})
+                .map_err(CliError::AnalyzerError)?;
         }
         CliSubcommand::Gen { command } => match command {
             CliGenSubcommand::TypeScript { input, output } => {
@@ -74,16 +86,18 @@ fn main() -> Result<(), Box<dyn Error>> {
                     None => Box::new(io::BufReader::new(io::stdin())),
                 };
 
-                let program = check(&file_name, file_contents)?;
-                let generated_code = TypeScriptCodeGen::new().generate(&program)?;
-                std::fs::write(output, generated_code)?;
+                let program = check(&file_name, file_contents).map_err(CliError::AnalyzerError)?;
+                let generated_code = TypeScriptCodeGen::new()
+                    .generate(&program)
+                    .map_err(CliError::CodeGenError)?;
+                std::fs::write(output, generated_code).map_err(CliError::IoError)?;
             }
         },
     }
     Ok(())
 }
 
-fn check(file_name: &str, mut file_contents: impl io::BufRead) -> miette::Result<Program> {
+fn check<T: io::BufRead>(file_name: &str, mut file_contents: T) -> Result<Program, AnalyzerError> {
     let mut buf = String::new();
     let _ = file_contents.read_to_string(&mut buf);
     let analyzer = Analyzer::new(file_name, &buf);
@@ -91,34 +105,27 @@ fn check(file_name: &str, mut file_contents: impl io::BufRead) -> miette::Result
 
     let program = match program {
         Ok(program) => program,
-        Err(err) => {
-            // TOOD: Use IntoDiagnostic
-            handle_analyzer_errors(err)?;
-            unreachable!();
-        }
+        Err(err) => match err {
+            AnalyzerError::SemanticErrors(errs) => {
+                report_errors(&errs);
+                return Err(AnalyzerError::SemanticErrors(errs));
+            }
+            AnalyzerError::ParserErrors(errs) => {
+                report_errors(&errs);
+                return Err(AnalyzerError::ParserErrors(errs));
+            }
+        },
     };
     Ok(program)
 }
 
-fn handle_analyzer_errors(err: AnalyzerError) -> miette::Result<()> {
-    match err {
-        AnalyzerError::SemanticErrors(errs) => {
-            let handler = GraphicalReportHandler::new();
-            for e in errs.iter().skip(1) {
-                let mut out = String::new();
-                handler.render_report(&mut out, e).unwrap();
-                eprintln!("{out}");
-            }
-            Err(miette::Report::new(errs.into_iter().next().unwrap()))
-        }
-        AnalyzerError::ParserErrors(errs) => {
-            let handler = GraphicalReportHandler::new();
-            for e in errs.iter().skip(1) {
-                let mut out = String::new();
-                handler.render_report(&mut out, e).unwrap();
-                eprintln!("{out}");
-            }
-            Err(miette::Report::new(errs.into_iter().next().unwrap()))
-        }
+fn report_errors(errs: &[impl miette::Diagnostic]) {
+    for e in errs.iter() {
+        let mut out = String::new();
+        GraphicalReportHandler::new()
+            .render_report(&mut out, e)
+            .expect("Rendering report failed");
+        eprintln!("----");
+        eprintln!("{out}");
     }
 }

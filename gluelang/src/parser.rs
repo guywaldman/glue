@@ -150,11 +150,13 @@ pub struct ParseError {
     pub note: Option<String>,
     pub source: NamedSource<String>,
 }
+
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
     }
 }
+
 impl Error for ParseError {}
 impl Diagnostic for ParseError {
     fn source_code(&self) -> Option<&dyn SourceCode> {

@@ -24,6 +24,7 @@ impl fmt::Display for SemanticError {
         write!(f, "{}", self.message)
     }
 }
+
 impl Error for SemanticError {}
 impl Diagnostic for SemanticError {
     fn source_code(&self) -> Option<&dyn SourceCode> {
