@@ -6,6 +6,7 @@ use crate::parser::AnnotationArgument;
 mod lexer;
 mod parser;
 mod semantic;
+mod utils;
 
 fn main() -> miette::Result<()> {
     let src = indoc! {r#"
@@ -18,13 +19,14 @@ fn main() -> miette::Result<()> {
         /// Whether to include verbose information. False by default
         @query verbose: bool?
         /// A request ID for tracing
-        @header X-Request-ID: string
+        @header X-Request-ID: int
 
-        // response {
-            // @status 200 | 204
-            // @mime application/json
-            // @body #User
-        // }
+        response {
+            @status 200
+            @mime application/json
+            @header X-Response-ID: string
+            body: #User
+        }
     }
 
     /// A user in the system.
@@ -119,6 +121,17 @@ fn main() -> miette::Result<()> {
                 print!(" ({args_str})");
             }
             println!();
+        }
+
+        for response in endpoint.responses {
+            println!("  Response:");
+            for field in response {
+                print!("    Field: {field}");
+                println!();
+                if let Some(doc) = &field.doc {
+                    println!("    Doc: {doc}");
+                }
+            }
         }
     }
     Ok(())

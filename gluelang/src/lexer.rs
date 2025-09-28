@@ -2,8 +2,6 @@ use core::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TokenKind<'a> {
-    Model,
-    Endpoint,
     LBrace,
     RBrace,
     LBracket,
@@ -23,13 +21,18 @@ pub enum TokenKind<'a> {
     DocBlock(Vec<&'a str>),
     Eof,
     Error(&'a str),
+    // Keywords
+    KeywordModel,
+    KeywordEndpoint,
+    KeywordResponse,
 }
 
 impl fmt::Display for TokenKind<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            TokenKind::Model => write!(f, "model"),
-            TokenKind::Endpoint => write!(f, "endpoint"),
+            TokenKind::KeywordModel => write!(f, "model"),
+            TokenKind::KeywordEndpoint => write!(f, "endpoint"),
+            TokenKind::KeywordResponse => write!(f, "response"),
             TokenKind::LBrace => write!(f, "{{"),
             TokenKind::RBrace => write!(f, "}}"),
             TokenKind::LBracket => write!(f, "["),
@@ -227,8 +230,9 @@ impl<'a> Lexer<'a> {
         let s = &self.src[start..self.i];
 
         let kind = match s {
-            "model" => TokenKind::Model,
-            "endpoint" => TokenKind::Endpoint,
+            "model" => TokenKind::KeywordModel,
+            "endpoint" => TokenKind::KeywordEndpoint,
+            "response" => TokenKind::KeywordResponse,
             _ => TokenKind::Ident(s),
         };
         self.make(kind, sp)
@@ -376,7 +380,7 @@ mod tests {
         assert_eq!(
             token_kinds,
             vec![
-                &super::TokenKind::Model,
+                &super::TokenKind::KeywordModel,
                 &super::TokenKind::Ident("User"),
                 &super::TokenKind::LBrace,
                 &super::TokenKind::DocBlock(vec!["A unique identifier for the user."]),
@@ -429,7 +433,7 @@ mod tests {
         assert_eq!(
             token_kinds,
             vec![
-                &super::TokenKind::Model,
+                &super::TokenKind::KeywordModel,
                 &super::TokenKind::Ident("User"),
                 &super::TokenKind::LBrace,
                 &super::TokenKind::DocBlock(vec!["A unique identifier for the user."]),
@@ -445,7 +449,7 @@ mod tests {
                 &super::TokenKind::Colon,
                 &super::TokenKind::Ident("int"),
                 &super::TokenKind::RBrace,
-                &super::TokenKind::Model,
+                &super::TokenKind::KeywordModel,
                 &super::TokenKind::Ident("Post"),
                 &super::TokenKind::LBrace,
                 &super::TokenKind::DocBlock(vec!["A unique identifier for the post."]),
@@ -490,7 +494,7 @@ mod tests {
         assert_eq!(
             token_kinds,
             vec![
-                &super::TokenKind::Model,
+                &super::TokenKind::KeywordModel,
                 &super::TokenKind::Ident("Post"),
                 &super::TokenKind::LBrace,
                 &super::TokenKind::Ident("id"),
@@ -503,7 +507,7 @@ mod tests {
                 &super::TokenKind::PoundSign,
                 &super::TokenKind::Ident("User"),
                 &super::TokenKind::RBrace,
-                &super::TokenKind::Model,
+                &super::TokenKind::KeywordModel,
                 &super::TokenKind::Ident("User"),
                 &super::TokenKind::LBrace,
                 &super::TokenKind::Ident("id"),
@@ -534,12 +538,12 @@ mod tests {
             vec![
                 &super::TokenKind::PoundSign,
                 &super::TokenKind::LBracket,
-                &super::TokenKind::Endpoint,
+                &super::TokenKind::KeywordEndpoint,
                 &super::TokenKind::LParen,
                 &super::TokenKind::StringLiteral("/users/{id}"),
                 &super::TokenKind::RParen,
                 &super::TokenKind::RBracket,
-                &super::TokenKind::Endpoint,
+                &super::TokenKind::KeywordEndpoint,
                 &super::TokenKind::LBrace,
                 &super::TokenKind::RBrace,
                 &super::TokenKind::Eof,

@@ -1,7 +1,7 @@
 use crate::lexer::Span;
 use crate::parser::{AnnotationArgument, Endpoint, Field, FieldDecorator, Program};
+use crate::utils;
 use miette::{Diagnostic, LabeledSpan, NamedSource, SourceCode};
-use regex;
 use std::{error::Error, fmt};
 
 #[derive(Debug, Clone)]
@@ -61,7 +61,8 @@ impl<'a> Analyzer<'a> {
         Self {
             file_name,
             src,
-            primitive_types: &["string", "int", "bool", "float"],
+            // TODO: Remove `?` type (used as a quick hack for implicit types like `@status 200`)
+            primitive_types: &["string", "int", "bool", "float", "?"],
         }
     }
 
@@ -69,7 +70,7 @@ impl<'a> Analyzer<'a> {
         let mut errs = Vec::new();
         // Collect model names for reference resolution
         let model_names: std::collections::HashSet<&str> =
-            program.models.iter().map(|m| m.name).collect();
+            program.models.iter().map(|m| m.name.as_str()).collect();
 
         for m in &program.models {
             for f in &m.fields {
@@ -77,7 +78,7 @@ impl<'a> Analyzer<'a> {
             }
         }
         for e in &program.endpoints {
-            errs.extend(self.check_endpoint(e));
+            errs.extend(self.check_endpoint(e, &model_names));
         }
         errs
     }
@@ -91,18 +92,44 @@ impl<'a> Analyzer<'a> {
         for atom in &field.ty.atoms {
             if atom.is_ref {
                 if !model_names.contains(atom.name.as_str()) {
+                    let model_names_vec = model_names.iter().cloned().collect::<Vec<_>>();
+                    let similar_models =
+                        utils::fuzzy::fuzzy_match(atom.name.as_str(), &model_names_vec, 1);
+                    let mut note = Some("define the referenced model or fix the name".to_string());
+                    if let Some((candidate, score)) = similar_models.first()
+                        && score > &50
+                    {
+                        note = Some(format!("did you mean '{candidate}'?").to_string());
+                    }
                     errs.push(self.err(
                         atom.span,
                         format!("unknown model '{}'", atom.name),
-                        Some("define the referenced model or fix the name"),
+                        note,
                         Some("ERef"),
                     ));
                 }
             } else if !self.primitive_types.contains(&atom.name.as_str()) {
+                let valid_types_str = self
+                    .primitive_types
+                    .iter()
+                    // TODO: Remove `?` type (used as a quick hack for implicit types like `@status 200`)
+                    .filter(|t| *t != &"?")
+                    .copied()
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let mut note = Some(format!("valid primitives: {valid_types_str}"));
+
+                let closest_types =
+                    utils::fuzzy::fuzzy_match(atom.name.as_str(), self.primitive_types, 1);
+                if let Some((candidate, score)) = closest_types.first()
+                    && score > &50
+                {
+                    note = Some(format!("did you mean '{candidate}'?").to_string());
+                }
                 errs.push(self.err(
                     atom.span,
                     format!("unknown primitive type '{}'", atom.name),
-                    Some("valid primitives: string, int, bool, float"),
+                    note,
                     Some("EType"),
                 ));
             }
@@ -110,7 +137,11 @@ impl<'a> Analyzer<'a> {
         errs
     }
 
-    fn check_endpoint(&self, ep: &Endpoint) -> Vec<SemanticError> {
+    fn check_endpoint(
+        &self,
+        ep: &Endpoint,
+        model_names: &std::collections::HashSet<&str>,
+    ) -> Vec<SemanticError> {
         let mut errs = Vec::new();
         if let Some(ann) = &ep.annotation {
             if ann.name != "endpoint" {
@@ -160,7 +191,7 @@ impl<'a> Analyzer<'a> {
                     if !ep
                         .fields
                         .iter()
-                        .any(|f| f.decorator == FieldDecorator::Path && f.field.name == var)
+                        .any(|f| matches!(f.decorator, Some(FieldDecorator::Path)) && f.name == var)
                     {
                         // TODO: Make span specific to the variable in the path.
                         errs.push(
@@ -187,14 +218,26 @@ impl<'a> Analyzer<'a> {
                 ));
             }
         }
+
+        for field in &ep.fields {
+            let field_errs = self.check_field_type(field, model_names);
+            errs.extend(field_errs);
+        }
+
+        for response in &ep.responses {
+            for field in response {
+                let field_errs = self.check_field_type(field, model_names);
+                errs.extend(field_errs);
+            }
+        }
         errs
     }
 
-    fn err(
+    fn err<T: Into<String>>(
         &self,
         span: Span,
         msg: impl Into<String>,
-        note: Option<&str>,
+        note: Option<T>,
         code: Option<&str>,
     ) -> SemanticError {
         SemanticError {
