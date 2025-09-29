@@ -52,6 +52,7 @@ pub struct TypeAtom {
     pub name: String,
     pub optional: bool,
     pub is_ref: bool,
+    pub is_array: bool,
     pub span: Span,
 }
 
@@ -217,18 +218,33 @@ impl<'a> Parser<'a> {
         if is_ref {
             self.advance()?;
         }
-        let end_span = self.peek_span();
+        let mut end_span = self.peek_span();
         let name = self.expect_ident()?;
+
+        // Check if an array type (e.g., string[])
+        let (is_array, new_end_span) = if self.peek_is(&TokenKind::LBracket) && self.peek_ahead_is(1, &TokenKind::RBracket) {
+            self.advance()?; // consume '['
+            let end_span = self.peek_span();
+            self.advance()?; // consume ']'
+            (true, end_span)
+        } else {
+            (false, end_span)
+        };
+        end_span = new_end_span;
+
         let optional = if self.peek_is(&TokenKind::QuestionMark) {
+            end_span = self.peek_span();
             self.advance()?;
             true
         } else {
             false
         };
+
         Ok(TypeAtom {
             name,
             optional,
             is_ref,
+            is_array,
             span: Span {
                 line: start_span.line,
                 start: start_span.start,
@@ -328,12 +344,15 @@ mod tests {
     }
 
     #[test]
-    fn test_spans_basic() {
+    fn test_spans() {
         let src = indoc! { "
             model User {
                 id: string
                 name: string?
+                tags: string[]
+                emails: string[]?
                 friend: #User
+                best_friends: #User[]?
             }
         " }
         .trim();
@@ -367,5 +386,46 @@ mod tests {
         assert_eq!(field2.span.line, 3);
         assert_eq!(field2.span.start, "model User {\n    id: string\n    ".len());
         assert_eq!(field2.span.end, "model User {\n    id: string\n    name".len());
+
+        let field2_ty = &field2.ty.atoms[0];
+        assert_eq!(field2_ty.name, "string");
+        assert!(field2_ty.optional);
+        assert!(!field2_ty.is_ref);
+        assert!(!field2_ty.is_array);
+        assert_eq!(field2_ty.span.line, 3);
+        assert_eq!(field2_ty.span.start, "model User {\n    id: string\n    name: ".len());
+        assert_eq!(field2_ty.span.end, "model User {\n    id: string\n    name: string?".len());
+
+        let field3 = &m.fields[2];
+        let field3_ty = &field3.ty.atoms[0];
+        assert_eq!(field3_ty.name, "string");
+        assert!(!field3_ty.optional);
+        assert!(!field3_ty.is_ref);
+        assert!(field3_ty.is_array);
+        assert_eq!(field3_ty.span.line, 4);
+        assert_eq!(
+            field3_ty.span.start,
+            "model User {\n    id: string\n    name: string?\n    tags: ".len()
+        );
+        assert_eq!(
+            field3_ty.span.end,
+            "model User {\n    id: string\n    name: string?\n    tags: string[]".len()
+        );
+
+        let field4 = &m.fields[3];
+        let field4_ty = &field4.ty.atoms[0];
+        assert_eq!(field4_ty.name, "string");
+        assert!(field4_ty.optional);
+        assert!(!field4_ty.is_ref);
+        assert!(field4_ty.is_array);
+        assert_eq!(field4_ty.span.line, 5);
+        assert_eq!(
+            field4_ty.span.start,
+            "model User {\n    id: string\n    name: string?\n    tags: string[]\n    emails: ".len()
+        );
+        assert_eq!(
+            field4_ty.span.end,
+            "model User {\n    id: string\n    name: string?\n    tags: string[]\n    emails: string[]?".len()
+        );
     }
 }
