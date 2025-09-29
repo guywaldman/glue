@@ -1,0 +1,10 @@
+[package]
+name = "lsp"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }
+tower-lsp = "0.20"
+gluelang = { path = "../gluelang" }
+log = "0.4.28"

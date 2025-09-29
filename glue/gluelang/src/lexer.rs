@@ -60,8 +60,9 @@ impl fmt::Display for TokenKind<'_> {
 pub struct Span {
     pub start: usize,
     pub end: usize,
-    pub line: u32,
-    pub col: u32,
+    pub line: usize,
+    pub col_start: usize,
+    pub col_end: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,8 +75,8 @@ pub struct Lexer<'a> {
     src: &'a str,
     bytes: &'a [u8],
     i: usize,
-    line: u32,
-    col: u32,
+    line: usize,
+    col: usize,
 }
 
 impl<'a> Lexer<'a> {
@@ -334,12 +335,14 @@ impl<'a> Lexer<'a> {
             start: self.i,
             end: self.i,
             line: self.line,
-            col: self.col,
+            col_start: self.col,
+            col_end: self.col,
         }
     }
 
     fn make(&self, kind: TokenKind<'a>, mut sp: Span) -> Token<'a> {
         sp.end = self.i;
+        sp.col_end = self.col;
         Token { kind, span: sp }
     }
 

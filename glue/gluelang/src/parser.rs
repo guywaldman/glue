@@ -154,9 +154,9 @@ impl<'a> Parser<'a> {
     fn parse_model(&mut self) -> Result<Vec<Model>, ParserError> {
         let mut parsed_models = Vec::new();
 
-        let start = self.peek_span();
         let doc = self.consume_doc_blocks();
         self.expect(&TokenKind::KeywordModel)?; // guaranteed keyword
+        let start = self.peek_span();
         let name = self.expect_ident()?; // identifier for model name
         self.expect(&TokenKind::LBrace)?; // opening brace
 
@@ -212,11 +212,12 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_type_atom(&mut self) -> Result<TypeAtom, ParserError> {
-        let start = self.peek_span();
+        let start_span = self.peek_span();
         let is_ref = self.peek_is(&TokenKind::Hash);
         if is_ref {
             self.advance()?;
         }
+        let end_span = self.peek_span();
         let name = self.expect_ident()?;
         let optional = if self.peek_is(&TokenKind::QuestionMark) {
             self.advance()?;
@@ -228,7 +229,13 @@ impl<'a> Parser<'a> {
             name,
             optional,
             is_ref,
-            span: start,
+            span: Span {
+                line: start_span.line,
+                start: start_span.start,
+                end: end_span.end,
+                col_start: start_span.col_start,
+                col_end: end_span.col_end,
+            },
         })
     }
 
@@ -315,8 +322,50 @@ mod tests {
         assert_eq!(program.models.len(), 1);
         let m = &program.models[0];
         assert_eq!(m.fields.len(), 3);
-        assert_eq!(m.fields[1].ty.atoms[0].is_ref, true);
+        assert!(m.fields[1].ty.atoms[0].is_ref);
         assert!(m.fields[1].ty.atoms[0].optional);
         assert!(m.fields[2].ty.atoms[1].is_ref);
+    }
+
+    #[test]
+    fn test_spans_basic() {
+        let src = indoc! { "
+            model User {
+                id: string
+                name: string?
+                friend: #User
+            }
+        " }
+        .trim();
+        let tokens = Lexer::new(src).lex();
+        let mut p = Parser::new("test.glue", src, tokens);
+        let program = p.parse_program().unwrap();
+
+        let m = &program.models[0];
+        assert_eq!(m.name, "User");
+        assert_eq!(m.span.line, 1);
+        assert_eq!(m.span.start, 6);
+        assert_eq!(m.span.end, "model User".len());
+        assert_eq!(m.span.col_start, "model ".len() + 1);
+
+        let field1 = &m.fields[0];
+        assert_eq!(field1.name, "id");
+        assert_eq!(field1.span.line, 2);
+        assert_eq!(field1.span.start, "model User {\n    ".len());
+        assert_eq!(field1.span.end, "model User {\n    id".len());
+        assert_eq!(field1.ty.atoms.len(), 1);
+        let field1_ty = &field1.ty.atoms[0];
+        assert_eq!(field1_ty.name, "string");
+        assert!(!field1_ty.optional);
+        assert!(!field1_ty.is_ref);
+        assert_eq!(field1_ty.span.line, 2);
+        assert_eq!(field1_ty.span.start, "model User {\n    id: ".len());
+        assert_eq!(field1_ty.span.end, "model User {\n    id: string".len());
+
+        let field2 = &m.fields[1];
+        assert_eq!(field2.name, "name");
+        assert_eq!(field2.span.line, 3);
+        assert_eq!(field2.span.start, "model User {\n    id: string\n    ".len());
+        assert_eq!(field2.span.end, "model User {\n    id: string\n    name".len());
     }
 }
