@@ -1,12 +1,12 @@
 use gluelang::{Analyzer, Program, Span};
 use log::info;
-use std::sync::{Arc, RwLock};
-use tower_lsp::jsonrpc::Result;
-use tower_lsp::lsp_types::{
+use lsp_types::{
     GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams, InitializeParams, InitializeResult, Location, Position, Range,
     ServerCapabilities, TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind,
 };
+use std::sync::{Arc, RwLock};
 use tower_lsp::{Client, LanguageServer, LspService, Server};
+use tower_lsp::{jsonrpc::Result, lsp_types};
 
 #[derive(Default, Clone)]
 struct DocState {
@@ -40,17 +40,21 @@ impl LanguageServer for Backend {
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
-                definition_provider: Some(tower_lsp::lsp_types::OneOf::Left(true)),
-                hover_provider: Some(tower_lsp::lsp_types::HoverProviderCapability::Simple(true)),
+                definition_provider: Some(lsp_types::OneOf::Left(true)),
+                hover_provider: Some(lsp_types::HoverProviderCapability::Simple(true)),
+                rename_provider: Some(lsp_types::OneOf::Right(lsp_types::RenameOptions {
+                    prepare_provider: Some(false),
+                    work_done_progress_options: lsp_types::WorkDoneProgressOptions { work_done_progress: None },
+                })),
                 ..Default::default()
             },
             server_info: None,
         })
     }
 
-    async fn initialized(&self, _: tower_lsp::lsp_types::InitializedParams) {
+    async fn initialized(&self, _: lsp_types::InitializedParams) {
         if let Some(c) = &self.client {
-            let _ = c.log_message(tower_lsp::lsp_types::MessageType::INFO, "glue LSP initialized").await;
+            let _ = c.log_message(lsp_types::MessageType::INFO, "glue LSP initialized").await;
         }
     }
 
@@ -58,13 +62,13 @@ impl LanguageServer for Backend {
         Ok(())
     }
 
-    async fn did_open(&self, params: tower_lsp::lsp_types::DidOpenTextDocumentParams) {
+    async fn did_open(&self, params: lsp_types::DidOpenTextDocumentParams) {
         let uri = params.text_document.uri.to_string();
         let text = params.text_document.text;
         self.analyze(&uri, &text);
     }
 
-    async fn did_change(&self, params: tower_lsp::lsp_types::DidChangeTextDocumentParams) {
+    async fn did_change(&self, params: lsp_types::DidChangeTextDocumentParams) {
         // FULL sync, single change with whole text
         if let Some(change) = params.content_changes.into_iter().last() {
             let uri = params.text_document.uri.to_string();
@@ -145,7 +149,7 @@ impl LanguageServer for Backend {
                     model.name
                 );
                 let hover = Hover {
-                    contents: tower_lsp::lsp_types::HoverContents::Scalar(tower_lsp::lsp_types::MarkedString::String(contents)),
+                    contents: lsp_types::HoverContents::Scalar(lsp_types::MarkedString::String(contents)),
                     range: Some(Range {
                         start: Position {
                             line: (model.span.line - 1) as u32,
@@ -163,7 +167,7 @@ impl LanguageServer for Backend {
                 if pos_within_span(line, col, &field.span) {
                     let contents = format!("```glue\n{}: {}\n```", field.name, field.ty);
                     let hover = Hover {
-                        contents: tower_lsp::lsp_types::HoverContents::Scalar(tower_lsp::lsp_types::MarkedString::String(contents)),
+                        contents: lsp_types::HoverContents::Scalar(lsp_types::MarkedString::String(contents)),
                         range: Some(Range {
                             start: Position {
                                 line: (field.span.line - 1) as u32,
@@ -188,7 +192,7 @@ impl LanguageServer for Backend {
                             format!("(unknown model)```glue\n#{}\n```", ty.name)
                         };
                         let hover = Hover {
-                            contents: tower_lsp::lsp_types::HoverContents::Scalar(tower_lsp::lsp_types::MarkedString::String(contents)),
+                            contents: lsp_types::HoverContents::Scalar(lsp_types::MarkedString::String(contents)),
                             range: Some(Range {
                                 start: Position {
                                     line: (ty.span.line - 1) as u32,
@@ -208,6 +212,97 @@ impl LanguageServer for Backend {
                 }
             }
         }
+        Ok(None)
+    }
+
+    async fn rename(&self, params: lsp_types::RenameParams) -> Result<Option<lsp_types::WorkspaceEdit>> {
+        // NOTE: Only models are supported for now.
+
+        let st = self.state.read().unwrap();
+        let program = match &st.program {
+            Some(p) => p,
+            None => return Ok(None),
+        };
+        let TextDocumentPositionParams { position, .. } = params.text_document_position;
+        let new_name = params.new_name;
+
+        // Refactor model names on the model definitions.
+        for model in &program.models {
+            if pos_within_span(position.line as usize + 1, position.character as usize + 1, &model.span) {
+                // Found model to rename
+                let mut changes = std::collections::HashMap::new();
+
+                // TODO: Optimize.
+                // Very inefficient - we go over ALL fields of ALL models to find references.
+                let mut edits = vec![];
+                for m in &program.models {
+                    for f in &m.fields {
+                        for ty in &f.ty.atoms {
+                            if ty.is_ref && ty.name == model.name {
+                                let start_line = ty.span.line - 1;
+                                let mut start_char = ty.span.col_start - 1;
+                                let end_line = ty.span.line - 1;
+                                let mut end_char = ty.span.col_end;
+                                if ty.is_array {
+                                    start_char += 1; // skip '['
+                                    end_char -= 1; // skip ']'
+                                }
+                                if ty.is_ref {
+                                    start_char += 1; // skip '#'
+                                    end_char += 1; // skip '#'
+                                }
+                                edits.push(lsp_types::TextEdit {
+                                    range: Range {
+                                        start: Position {
+                                            line: start_line as u32,
+                                            character: start_char as u32,
+                                        },
+                                        end: Position {
+                                            line: end_line as u32,
+                                            character: end_char as u32,
+                                        },
+                                    },
+                                    new_text: new_name.clone(),
+                                });
+                            }
+                        }
+                    }
+                }
+                // Also rename the model definition itself
+                // Adjust the rest of the row on the right, since the new name may be longer.
+                let entire_line = st.text.lines().nth(model.span.line - 1).unwrap_or_default().to_string();
+                let adjusted_line = format!(
+                    "{}{} {}",
+                    &entire_line[..model.span.col_start - 1],
+                    new_name,
+                    &entire_line[model.span.col_end..]
+                );
+
+                edits.push(lsp_types::TextEdit {
+                    range: Range {
+                        start: Position {
+                            line: (model.span.line - 1) as u32,
+                            character: 0,
+                        },
+                        end: Position {
+                            line: (model.span.line - 1) as u32,
+                            character: entire_line.len() as u32,
+                        },
+                    },
+                    new_text: adjusted_line,
+                });
+                changes.insert(lsp_types::Url::parse(&st.uri).unwrap(), edits);
+                let workspace_edit = lsp_types::WorkspaceEdit {
+                    changes: Some(changes),
+                    document_changes: None,
+                    change_annotations: None,
+                };
+                return Ok(Some(workspace_edit));
+            }
+        }
+
+        // TODO: Refactor model names from the field types.
+
         Ok(None)
     }
 }
@@ -246,7 +341,7 @@ fn span_to_location(span: &Span, src: &str, uri: &str) -> Location {
     let (sl, sc) = start_pos.unwrap_or((0, 0));
     let (el, ec) = end_pos.unwrap_or((sl, sc + 1));
     Location {
-        uri: tower_lsp::lsp_types::Url::parse(uri).unwrap_or_else(|_| tower_lsp::lsp_types::Url::parse("file://invalid").unwrap()),
+        uri: lsp_types::Url::parse(uri).unwrap_or_else(|_| lsp_types::Url::parse("file://invalid").unwrap()),
         range: Range {
             start: Position { line: sl, character: sc },
             end: Position { line: el, character: ec },
@@ -267,7 +362,7 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tower_lsp::lsp_types::{
+    use lsp_types::{
         DidOpenTextDocumentParams, GotoDefinitionParams, TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams,
     };
 
