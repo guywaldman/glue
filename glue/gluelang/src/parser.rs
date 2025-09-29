@@ -2,6 +2,8 @@ use crate::lexer::{Span, Token, TokenKind};
 use miette::{Diagnostic, LabeledSpan, NamedSource, SourceCode};
 use std::{error::Error, fmt};
 
+const TYPE_PRIMITIVES: &[&str] = &["int", "string", "bool"];
+
 #[derive(Debug, Clone)]
 pub struct Program {
     pub models: Vec<Model>,
@@ -280,12 +282,9 @@ impl<'a> Parser<'a> {
 
     fn parse_type_atom(&mut self) -> Result<TypeAtom, ParserError> {
         let start_span = self.peek_span();
-        let is_ref = self.peek_is(&TokenKind::Hash);
-        if is_ref {
-            self.advance()?;
-        }
         let mut end_span = self.peek_span();
         let name = self.expect_ident()?;
+        let is_ref = !TYPE_PRIMITIVES.contains(&name.as_str());
 
         // Check if an array type (e.g., string[])
         let (is_array, new_end_span) = if self.peek_is(&TokenKind::LBracket) && self.peek_ahead_is(1, &TokenKind::RBracket) {
@@ -397,7 +396,7 @@ mod tests {
 
     #[test]
     fn test_parser_with_refs() {
-        let src = indoc!("model User {\n    id: string\n    friend: #User?\n    tags: string | #Tag\n}");
+        let src = indoc!("model User {\n    id: string\n    friend: User?\n    tags: string | Tag\n}");
         let tokens = Lexer::new(src).lex();
         let mut p = Parser::new("test.glue", src, tokens);
         let program = p.parse_program().unwrap();
@@ -417,8 +416,8 @@ mod tests {
                 name: string?
                 tags: string[]
                 emails: string[]?
-                friend: #User
-                best_friends: #User[]?
+                friend: User
+                best_friends: User[]?
             }
         " }
         .trim();

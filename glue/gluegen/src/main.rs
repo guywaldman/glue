@@ -201,10 +201,10 @@ mod tests {
           content: string
           /// The author of the post
           /// Can be either the user ID or the full user object
-          author: int | #User
+          author: int | User
 
           /// Optional additional details about the post
-          additional_details: #AdditionalPostDetails?
+          additional_details: AdditionalPostDetails?
 
           model AdditionalPostDetails {
             /// The number of likes the post has received

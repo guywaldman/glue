@@ -247,10 +247,6 @@ impl LanguageServer for Backend {
                                     start_char += 1; // skip '['
                                     end_char -= 1; // skip ']'
                                 }
-                                if ty.is_ref {
-                                    start_char += 1; // skip '#'
-                                    end_char += 1; // skip '#'
-                                }
                                 edits.push(lsp_types::TextEdit {
                                     range: Range {
                                         start: Position {

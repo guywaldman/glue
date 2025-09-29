@@ -172,7 +172,7 @@ mod tests {
             id: int
             name: string
             age: int?
-            friend: #User?
+            friend: User?
         }"#};
         let res = analyze(src);
         assert!(res.is_ok(), "expected valid analysis, got {res:?}");
@@ -185,7 +185,7 @@ mod tests {
             id: int
             name: string
             age: int?
-            friend: #NonExistentModel?
+            friend: NonExistentModel?
         }"#};
         let res = analyze(src);
         assert!(res.is_err(), "expected invalid analysis, got {res:?}");
@@ -201,7 +201,7 @@ mod tests {
     fn test_valid_nested_ref() {
         let src = indoc! {r#"
         model Foo {
-            bar: #Bar
+            bar: Bar
 
             model Bar {
                 id: int
