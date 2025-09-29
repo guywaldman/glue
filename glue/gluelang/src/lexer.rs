@@ -9,7 +9,7 @@ pub enum TokenKind<'a> {
     LParen,
     RParen,
     Comma,
-    Equals,
+    Equal,
     QuestionMark,
     Colon,
     Hash,
@@ -41,7 +41,7 @@ impl fmt::Display for TokenKind<'_> {
             TokenKind::RParen => write!(f, ")"),
             TokenKind::QuestionMark => write!(f, "?"),
             TokenKind::Comma => write!(f, ","),
-            TokenKind::Equals => write!(f, "="),
+            TokenKind::Equal => write!(f, "="),
             TokenKind::Colon => write!(f, ":"),
             TokenKind::Hash => write!(f, "#"),
             TokenKind::Pipe => write!(f, "|"),
@@ -156,7 +156,7 @@ impl<'a> Lexer<'a> {
                 }
                 b'=' => {
                     self.advance();
-                    return self.make(TokenKind::Equals, sp);
+                    return self.make(TokenKind::Equal, sp);
                 }
                 b'?' => {
                     self.advance();

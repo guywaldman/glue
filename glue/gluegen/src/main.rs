@@ -11,7 +11,7 @@ use gluelang::{Analyzer, AnalyzerError, Program};
 use miette::GraphicalReportHandler;
 use thiserror::Error;
 
-use crate::codegen::{CodeGen, TypeScriptDefCodeGen, TypeScriptZodCodeGen};
+use crate::codegen::{CodeGen, PythonPydanticCodeGen, TypeScriptDefCodeGen, TypeScriptZodCodeGen};
 
 #[derive(Parser)]
 struct Cli {
@@ -35,6 +35,16 @@ enum CliSubcommand {
 
 #[derive(Subcommand)]
 enum CliGenSubcommand {
+    /// Generate Python Pydantic models from a .glue file
+    #[command(name = "py-pydantic")]
+    PythonPydantic {
+        /// Path to the input .glue file (defaults to stdin if not provided)
+        #[arg(short = 'i', long)]
+        input: Option<PathBuf>,
+        /// Output directory for generated code
+        #[arg(short = 'o', long)]
+        output: PathBuf,
+    },
     /// Generate TypeScript definitions (.d.ts) from a .glue file
     #[command(name = "ts-def")]
     TypeScriptDef {
@@ -90,6 +100,13 @@ fn run_cli(cli_args: &[&str]) -> Result<()> {
             check(&file_name, file_contents).map(|_| {}).map_err(CliError::AnalyzerError)?;
         }
         CliSubcommand::Gen { command } => match command {
+            CliGenSubcommand::PythonPydantic { input, output } => {
+                let (file_name, file_contents) = handle_file(input.clone())?;
+
+                let program = check(&file_name, file_contents).map_err(CliError::AnalyzerError)?;
+                let generated_code = PythonPydanticCodeGen::new().generate(&program).map_err(CliError::CodeGenError)?;
+                std::fs::write(output, generated_code).with_context(|| format!("failed to write to {}", output.display()))?;
+            }
             CliGenSubcommand::TypeScriptDef { input, output } => {
                 let (file_name, file_contents) = handle_file(input.clone())?;
 
@@ -170,6 +187,7 @@ mod tests {
           /// The user's email address
           email: string
           /// Whether the user is active
+          #[field(alias="isActive")]
           is_active: bool
         }
 
@@ -196,18 +214,24 @@ mod tests {
     "#};
 
     #[test]
-    fn test_zod_basic() {
-        let snapshot = run_snapshot_test("zod_basic", USER_AND_POST_GLUE, "ts-zod").unwrap();
+    fn test_python_pydantic_basic() {
+        let snapshot = run_snapshot_test("python_pydantic_basic", USER_AND_POST_GLUE, "py-pydantic").unwrap();
+        insta::assert_snapshot!(snapshot)
+    }
+
+    #[test]
+    fn test_typescript_zod_basic() {
+        let snapshot = run_snapshot_test("typescript_zod_basic", USER_AND_POST_GLUE, "ts-zod").unwrap();
         insta::assert_snapshot!(snapshot)
     }
 
     fn run_snapshot_test(test_name: &str, glue: &str, gen_command: &str) -> Result<String> {
         let temp_dir = std::env::temp_dir();
         let test_id: u64 = rand::random();
-        let test_dir_path = format!("{}/{}_{}", temp_dir.display(), test_name, test_id);
+        let test_dir_path = PathBuf::from(format!("{}/{}_{}", temp_dir.display(), test_name, test_id));
         std::fs::create_dir_all(&test_dir_path)?;
-        let out_path = temp_dir.join("out.d.ts");
-        let input_path = format!("{test_dir_path}/in.glue");
+        let out_path = test_dir_path.join("out.d.ts");
+        let input_path = format!("{}/in.glue", test_dir_path.display());
         std::fs::write(&input_path, glue)?;
         run_cli(&["gluegen", "gen", gen_command, "-i", &input_path, "-o", out_path.to_str().unwrap()])?;
         let actual_out = std::fs::read_to_string(&out_path)?;

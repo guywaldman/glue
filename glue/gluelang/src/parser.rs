@@ -27,9 +27,16 @@ impl Model {
 }
 
 #[derive(Debug, Clone)]
+pub struct Annotation {
+    pub positional_args: Vec<String>,
+    pub named_args: Vec<(String, String)>,
+}
+
+#[derive(Debug, Clone)]
 pub struct Field {
     pub name: String,
     pub ty: RawType,
+    pub annotation: Option<Annotation>,
     pub doc: Option<String>,
     pub span: Span,
 }
@@ -191,6 +198,9 @@ impl<'a> Parser<'a> {
 
     fn parse_field(&mut self) -> Result<Field, ParserError> {
         let doc = self.consume_doc_blocks();
+
+        // Optional annotation that looks like: `#[field(...)]`
+        let annotation = self.parse_annotation()?;
         let start = self.peek_span();
         let name = self.expect_ident()?;
         self.expect(&TokenKind::Colon)?;
@@ -198,9 +208,65 @@ impl<'a> Parser<'a> {
         Ok(Field {
             name,
             ty,
+            annotation,
             doc,
             span: start,
         })
+    }
+
+    fn parse_annotation(&mut self) -> Result<Option<Annotation>, ParserError> {
+        if self.peek_is(&TokenKind::Hash) && self.peek_ahead_is(1, &TokenKind::LBracket) {
+            self.advance()?; // consume '#'
+            self.advance()?; // consume '['
+            self.expect_ident()?;
+            self.expect(&TokenKind::LParen)?;
+            let mut positional_args = Vec::new();
+            let mut named_args = Vec::new();
+
+            while !self.peek_is(&TokenKind::RBracket) {
+                if let TokenKind::Ident(name) = &self.peek().kind {
+                    let name = name.to_string();
+                    if self.peek_ahead_is(1, &TokenKind::Equal) {
+                        self.advance()?; // consume name
+                        self.advance()?; // consume '='
+                        let value = if let TokenKind::StringLiteral(s) = &self.peek().kind {
+                            let value = s.to_string();
+                            self.advance()?; // consume string literal
+                            value
+                        } else {
+                            return Err(self.err(
+                                self.peek_span(),
+                                "expected string literal as named argument value",
+                                None,
+                                Some("EANNO"),
+                            ));
+                        };
+                        named_args.push((name, value));
+                    } else {
+                        positional_args.push(name);
+                        self.advance()?; // consume name
+                    }
+                } else {
+                    return Err(self.err(self.peek_span(), "expected identifier in annotation", None, Some("EANNO")));
+                }
+
+                if self.peek_is(&TokenKind::Comma) {
+                    self.advance()?; // consume ','
+                } else {
+                    break;
+                }
+            }
+
+            self.expect(&TokenKind::RParen)?;
+            self.expect(&TokenKind::RBracket)?;
+
+            Ok(Some(Annotation {
+                positional_args,
+                named_args,
+            }))
+        } else {
+            Ok(None)
+        }
     }
 
     fn parse_type(&mut self) -> Result<RawType, ParserError> {
