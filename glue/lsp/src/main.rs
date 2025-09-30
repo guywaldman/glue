@@ -119,9 +119,14 @@ impl LanguageServer for Backend {
         }
         let ident = &src[start..end];
 
-        // Look for model by name
-        if let Some(m) = program.models.iter().find(|m| m.name == ident) {
-            let loc = span_to_location(&m.span, src, &st.uri);
+        let cdt = program.cdts.iter().find(|m| m.name() == ident);
+        if cdt.is_none() {
+            return Ok(None);
+        }
+
+        // Look for data types by name
+        if let Some(m) = program.cdts.iter().find(|m| m.name() == ident) {
+            let loc = span_to_location(&m.span(), src, &st.uri);
             return Ok(Some(GotoDefinitionResponse::Scalar(loc)));
         }
         Ok(None)
@@ -141,7 +146,7 @@ impl LanguageServer for Backend {
 
         // Find token under cursor (simple scan on the source text)
         // TODO: Optimize - this is horribly inefficient and unmaintainable.
-        for model in &program.models {
+        for model in &program.models() {
             if pos_within_span(line, col, &model.span) {
                 let contents = format!(
                     "{}\n```glue\nmodel {} {{ ... }}\n```",
@@ -186,7 +191,7 @@ impl LanguageServer for Backend {
                     // TODO: Optimize.
                     if ty.is_ref && pos_within_span(line, col, &ty.span) {
                         // Lookup model
-                        let contents = if let Some(m) = program.models.iter().find(|m| m.name == ty.name) {
+                        let contents = if let Some(m) = program.models().iter().find(|m| m.name == ty.name) {
                             format!("{}\n```glue\nmodel {} {{ ... }}\n```", m.doc.as_ref().unwrap_or(&"".into()), m.name)
                         } else {
                             format!("(unknown model)```glue\n#{}\n```", ty.name)
@@ -226,8 +231,10 @@ impl LanguageServer for Backend {
         let TextDocumentPositionParams { position, .. } = params.text_document_position;
         let new_name = params.new_name;
 
+        let models = program.models();
+
         // Refactor model names on the model definitions.
-        for model in &program.models {
+        for model in &models {
             if pos_within_span(position.line as usize + 1, position.character as usize + 1, &model.span) {
                 // Found model to rename
                 let mut changes = std::collections::HashMap::new();
@@ -235,7 +242,7 @@ impl LanguageServer for Backend {
                 // TODO: Optimize.
                 // Very inefficient - we go over ALL fields of ALL models to find references.
                 let mut edits = vec![];
-                for m in &program.models {
+                for m in &models {
                     for f in &m.fields {
                         for ty in &f.ty.atoms {
                             if ty.is_ref && ty.name == model.name {

@@ -30,7 +30,7 @@
 			"patterns": [
 				{
 					"name": "keyword.control.glue",
-					"match": "^\\s*(endpoint|model|response)\\b"
+					"match": "^\\s*(endpoint|model|response|enum)\\b"
 				},
 				{
 					"match": "^\\s*(body|mime|status):",

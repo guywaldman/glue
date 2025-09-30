@@ -22,6 +22,7 @@ pub enum TokenKind<'a> {
     Eof,
     Error(&'a str),
     // Keywords
+    KeywordEnum,
     KeywordModel,
     KeywordEndpoint,
     KeywordResponse,
@@ -30,6 +31,7 @@ pub enum TokenKind<'a> {
 impl fmt::Display for TokenKind<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            TokenKind::KeywordEnum => write!(f, "enum"),
             TokenKind::KeywordModel => write!(f, "model"),
             TokenKind::KeywordEndpoint => write!(f, "endpoint"),
             TokenKind::KeywordResponse => write!(f, "response"),
@@ -231,6 +233,7 @@ impl<'a> Lexer<'a> {
         let s = &self.src[start..self.i];
 
         let kind = match s {
+            "enum" => TokenKind::KeywordEnum,
             "model" => TokenKind::KeywordModel,
             "endpoint" => TokenKind::KeywordEndpoint,
             "response" => TokenKind::KeywordResponse,

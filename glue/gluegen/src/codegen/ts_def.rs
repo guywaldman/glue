@@ -13,7 +13,8 @@ impl TypeScriptDefCodeGen {
 impl CodeGen for TypeScriptDefCodeGen {
     fn generate(&self, program: &Program) -> Result<String, CodeGenError> {
         let mut output = String::new();
-        for model in &program.models {
+        let models = program.models();
+        for model in &models {
             if let Some(doc) = &model.doc {
                 output.push_str("  ");
                 output.push_str(self.generate_doc(doc)?.as_str());
@@ -28,13 +29,11 @@ impl CodeGen for TypeScriptDefCodeGen {
                         "bool" => "boolean".to_string(),
                         other => {
                             if atom.is_ref {
-                                if program.models.iter().any(|m| m.name == other) {
+                                if models.iter().any(|m| m.name == other) {
                                     // Check refs
                                     other.to_string()
                                 } else {
-                                    return Err(CodeGenError::UnresolvedReference(
-                                        other.to_string(),
-                                    ));
+                                    return Err(CodeGenError::UnresolvedReference(other.to_string()));
                                 }
                             } else {
                                 return Err(CodeGenError::UnsupportedError(format!(

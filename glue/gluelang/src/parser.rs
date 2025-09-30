@@ -1,3 +1,5 @@
+// TODO: Refactor this entire file to use a proper AST structure instead of a flat list of CDTs.
+
 use crate::lexer::{Span, Token, TokenKind};
 use miette::{Diagnostic, LabeledSpan, NamedSource, SourceCode};
 use std::{error::Error, fmt};
@@ -6,7 +8,92 @@ const TYPE_PRIMITIVES: &[&str] = &["int", "string", "bool"];
 
 #[derive(Debug, Clone)]
 pub struct Program {
-    pub models: Vec<Model>,
+    /// Contains the CDTs (Compound Data Types) defined in the program, both top-level and nested (not in an AST-like structure).
+    pub cdts: Vec<CompoundDataType>,
+}
+
+impl Program {
+    pub fn models(&self) -> Vec<&Model> {
+        self.cdts
+            .iter()
+            .filter_map(|cdt| match cdt {
+                CompoundDataType::Model(m) => Some(m),
+                _ => None,
+            })
+            .collect()
+    }
+
+    pub fn enums(&self) -> Vec<&Enum> {
+        self.cdts
+            .iter()
+            .filter_map(|cdt| match cdt {
+                CompoundDataType::Enum(e) => Some(e),
+                _ => None,
+            })
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum CompoundDataType {
+    Enum(Enum),
+    Model(Model),
+}
+
+impl CompoundDataType {
+    pub fn name(&self) -> &str {
+        match self {
+            CompoundDataType::Enum(e) => &e.name,
+            CompoundDataType::Model(m) => &m.name,
+        }
+    }
+
+    pub fn type_name(&self) -> &str {
+        match self {
+            CompoundDataType::Enum(_) => "enum",
+            CompoundDataType::Model(_) => "model",
+        }
+    }
+
+    pub fn effective_name(&self) -> String {
+        match self {
+            CompoundDataType::Enum(e) => e.effective_name(),
+            CompoundDataType::Model(m) => m.effective_name(),
+        }
+    }
+
+    pub fn parent_name(&self) -> Option<String> {
+        match self {
+            CompoundDataType::Enum(e) => e.parent.clone(),
+            CompoundDataType::Model(m) => m.parent.clone(),
+        }
+    }
+
+    pub fn span(&self) -> Span {
+        match self {
+            CompoundDataType::Enum(e) => e.span,
+            CompoundDataType::Model(m) => m.span,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Enum {
+    pub parent: Option<String>,
+    pub name: String,
+    pub doc: Option<String>,
+    pub variants: Vec<String>,
+    pub span: Span,
+}
+
+impl Enum {
+    pub fn effective_name(&self) -> String {
+        if let Some(parent) = &self.parent {
+            format!("{}{}", parent, self.name)
+        } else {
+            self.name.clone()
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -59,7 +146,7 @@ pub struct RawType {
 #[derive(Debug, Clone)]
 pub struct TypeAtom {
     pub name: String,
-    pub optional: bool,
+    pub is_optional: bool,
     pub is_ref: bool,
     pub is_array: bool,
     pub span: Span,
@@ -78,7 +165,7 @@ impl fmt::Display for TypeAtom {
             "{}{}{}",
             if self.is_ref { "#" } else { "" },
             self.name,
-            if self.optional { "?" } else { "" }
+            if self.is_optional { "?" } else { "" }
         )
     }
 }
@@ -147,22 +234,72 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_program(&mut self) -> Result<Program, ParserError> {
-        let mut models = Vec::new();
+        let mut compound_data_types = Vec::new();
         while !self.peek_is(&TokenKind::Eof) {
-            // Check for model definitions (including doc block superceded by model)
-            if self.peek_is(&TokenKind::KeywordModel) || self.peek_ahead_is(1, &TokenKind::KeywordModel) {
-                models.extend(self.parse_model()?);
-            } else {
-                return Err(self.err(self.peek_span(), "expected 'model'", None, Some("EPARSE")));
+            // Top-level parsing - check for either model definitions or enums. Either may be preceded by doc blocks.
+            let next_relevant_token = self.peek_until(|k| !matches!(k, TokenKind::DocBlock(_)));
+            let next_relevant_token = match next_relevant_token {
+                None => {
+                    // TODO: Error if there is an unexpected doc block that doesn't precede a data type
+                    break;
+                }
+                Some(t) => t,
+            };
+            match &next_relevant_token.kind {
+                TokenKind::KeywordModel => {
+                    let models = self.parse_model()?;
+                    for model in models {
+                        if let CompoundDataType::Model(model) = model {
+                            compound_data_types.push(CompoundDataType::Model(model));
+                        }
+                    }
+                }
+                TokenKind::KeywordEnum => {
+                    let en = self.parse_enum()?;
+                    compound_data_types.push(CompoundDataType::Enum(en));
+                }
+                _ => {
+                    return Err(self.err(next_relevant_token.span, "expected 'model' or 'enum'", None, Some("EPARSE")));
+                }
             }
         }
-        Ok(Program { models })
+        Ok(Program { cdts: compound_data_types })
+    }
+
+    /// Parses an enum definition.
+    fn parse_enum(&mut self) -> Result<Enum, ParserError> {
+        let doc = self.consume_doc_blocks();
+        self.expect(&TokenKind::KeywordEnum)?; // guaranteed keyword
+        let start = self.peek_span();
+        let name = self.expect_ident()?; // identifier for enum name
+        self.expect(&TokenKind::Equal)?; // '='
+        let mut variants = Vec::new();
+        while matches!(self.peek().kind, TokenKind::StringLiteral(_)) {
+            if let TokenKind::StringLiteral(s) = &self.advance()?.kind {
+                variants.push(s.to_string());
+            }
+            if self.peek_is(&TokenKind::Pipe) {
+                self.advance()?; // consume '|'
+            } else {
+                break;
+            }
+        }
+        if variants.is_empty() {
+            return Err(self.err(start, "expected at least one variant in enum", None, Some("EENUM")));
+        }
+        Ok(Enum {
+            parent: None,
+            name,
+            doc,
+            variants,
+            span: start,
+        })
     }
 
     /// Parses a model definition.
     /// May return more than one model if nested models are found.
-    fn parse_model(&mut self) -> Result<Vec<Model>, ParserError> {
-        let mut parsed_models = Vec::new();
+    fn parse_model(&mut self) -> Result<Vec<CompoundDataType>, ParserError> {
+        let mut parsed_cdts: Vec<CompoundDataType> = Vec::new();
 
         let doc = self.consume_doc_blocks();
         self.expect(&TokenKind::KeywordModel)?; // guaranteed keyword
@@ -174,11 +311,18 @@ impl<'a> Parser<'a> {
         while !self.peek_is(&TokenKind::RBrace) {
             if self.peek_is(&TokenKind::KeywordModel) || self.peek_ahead_is(1, &TokenKind::KeywordModel) {
                 // Nested model (we expect only one here)
-                let mut nested_models = self.parse_model()?;
-                for model in &mut nested_models {
-                    model.parent = Some(name.clone());
+                let mut nested_cdts = self.parse_model()?;
+                for mut nested_cdt in &mut nested_cdts {
+                    if let CompoundDataType::Model(m) = &mut nested_cdt {
+                        m.parent = Some(name.clone());
+                    }
+                    parsed_cdts.push(nested_cdt.clone());
                 }
-                parsed_models.extend(nested_models);
+            } else if self.peek_is(&TokenKind::KeywordEnum) || self.peek_ahead_is(1, &TokenKind::KeywordEnum) {
+                // Nested enum (we expect only one here)
+                let mut en = self.parse_enum()?;
+                en.parent = Some(name.clone());
+                parsed_cdts.push(CompoundDataType::Enum(en));
             } else {
                 // Expect a field otherwise
                 fields.push(self.parse_field()?);
@@ -193,9 +337,10 @@ impl<'a> Parser<'a> {
             fields,
             span: start,
         };
-        parsed_models.push(root_model);
 
-        Ok(parsed_models)
+        parsed_cdts.push(CompoundDataType::Model(root_model));
+
+        Ok(parsed_cdts)
     }
 
     fn parse_field(&mut self) -> Result<Field, ParserError> {
@@ -307,7 +452,7 @@ impl<'a> Parser<'a> {
 
         Ok(TypeAtom {
             name,
-            optional,
+            is_optional: optional,
             is_ref,
             is_array,
             span: Span {
@@ -339,7 +484,22 @@ impl<'a> Parser<'a> {
 
     #[inline]
     fn peek(&self) -> &Token<'a> {
-        self.tokens.get(self.i).unwrap_or_else(|| self.tokens.last().unwrap())
+        self.peek_ahead(0).expect("unable to peek next token in parser - out of bounds")
+    }
+
+    #[inline]
+    fn peek_ahead(&self, n: usize) -> Option<&Token<'a>> {
+        self.tokens.get(self.i + n)
+    }
+
+    fn peek_until<F: Fn(&TokenKind<'a>) -> bool>(&self, f: F) -> Option<&Token<'a>> {
+        for j in self.i..self.tokens.len() {
+            let t = &self.tokens[j];
+            if f(&t.kind) {
+                return Some(t);
+            }
+        }
+        None
     }
 
     #[inline]
@@ -348,7 +508,7 @@ impl<'a> Parser<'a> {
     }
 
     fn peek_ahead_is(&self, n: usize, kind: &TokenKind<'a>) -> bool {
-        if let Some(t) = self.tokens.get(self.i + n) {
+        if let Some(t) = self.peek_ahead(n) {
             std::mem::discriminant(&t.kind) == std::mem::discriminant(kind)
         } else {
             false
@@ -400,12 +560,41 @@ mod tests {
         let tokens = Lexer::new(src).lex();
         let mut p = Parser::new("test.glue", src, tokens);
         let program = p.parse_program().unwrap();
-        assert_eq!(program.models.len(), 1);
-        let m = &program.models[0];
+        let models = program.models();
+        assert_eq!(models.len(), 1);
+        let m = models[0];
         assert_eq!(m.fields.len(), 3);
         assert!(m.fields[1].ty.atoms[0].is_ref);
-        assert!(m.fields[1].ty.atoms[0].optional);
+        assert!(m.fields[1].ty.atoms[0].is_optional);
         assert!(m.fields[2].ty.atoms[1].is_ref);
+    }
+
+    #[test]
+    fn test_enums() {
+        let src = indoc! {r#"
+            /// Represents the status of a user
+            enum Status = "active" | "inactive" | "banned"
+
+            /// A user of the system
+            model User {
+                /// The user's name
+                name: string
+                /// The user's status
+                status: Status
+            }
+        "#};
+        let tokens = Lexer::new(src).lex();
+        let mut p = Parser::new("test.glue", src, tokens);
+        let program = p.parse_program().unwrap();
+        let enums = program.enums();
+        assert_eq!(enums.len(), 1);
+        let e = enums[0];
+        assert_eq!(e.name, "Status");
+        assert_eq!(e.doc, Some("Represents the status of a user".to_string()));
+        assert_eq!(e.variants.len(), 3);
+        assert_eq!(e.variants[0], "active");
+        assert_eq!(e.variants[1], "inactive");
+        assert_eq!(e.variants[2], "banned");
     }
 
     #[test]
@@ -424,8 +613,9 @@ mod tests {
         let tokens = Lexer::new(src).lex();
         let mut p = Parser::new("test.glue", src, tokens);
         let program = p.parse_program().unwrap();
+        let models = program.models();
 
-        let m = &program.models[0];
+        let m = &models[0];
         assert_eq!(m.name, "User");
         assert_eq!(m.span.line, 1);
         assert_eq!(m.span.start, 6);
@@ -440,7 +630,7 @@ mod tests {
         assert_eq!(field1.ty.atoms.len(), 1);
         let field1_ty = &field1.ty.atoms[0];
         assert_eq!(field1_ty.name, "string");
-        assert!(!field1_ty.optional);
+        assert!(!field1_ty.is_optional);
         assert!(!field1_ty.is_ref);
         assert_eq!(field1_ty.span.line, 2);
         assert_eq!(field1_ty.span.start, "model User {\n    id: ".len());
@@ -454,7 +644,7 @@ mod tests {
 
         let field2_ty = &field2.ty.atoms[0];
         assert_eq!(field2_ty.name, "string");
-        assert!(field2_ty.optional);
+        assert!(field2_ty.is_optional);
         assert!(!field2_ty.is_ref);
         assert!(!field2_ty.is_array);
         assert_eq!(field2_ty.span.line, 3);
@@ -464,7 +654,7 @@ mod tests {
         let field3 = &m.fields[2];
         let field3_ty = &field3.ty.atoms[0];
         assert_eq!(field3_ty.name, "string");
-        assert!(!field3_ty.optional);
+        assert!(!field3_ty.is_optional);
         assert!(!field3_ty.is_ref);
         assert!(field3_ty.is_array);
         assert_eq!(field3_ty.span.line, 4);
@@ -480,7 +670,7 @@ mod tests {
         let field4 = &m.fields[3];
         let field4_ty = &field4.ty.atoms[0];
         assert_eq!(field4_ty.name, "string");
-        assert!(field4_ty.optional);
+        assert!(field4_ty.is_optional);
         assert!(!field4_ty.is_ref);
         assert!(field4_ty.is_array);
         assert_eq!(field4_ty.span.line, 5);

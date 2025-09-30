@@ -17,7 +17,9 @@ impl CodeGen for PythonPydanticCodeGen {
         output.push_str("from pydantic import BaseModel, Field\n\n");
         output.push_str("from typing import Optional, Annotated\n\n");
 
-        for model in &program.models {
+        let models = program.models();
+
+        for model in &models {
             output.push_str(&format!("class {}(BaseModel):\n", model.effective_name()));
             if let Some(doc) = &model.doc {
                 output.push_str(generate_doc(doc)?.as_str());
@@ -31,7 +33,7 @@ impl CodeGen for PythonPydanticCodeGen {
                         "bool" => "bool".to_string(),
                         other => {
                             if atom.is_ref {
-                                if let Some(model) = program.models.iter().find(|m| m.name == other) {
+                                if let Some(model) = models.iter().find(|m| m.name == other) {
                                     // Check refs
                                     model.effective_name()
                                 } else {
@@ -44,7 +46,7 @@ impl CodeGen for PythonPydanticCodeGen {
                             }
                         }
                     };
-                    if atom.optional {
+                    if atom.is_optional {
                         ty_strings.push(format!("Optional[{ty_str}]"));
                     } else {
                         ty_strings.push(ty_str);
@@ -59,7 +61,7 @@ impl CodeGen for PythonPydanticCodeGen {
 
                 let mut field_params = Vec::new();
                 // TODO: Union with one of them optional?
-                if field.ty.atoms.iter().any(|atom| atom.optional) {
+                if field.ty.atoms.iter().any(|atom| atom.is_optional) {
                     field_params.push("default=None".to_string());
                 }
                 if let Some(annotation) = &field.annotation {

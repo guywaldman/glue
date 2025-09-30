@@ -18,26 +18,53 @@ impl CodeGen for TypeScriptZodCodeGen {
 
         output.push_str("import { z } from 'zod';\n\n");
 
-        for model in &program.models {
+        let models = program.models();
+        let enums = program.enums();
+
+        // TODO: Organize nested models next to their parents
+
+        for en in &enums {
+            if let Some(doc) = &en.doc {
+                output.push_str("  ");
+                output.push_str(generate_doc(doc)?.as_str());
+            }
+            output.push_str(&format!("const z{} = z.enum([\n", en.effective_name()));
+            for value in &en.variants {
+                output.push_str(&format!("  \"{value}\",\n"));
+            }
+            output.push_str("]);\n");
+            output.push_str(&format!(
+                "type {} = z.infer<typeof z{}>;\n\n",
+                en.effective_name(),
+                en.effective_name()
+            ));
+            output.push('\n');
+        }
+
+        for model in &models {
             if let Some(doc) = &model.doc {
                 output.push_str("  ");
                 output.push_str(generate_doc(doc)?.as_str());
             }
-            output.push_str(&format!("const {} = z.object({{\n", model.effective_name()));
+            output.push_str(&format!("const z{} = z.object({{\n", model.effective_name()));
             for field in &model.fields {
                 let mut ty_strings = Vec::new();
                 for atom in &field.ty.atoms {
-                    let ty_str = match atom.name.as_str() {
+                    let mut ty_str = match atom.name.as_str() {
                         "string" => "z.string()".to_string(),
                         "int" => "z.number()".to_string(),
                         "bool" => "z.boolean()".to_string(),
                         other => {
                             if atom.is_ref {
-                                if let Some(model) = program.models.iter().find(|m| m.name == other) {
+                                if let Some(model) = models.iter().find(|m| m.name == other) {
                                     // Check refs
-                                    model.effective_name()
+                                    format!("z{}", model.effective_name())
+                                } else if let Some(en) = enums.iter().find(|e| e.name == other) {
+                                    format!("z{}", en.effective_name())
                                 } else {
-                                    return Err(CodeGenError::UnresolvedReference(other.to_string()));
+                                    return Err(CodeGenError::UnsupportedError(format!(
+                                        "Zod codegen does not support type: {other}"
+                                    )));
                                 }
                             } else {
                                 return Err(CodeGenError::UnsupportedError(format!(
@@ -46,6 +73,12 @@ impl CodeGen for TypeScriptZodCodeGen {
                             }
                         }
                     };
+                    if atom.is_array {
+                        ty_str.push_str(".array()");
+                    }
+                    if atom.is_optional {
+                        ty_str.push_str(".optional()");
+                    }
                     ty_strings.push(ty_str);
                 }
 
@@ -59,11 +92,17 @@ impl CodeGen for TypeScriptZodCodeGen {
                     ty_strings.join(".or(") + ")"
                 };
                 output.push_str(&format!("  {}: {}", field.name, type_expression));
-                // TODO: Add descriptions to Zod - `.meta({ description: "..." })`. Trouble is newlines.
                 // TODO: Support alias in Zod (https://github.com/colinhacks/zod/discussions/1143#discussioncomment-4314155)
                 output.push_str(",\n");
             }
-            output.push_str("});\n\n");
+            output.push_str("});\n");
+
+            output.push_str(&format!(
+                "type {} = z.infer<typeof z{}>;\n\n",
+                model.effective_name(),
+                model.effective_name()
+            ));
+            output.push('\n');
         }
         Ok(output)
     }

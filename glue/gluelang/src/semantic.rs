@@ -1,5 +1,5 @@
 use crate::lexer::Span;
-use crate::parser::{Field, Model, ParserError, Program};
+use crate::parser::{CompoundDataType, Field, Model, ParserError, Program};
 use crate::utils;
 use miette::{Diagnostic, LabeledSpan, NamedSource, SourceCode};
 use std::collections::HashSet;
@@ -51,7 +51,7 @@ impl Diagnostic for SemanticError {
 pub struct Analyzer<'a> {
     pub file_name: &'a str,
     pub src: &'a str,
-    primitive_types: &'a [&'a str],
+    primitive_types: Vec<&'a str>,
 }
 
 impl<'a> Analyzer<'a> {
@@ -59,7 +59,7 @@ impl<'a> Analyzer<'a> {
         Self {
             file_name,
             src,
-            primitive_types: &["string", "int", "bool", "float", "?"],
+            primitive_types: vec!["string", "int", "bool", "float", "?"],
         }
     }
 
@@ -68,11 +68,9 @@ impl<'a> Analyzer<'a> {
             .parse_program()
             .map_err(|err| AnalyzerError::ParserErrors(vec![err]))?;
 
-        let errs: Vec<_> = program
-            .models
-            .iter()
-            .flat_map(|m| m.fields.iter().flat_map(|f| self.check_field_type(f, m, &program.models)))
-            .collect();
+        let models = program.models();
+
+        let errs = models.iter().flat_map(|m| self.check_model(&program, m)).collect::<Vec<_>>();
 
         if !errs.is_empty() {
             return Err(AnalyzerError::SemanticErrors(errs));
@@ -80,25 +78,65 @@ impl<'a> Analyzer<'a> {
         Ok(program)
     }
 
-    fn check_field_type(&self, field: &Field, associated_model: &Model, all_models: &[Model]) -> Vec<SemanticError> {
+    fn check_model(&self, program: &Program, model: &Model) -> Vec<SemanticError> {
+        let mut errs = Vec::new();
+
+        let all_models = program.models();
+        let models_in_same_level = all_models
+            .iter()
+            .filter(|m| match &m.parent {
+                Some(p) => model.parent == Some(p.clone()),
+                None => model.parent.is_none(),
+            })
+            .collect::<Vec<_>>();
+
+        if models_in_same_level.iter().filter(|m| m.name == model.name).count() > 1
+            && models_in_same_level.iter().position(|m| m.name == model.name)
+                != Some(models_in_same_level.iter().position(|m| m.span == model.span).unwrap())
+        {
+            errs.push(self.err(
+                model.span,
+                format!("duplicate model definition '{}'", model.name),
+                Some("remove or rename the duplicate"),
+                Some("EDupModel"),
+            ));
+        }
+
+        for field in &model.fields {
+            errs.extend(self.check_field_type(program, field, model));
+        }
+
+        errs
+    }
+
+    fn check_field_type(&self, program: &Program, field: &Field, associated_model: &Model) -> Vec<SemanticError> {
         let mut errs = Vec::new();
         for atom in &field.ty.atoms {
             if atom.is_ref {
-                // Collect all model names that are either root models or descendants of the associated model
-                let valid_model_names: HashSet<&str> = all_models
+                // Collect all data type names that are either root models or descendants of the associated model
+                let all_cdt_names = program
+                    .cdts
                     .iter()
-                    .filter(|m| m.parent.is_none() || m.parent.as_deref() == Some(associated_model.name.as_str()))
-                    .map(|m| m.name.as_str())
-                    .collect();
-                if !valid_model_names.contains(atom.name.as_str()) {
-                    let model_names_vec: Vec<_> = valid_model_names.iter().cloned().collect();
+                    .filter_map(|cdt| match cdt {
+                        CompoundDataType::Enum(e) => Some(e.name.clone()),
+                        CompoundDataType::Model(m) => {
+                            if m.parent.is_none() || m.parent == Some(associated_model.name.clone()) || m.name == associated_model.name {
+                                Some(m.name.clone())
+                            } else {
+                                None
+                            }
+                        }
+                    })
+                    .collect::<HashSet<_>>();
+                if !all_cdt_names.contains(atom.name.as_str()) {
+                    let model_names_vec: Vec<_> = all_cdt_names.iter().cloned().collect();
                     let similar_models = utils::fuzzy::fuzzy_match(atom.name.as_str(), &model_names_vec, 1);
                     let note = similar_models
                         .first()
                         .filter(|(_, score)| *score > 50)
                         .map(|(candidate, _)| format!("did you mean '{candidate}'?"))
                         .or_else(|| Some("define the referenced model or fix the name".to_string()));
-                    errs.push(self.err(atom.span, format!("unknown model '{}'", atom.name), note, Some("ERef")));
+                    errs.push(self.err(atom.span, format!("unknown referenced '{}'", atom.name), note, Some("ERef")));
                 }
             } else if !self.primitive_types.contains(&atom.name.as_str()) {
                 let valid_types = self
@@ -108,7 +146,7 @@ impl<'a> Analyzer<'a> {
                     .copied()
                     .collect::<Vec<_>>()
                     .join(", ");
-                let closest_types = utils::fuzzy::fuzzy_match(atom.name.as_str(), self.primitive_types, 1);
+                let closest_types = utils::fuzzy::fuzzy_match(atom.name.as_str(), &self.primitive_types, 1);
                 let note = closest_types
                     .first()
                     .filter(|(_, score)| *score > 50)
