@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+    branches: [ main, dev ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: glue/target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Run tests
+        run: cargo test --verbose
+        working-directory: glue
+      
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
+        working-directory: glue
+        if: matrix.os == 'ubuntu-latest'
+      
+      - name: Check formatting
+        run: cargo fmt -- --check
+        working-directory: glue
+        if: matrix.os == 'ubuntu-latest'
+  
+  e2e-test:
+    name: E2E test on ${{ matrix.os }}
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: glue/target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Build and install gluegen
+        run: |
+          cargo build --release --bin gluegen
+          cargo install --path gluegen --bin gluegen
+        working-directory: glue
+      
+      - name: Verify gluegen installation
+        run: gluegen --help
+      
+      - name: Create test Glue file
+        shell: bash
+        run: |
+          cat > test.glue << 'EOF'
+          /// A simple test model
+          model TestUser {
+            /// User ID
+            id: int
+            /// User name
+            name: string
+            /// User email
+            email: string
+          }
+          EOF
+      
+      - name: Run gluegen on test file (Python)
+        run: gluegen gen --lang python --in test.glue --out test_output.py
+      
+      - name: Verify Python output exists
+        shell: bash
+        run: |
+          if [ ! -f test_output.py ]; then
+            echo "Error: test_output.py was not generated"
+            exit 1
+          fi
+          echo "✅ Python output generated successfully"
+          cat test_output.py
+      
+      - name: Run gluegen on sample file
+        run: gluegen gen --lang python --in glue/gluelang/samples/basic.glue --out sample_output.py
+      
+      - name: Verify sample output
+        shell: bash
+        run: |
+          if [ ! -f sample_output.py ]; then
+            echo "Error: sample_output.py was not generated"
+            exit 1
+          fi
+          echo "✅ Sample output generated successfully"

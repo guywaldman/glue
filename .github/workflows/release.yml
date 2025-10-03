@@ -1,0 +1,129 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      version: ${{ steps.get_version.outputs.version }}
+    steps:
+      - name: Get version from tag
+        id: get_version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+      
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: false
+          prerelease: false
+
+  build-release:
+    name: Build Release (${{ matrix.target }})
+    needs: create-release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive_os: linux
+            archive_arch: amd64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            archive_os: linux
+            archive_arch: arm64
+          
+          # macOS
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            archive_os: darwin
+            archive_arch: amd64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            archive_os: darwin
+            archive_arch: arm64
+          
+          # Windows
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive_os: windows
+            archive_arch: amd64
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      
+      - name: Install cross-compilation tools (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+      
+      - name: Build gluegen
+        run: cargo build --release --target ${{ matrix.target }} --bin gluegen
+        working-directory: glue
+      
+      - name: Build gluelang
+        run: cargo build --release --target ${{ matrix.target }} --bin gluelang
+        working-directory: glue
+      
+      - name: Create archive (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist
+          cp glue/target/${{ matrix.target }}/release/gluegen dist/
+          cp glue/target/${{ matrix.target }}/release/gluelang dist/
+          cd dist
+          tar -czf gluegen_${{ matrix.archive_os }}_${{ matrix.archive_arch }}.tar.gz gluegen
+          tar -czf gluelang_${{ matrix.archive_os }}_${{ matrix.archive_arch }}.tar.gz gluelang
+      
+      - name: Create archive (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item glue/target/${{ matrix.target }}/release/gluegen.exe dist/
+          Copy-Item glue/target/${{ matrix.target }}/release/gluelang.exe dist/
+          cd dist
+          tar -czf gluegen_${{ matrix.archive_os }}_${{ matrix.archive_arch }}.tar.gz gluegen.exe
+          tar -czf gluelang_${{ matrix.archive_os }}_${{ matrix.archive_arch }}.tar.gz gluelang.exe
+      
+      - name: Upload gluegen archive
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./dist/gluegen_${{ matrix.archive_os }}_${{ matrix.archive_arch }}.tar.gz
+          asset_name: gluegen_${{ matrix.archive_os }}_${{ matrix.archive_arch }}.tar.gz
+          asset_content_type: application/gzip
+      
+      - name: Upload gluelang archive
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./dist/gluelang_${{ matrix.archive_os }}_${{ matrix.archive_arch }}.tar.gz
+          asset_name: gluelang_${{ matrix.archive_os }}_${{ matrix.archive_arch }}.tar.gz
+          asset_content_type: application/gzip

@@ -6,6 +6,49 @@ A domain-specific language and translator toolchain for modelling data.
 >
 > The project is under heavy development, and should not be used for production.
 
+## Installation
+
+### Quick Install (Linux/macOS)
+
+Install the latest version of `gluegen`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/guywaldman/glue/main/install.sh | bash
+```
+
+Install the latest version of `gluelang`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/guywaldman/glue/main/install.sh | BINARY_NAME=gluelang bash
+```
+
+### Install Specific Version
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/guywaldman/glue/main/install.sh | VERSION=v0.1.0 bash
+```
+
+### Install to Custom Location
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/guywaldman/glue/main/install.sh | INSTALL_DIR=$HOME/.local/bin bash
+```
+
+### Manual Installation
+
+Download the latest release for your platform from the [releases page](https://github.com/guywaldman/glue/releases/latest), extract the archive, and place the binary in your `PATH`.
+
+### Build from Source
+
+Requires [Rust](https://rustup.rs/) 1.70 or later:
+
+```bash
+git clone https://github.com/guywaldman/glue.git
+cd glue/glue
+cargo build --release
+# Binaries will be in target/release/gluegen and target/release/gluelang
+```
+
 ## Project Goals
 
 1. Tool suite for generating data models and transformations between them
