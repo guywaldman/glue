@@ -1,4 +1,6 @@
-use gluelang::{Ast, AstNode, AstNodeKind, AstSymbol, PrimitiveType, SemanticAnalysisArtifacts, SymbolTable, TreeNode, Type, TypeAtom, TypeVariant};
+use gluelang::{
+    Ast, AstNode, AstNodeKind, AstNodePayload, AstSymbol, PrimitiveType, SemanticAnalysisArtifacts, SymbolTable, TreeNode, Type, TypeAtom, TypeVariant,
+};
 
 use crate::codegen::{CodeGenError, CodeGenerator, types::EmitResult};
 
@@ -21,7 +23,7 @@ impl CodeGenerator for JsonSchemaCodeGenerator {
             if let AstNodeKind::Model { .. } = node.kind() {
                 let Some(root_decorators) = self
                     .ast
-                    .get_children_fn(node.id(), |n| matches!(n.kind(), AstNodeKind::Decorator { name, .. } if name == "root"))
+                    .get_children_fn(node.id(), |n| matches!(n.payload(), AstNodePayload::Decorator { name, .. } if name == "root"))
                 else {
                     return false;
                 };
@@ -35,8 +37,8 @@ impl CodeGenerator for JsonSchemaCodeGenerator {
                 "For JSON schema generation, one top-level model must be decorated with the `@root` decorator".to_string(),
             ));
         };
-        let root_model_node_name = match root_model_node.kind() {
-            AstNodeKind::Model { name, .. } => name,
+        let root_model_node_name = match root_model_node.payload() {
+            AstNodePayload::Model { name, .. } => name,
             _ => return Err(CodeGenError::Other("Expected a model node".to_string())),
         };
         let root_model = self.emit_model(root_model_node)?;
@@ -70,11 +72,8 @@ impl JsonSchemaCodeGenerator {
 
         let children = self.ast.get_children(model.id()).unwrap_or_default();
         for child in children {
-            match child.kind() {
-                AstNodeKind::Field { .. } => {
-                    let AstNodeKind::Field { name: field_name, ty, doc, .. } = child.kind() else {
-                        continue;
-                    };
+            match child.payload() {
+                AstNodePayload::Field { name: field_name, ty, doc, .. } => {
                     let types = match ty {
                         Type::Single(t) => vec![t.clone()],
                         Type::Union(variants) => variants.clone(),
@@ -106,13 +105,13 @@ impl JsonSchemaCodeGenerator {
                     }
                     result[field_name] = json::JsonValue::Object(field_obj);
                 }
-                AstNodeKind::Model { .. } => {
-                    let AstNodeKind::Model { name: _nested_name, .. } = child.kind() else {
+                AstNodePayload::Model { .. } => {
+                    let AstNodePayload::Model { name: _nested_name, .. } = child.payload() else {
                         continue;
                     };
                     // Nested models are handled when referenced by fields
                 }
-                AstNodeKind::Enum { .. } => {
+                AstNodePayload::Enum { .. } => {
                     // Inline enum definitions are handled when referenced by fields
                     continue;
                 }
@@ -160,7 +159,7 @@ impl JsonSchemaCodeGenerator {
                             .get_node(entry.id)
                             .ok_or_else(|| CodeGenError::Other(format!("Referenced enum node with ID {} not found", entry.id)))?;
 
-                        let AstNodeKind::Enum { variants, doc, .. } = enum_node.kind() else {
+                        let AstNodePayload::Enum { variants, doc, .. } = enum_node.payload() else {
                             return Err(CodeGenError::Other("Expected an enum node".to_string()));
                         };
 

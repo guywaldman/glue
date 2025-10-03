@@ -51,7 +51,7 @@ impl GlueCli {
         Ok(())
     }
 
-    pub fn check<'a, T: io::BufRead>(file_name: &str, mut file_contents: T) -> Result<SemanticAnalysisArtifacts, CliError> {
+    pub fn check<T: io::BufRead>(file_name: &str, mut file_contents: T) -> Result<SemanticAnalysisArtifacts, CliError> {
         let mut buf = String::new();
         let _ = file_contents.read_to_string(&mut buf).map_err(CliError::IoError)?;
         let tokens = Lexer::new(&buf).lex();

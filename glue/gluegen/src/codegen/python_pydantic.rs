@@ -1,4 +1,4 @@
-use gluelang::{Ast, AstNode, AstNodeKind, PrimitiveType, SemanticAnalysisArtifacts, TreeNode, Type, TypeVariant};
+use gluelang::{Ast, AstNode, AstNodeKind, AstNodePayload, PrimitiveType, SemanticAnalysisArtifacts, TreeNode, Type, TypeVariant};
 use log::debug;
 
 use crate::codegen::{CodeGenError, CodeGenerator, GlueConfigSchema, types::EmitResult};
@@ -53,7 +53,7 @@ impl PythonPydanticCodeGenerator {
     fn emit_model(&mut self, model: &AstNode) -> EmitResult {
         let mut inner_emits = String::new();
 
-        let AstNodeKind::Model { name, .. } = model.kind() else {
+        let AstNodePayload::Model { name, .. } = model.payload() else {
             return Err(CodeGenError::Other("Expected a model node".to_string()));
         };
 
@@ -81,10 +81,13 @@ impl PythonPydanticCodeGenerator {
         let mut result = String::new();
         let (_, base_model_class) = Self::parse_import(&self.config.generation.python_pydantic.base_model);
         result.push_str(&format!("class {name}({base_model_class}):\n"));
-        if let Some(doc) = children
-            .iter()
-            .find_map(|c| if let AstNodeKind::Model { doc, .. } = c.kind() { doc.clone() } else { None })
-        {
+        if let Some(doc) = children.iter().find_map(|c| {
+            if let AstNodePayload::Model { doc, .. } = c.payload() {
+                doc.clone()
+            } else {
+                None
+            }
+        }) {
             result.push_str(&format!("    \"\"\"{}\"\"\"\n\n", doc.replace("\"\"\"", "\"\"\"\"\"\"")));
         }
 
@@ -111,7 +114,7 @@ impl PythonPydanticCodeGenerator {
     fn emit_field(&mut self, field: &AstNode) -> EmitResult {
         let mut result = String::new();
 
-        let AstNodeKind::Field { name, ty, doc, .. } = field.kind() else {
+        let AstNodePayload::Field { name, ty, doc, .. } = field.payload() else {
             return Err(CodeGenError::Other("Expected a field node".to_string()));
         };
 
@@ -127,7 +130,7 @@ impl PythonPydanticCodeGenerator {
     fn emit_enum(&mut self, enum_node: &AstNode) -> EmitResult {
         let mut result = String::new();
 
-        let AstNodeKind::Enum { name, variants, .. } = enum_node.kind() else {
+        let AstNodePayload::Enum { name, variants, .. } = enum_node.payload() else {
             return Err(CodeGenError::Other("Expected an enum node".to_string()));
         };
 

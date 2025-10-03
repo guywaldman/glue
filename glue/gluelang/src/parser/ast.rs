@@ -71,8 +71,22 @@ impl std::fmt::Display for Type {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AstNodeKind {
+    #[default]
+    Root,
+    Enum,
+    Model,
+    Field,
+    Decorator,
+    Identifier,
+    Type,
+}
+
+#[derive(Debug, Clone)]
+pub enum AstNodePayload {
+    None,
+    String(String),
     Enum {
         name: String,
         doc: Option<String>,
@@ -93,15 +107,14 @@ pub enum AstNodeKind {
         name: String,
         args: HashMap<String, ConstantValue>,
     },
-    Identifier(String),
     Type(Type),
-    Root,
 }
 
 #[derive(Clone)]
 pub struct AstNode {
     id: TreeNodeId,
     kind: AstNodeKind,
+    payload: AstNodePayload,
     tokens: Vec<Token>,
     span: Span,
 }
@@ -118,15 +131,15 @@ impl TreeNode for AstNode {
 
 impl std::fmt::Debug for AstNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // We only print the important fields for brevity.
-        let label = match &self.kind {
-            AstNodeKind::Root => "Root".to_string(),
-            AstNodeKind::Model { name, .. } => format!("Model({name})"),
-            AstNodeKind::Field { name, ty, .. } => format!("Field(name: {name}, ty: {ty})"),
-            AstNodeKind::Enum { name, variants, .. } => format!("Enum(name: {name}, {variants:?})"),
-            AstNodeKind::Decorator { name, args } => format!("Decorator(name: {name}, args: {args:?})"),
-            AstNodeKind::Identifier(name) => format!("Identifier({name})"),
-            AstNodeKind::Type(ty) => format!("Type({ty})"),
+        let label = match (&self.kind, &self.payload) {
+            (AstNodeKind::Root, _) => "Root".to_string(),
+            (AstNodeKind::Model, AstNodePayload::Model { name, .. }) => format!("Model({name})"),
+            (AstNodeKind::Field, AstNodePayload::Field { name, ty, .. }) => format!("Field(name: {name}, ty: {ty})"),
+            (AstNodeKind::Enum, AstNodePayload::Enum { name, variants, .. }) => format!("Enum(name: {name}, {variants:?})"),
+            (AstNodeKind::Decorator, AstNodePayload::Decorator { name, args }) => format!("Decorator(name: {name}, args: {args:?})"),
+            (AstNodeKind::Identifier, AstNodePayload::String(name)) => format!("Identifier({name})"),
+            (AstNodeKind::Type, AstNodePayload::Type(ty)) => format!("Type({ty})"),
+            _ => format!("{:?}", self.kind),
         };
         write!(f, "{label}")
     }
@@ -137,6 +150,7 @@ impl default::Default for AstNode {
         Self {
             id: Default::default(),
             kind: AstNodeKind::Root,
+            payload: AstNodePayload::None,
             tokens: vec![],
             span: Default::default(),
         }
@@ -144,20 +158,29 @@ impl default::Default for AstNode {
 }
 
 impl AstNode {
-    pub fn new(kind: AstNodeKind) -> Self {
-        Self { kind, ..Default::default() }
-    }
-
-    pub fn new_with_span(kind: AstNodeKind, span: Span) -> Self {
+    pub fn new(kind: AstNodeKind, payload: AstNodePayload) -> Self {
         Self {
             kind,
+            payload,
+            ..Default::default()
+        }
+    }
+
+    pub fn new_with_span(kind: AstNodeKind, payload: AstNodePayload, span: Span) -> Self {
+        Self {
+            kind,
+            payload,
             span,
             ..Default::default()
         }
     }
 
-    pub fn kind(&self) -> &AstNodeKind {
-        &self.kind
+    pub fn kind(&self) -> AstNodeKind {
+        self.kind
+    }
+
+    pub fn payload(&self) -> &AstNodePayload {
+        &self.payload
     }
 
     pub fn span(&self) -> &Span {
@@ -170,5 +193,48 @@ impl AstNode {
 
     pub fn set_tokens(&mut self, tokens: Vec<Token>) {
         self.tokens = tokens;
+    }
+
+    // Convenience methods to extract common payload data
+    pub fn as_string(&self) -> Option<&str> {
+        match &self.payload {
+            AstNodePayload::String(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    pub fn as_model(&self) -> Option<(&str, Option<&str>)> {
+        match &self.payload {
+            AstNodePayload::Model { name, doc } => Some((name, doc.as_deref())),
+            _ => None,
+        }
+    }
+
+    pub fn as_field(&self) -> Option<(&str, Option<&str>, &Type, Option<&ConstantValue>)> {
+        match &self.payload {
+            AstNodePayload::Field { name, doc, ty, default } => Some((name, doc.as_deref(), ty, default.as_ref())),
+            _ => None,
+        }
+    }
+
+    pub fn as_enum(&self) -> Option<(&str, Option<&str>, &[String], Option<&ConstantValue>)> {
+        match &self.payload {
+            AstNodePayload::Enum { name, doc, variants, default } => Some((name, doc.as_deref(), variants, default.as_ref())),
+            _ => None,
+        }
+    }
+
+    pub fn as_type(&self) -> Option<&Type> {
+        match &self.payload {
+            AstNodePayload::Type(ty) => Some(ty),
+            _ => None,
+        }
+    }
+
+    pub fn as_decorator(&self) -> Option<(&str, &HashMap<String, ConstantValue>)> {
+        match &self.payload {
+            AstNodePayload::Decorator { name, args } => Some((name, args)),
+            _ => None,
+        }
     }
 }

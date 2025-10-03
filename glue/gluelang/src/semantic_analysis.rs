@@ -47,10 +47,10 @@ impl<'a> SemanticAnalyzer<'a> {
             let node_kind = node.kind();
             let node_id = node.id();
             match node_kind {
-                AstNodeKind::Model { .. } => {
+                AstNodeKind::Model => {
                     self.analyze_model(&node)?;
                 }
-                AstNodeKind::Field { .. } => {
+                AstNodeKind::Field => {
                     self.analyze_field(node_id)?;
                 }
                 _ => {}
@@ -60,8 +60,11 @@ impl<'a> SemanticAnalyzer<'a> {
     }
 
     fn analyze_model(&mut self, model: &AstNode) -> Result<(), LangError> {
-        let AstNodeKind::Model { name, .. } = model.kind() else {
+        if model.kind() != AstNodeKind::Model {
             return Err(self.err(*model.span(), "Expected a model node".to_string(), None, Some("EInternal")));
+        }
+        let Some((name, _)) = model.as_model() else {
+            return Err(self.err(*model.span(), "Expected a model node with payload".to_string(), None, Some("EInternal")));
         };
         // Model names must start with an uppercase letter
         let is_recommended_model_name = name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false);
@@ -75,7 +78,7 @@ impl<'a> SemanticAnalyzer<'a> {
         }
 
         let children = self.ast.get_children(model.id()).unwrap_or_default();
-        let fields = children.iter().filter(|n| matches!(n.kind(), AstNodeKind::Field { .. })).collect::<Vec<_>>();
+        let fields = children.iter().filter(|n| n.kind() == AstNodeKind::Field).collect::<Vec<_>>();
         for field in fields {
             self.analyze_field(field.id())?;
         }
@@ -87,9 +90,11 @@ impl<'a> SemanticAnalyzer<'a> {
             .ast
             .get_node(node_id)
             .ok_or_else(|| self.err(Span::default(), format!("Field node with ID {node_id} not found"), None, Some("EInternal")))?;
-        let ty = match node.kind() {
-            AstNodeKind::Field { ty, .. } => ty,
-            _ => return Err(self.err(*node.span(), "Expected a field node".to_string(), None, Some("EInternal"))),
+        if node.kind() != AstNodeKind::Field {
+            return Err(self.err(*node.span(), "Expected a field node".to_string(), None, Some("EInternal")));
+        }
+        let Some((_, _, ty, _)) = node.as_field() else {
+            return Err(self.err(*node.span(), "Expected a field node with payload".to_string(), None, Some("EInternal")));
         };
         let type_refs = match ty {
             Type::Single(atom) => {
@@ -105,7 +110,7 @@ impl<'a> SemanticAnalyzer<'a> {
         let mut scope_id = self.ast.get_root();
         for ancestor_id in self.ast.get_ancestors(node_id) {
             if let Some(n) = self.ast.get_node(ancestor_id) {
-                if matches!(n.kind(), AstNodeKind::Model { .. }) {
+                if n.kind() == AstNodeKind::Model {
                     scope_id = ancestor_id;
                     break;
                 }
@@ -120,7 +125,7 @@ impl<'a> SemanticAnalyzer<'a> {
                     .unwrap_or(false);
                 let type_nodes = self
                     .ast
-                    .get_children_fn(node_id, |n| matches!(n.kind(), AstNodeKind::Type(_)))
+                    .get_children_fn(node_id, |n| n.kind() == AstNodeKind::Type)
                     .unwrap_or_default();
                 let span = type_nodes.get(i).map(|n| *n.span()).unwrap_or_else(|| *node.span());
                 if !is_defined {
@@ -143,6 +148,14 @@ impl<'a> SemanticAnalyzer<'a> {
                                 span,
                                 format!("Undefined type reference '{ref_name}'"),
                                 Some(format!("Did you mean '{}'?", best_match.yellow())),
+                                Some("EUndefinedType"),
+                            ));
+                        } else {
+                            // Similarity score too low, no good suggestion
+                            return Err(self.err(
+                                span,
+                                format!("Undefined type reference '{ref_name}'"),
+                                Some("Define the referenced model or correct the type name".to_string()),
                                 Some("EUndefinedType"),
                             ));
                         }
@@ -231,7 +244,9 @@ mod tests {
         assert!(result.is_err());
         let err = result.err().unwrap();
         assert_eq!(err.message, "Undefined type reference 'Statu'");
-        assert_eq!(err.note, Some("Did you mean 'Status'?".to_string()));
+        // Note contains ANSI color codes from .yellow()
+        assert!(err.note.as_ref().unwrap().contains("Did you mean"));
+        assert!(err.note.as_ref().unwrap().contains("Status"));
     }
 
     #[test]

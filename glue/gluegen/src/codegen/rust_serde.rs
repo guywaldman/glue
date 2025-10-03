@@ -1,4 +1,4 @@
-use gluelang::{Ast, AstNode, AstNodeKind, ConstantValue, PrimitiveType, SemanticAnalysisArtifacts, TreeNode, Type, TypeVariant};
+use gluelang::{Ast, AstNode, AstNodeKind, AstNodePayload, ConstantValue, PrimitiveType, SemanticAnalysisArtifacts, TreeNode, Type, TypeVariant};
 use indoc::indoc;
 
 use crate::codegen::{CodeGenError, CodeGenerator, GlueConfigSchema, types::EmitResult, utils::generate_watermark};
@@ -74,7 +74,7 @@ impl RustSerdeCodeGenerator {
     fn emit_model(&mut self, model: &AstNode) -> EmitResult {
         let mut result = String::new();
 
-        let AstNodeKind::Model { name, doc, .. } = model.kind() else {
+        let AstNodePayload::Model { name, doc, .. } = model.payload() else {
             return Err(CodeGenError::Other("Expected a model node".to_string()));
         };
 
@@ -133,7 +133,7 @@ impl RustSerdeCodeGenerator {
     fn emit_field(&mut self, model: &AstNode, field: &AstNode) -> EmitResult {
         let mut result = String::new();
 
-        let AstNodeKind::Field { name, ty, doc, default, .. } = field.kind() else {
+        let AstNodePayload::Field { name, ty, doc, default, .. } = field.payload() else {
             return Err(CodeGenError::Other("Expected a field node".to_string()));
         };
 
@@ -146,7 +146,7 @@ impl RustSerdeCodeGenerator {
         if let Some(default) = default {
             let default_value = match default {
                 ConstantValue::String(s) => {
-                    let AstNodeKind::Model { name: model_name, .. } = model.kind() else {
+                    let AstNodePayload::Model { name: model_name, .. } = model.payload() else {
                         return Err(CodeGenError::Other("Expected a model node".to_string()));
                     };
                     let func_name = rustify_type_name(&format!("{}_default_{}", model_name, s.to_lowercase()));
@@ -178,9 +178,9 @@ impl RustSerdeCodeGenerator {
     fn emit_enum(&mut self, enum_node: &AstNode) -> EmitResult {
         let mut result = String::new();
 
-        let AstNodeKind::Enum {
+        let AstNodePayload::Enum {
             name, variants, doc, default, ..
-        } = enum_node.kind()
+        } = enum_node.payload()
         else {
             return Err(CodeGenError::Other("Expected an enum node".to_string()));
         };
