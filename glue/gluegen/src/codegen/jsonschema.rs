@@ -64,7 +64,7 @@ impl JsonSchemaCodeGenerator {
     fn emit_model(&mut self, model: &AstNode) -> Result<json::object::Object, CodeGenError> {
         let mut result = json::object::Object::new();
 
-        let AstNodeKind::Model { name, .. } = model.kind() else {
+        let AstNodeKind::Model { .. } = model.kind() else {
             return Err(CodeGenError::Other("Expected a model node".to_string()));
         };
 
@@ -124,22 +124,6 @@ impl JsonSchemaCodeGenerator {
         // let children = self.ast.get_children(model.id()).unwrap_or_default();
     }
 
-    fn emit_type(&mut self, node: &AstNode, ty: &Type) -> Result<json::JsonValue, CodeGenError> {
-        match ty {
-            Type::Single(atom) => self.emit_type_atom(node, atom),
-            Type::Union(variants) => {
-                let mut any_of = vec![];
-                for variant in variants {
-                    let emitted = self.emit_type_atom(node, variant)?;
-                    any_of.push(emitted);
-                }
-                let mut obj = json::object::Object::new();
-                obj["anyOf"] = json::JsonValue::Array(any_of);
-                Ok(json::JsonValue::Object(obj))
-            }
-        }
-    }
-
     fn emit_type_atom(&mut self, node: &AstNode, atom: &TypeAtom) -> Result<json::JsonValue, CodeGenError> {
         match &atom.variant {
             TypeVariant::Ref(ref_name) => {
@@ -168,14 +152,14 @@ impl JsonSchemaCodeGenerator {
                             obj["properties"] = json::JsonValue::Object(model_properties);
                             Ok(json::JsonValue::Object(obj))
                         }
-                    } 
+                    }
                     // Try to find as an enum
                     else if let Some(entry) = symbols.get(&AstSymbol::Enum(ref_name.clone())) {
                         let enum_node = self
                             .ast
                             .get_node(entry.id)
                             .ok_or_else(|| CodeGenError::Other(format!("Referenced enum node with ID {} not found", entry.id)))?;
-                        
+
                         let AstNodeKind::Enum { variants, doc, .. } = enum_node.kind() else {
                             return Err(CodeGenError::Other("Expected an enum node".to_string()));
                         };
@@ -183,9 +167,7 @@ impl JsonSchemaCodeGenerator {
                         if atom.is_array {
                             let mut items_obj = json::object::Object::new();
                             items_obj["type"] = json::JsonValue::String("string".to_string());
-                            items_obj["enum"] = json::JsonValue::Array(
-                                variants.iter().map(|v| json::JsonValue::String(v.clone())).collect()
-                            );
+                            items_obj["enum"] = json::JsonValue::Array(variants.iter().map(|v| json::JsonValue::String(v.clone())).collect());
                             if let Some(doc_str) = doc {
                                 items_obj["description"] = json::JsonValue::String(doc_str.clone());
                             }
@@ -197,9 +179,7 @@ impl JsonSchemaCodeGenerator {
                         } else {
                             let mut obj = json::object::Object::new();
                             obj["type"] = json::JsonValue::String("string".to_string());
-                            obj["enum"] = json::JsonValue::Array(
-                                variants.iter().map(|v| json::JsonValue::String(v.clone())).collect()
-                            );
+                            obj["enum"] = json::JsonValue::Array(variants.iter().map(|v| json::JsonValue::String(v.clone())).collect());
                             if let Some(doc_str) = doc {
                                 obj["description"] = json::JsonValue::String(doc_str.clone());
                             }

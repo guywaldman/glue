@@ -1,5 +1,5 @@
 use gluelang::{Ast, AstNode, AstNodeKind, ConstantValue, PrimitiveType, SemanticAnalysisArtifacts, TreeNode, Type, TypeVariant};
-use indoc::{formatdoc, indoc};
+use indoc::indoc;
 
 use crate::codegen::{CodeGenError, CodeGenerator, GlueConfigSchema, types::EmitResult, utils::generate_watermark};
 
