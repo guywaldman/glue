@@ -7,11 +7,11 @@ use std::{
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use gluelang::{Analyzer, AnalyzerError, Program};
+use gluelang::{LangError, Lexer, Parser as GlueParser, SemanticAnalysisArtifacts, SemanticAnalyzer};
 use miette::GraphicalReportHandler;
 use thiserror::Error;
 
-use crate::codegen::{CodeGen, PythonPydanticCodeGen, TypeScriptDefCodeGen, TypeScriptZodCodeGen};
+use crate::codegen::{CodeGenerator, GlueConfigSchema, JsonSchemaCodeGenerator, PythonPydanticCodeGenerator, RustSerdeCodeGenerator};
 
 #[derive(Parser)]
 struct Cli {
@@ -21,6 +21,12 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum CliSubcommand {
+    /// Operations related to .glue ASTs.
+    #[command(name = "ast")]
+    Ast {
+        #[command(subcommand)]
+        command: CliAstSubcommand,
+    },
     #[command(name = "check")]
     Check {
         /// Path to the input .glue file (defaults to stdin if not provided)
@@ -34,30 +40,10 @@ enum CliSubcommand {
 }
 
 #[derive(Subcommand)]
-enum CliGenSubcommand {
-    /// Generate Python Pydantic models from a .glue file
-    #[command(name = "py-pydantic")]
-    PythonPydantic {
-        /// Path to the input .glue file (defaults to stdin if not provided)
-        #[arg(short = 'i', long)]
-        input: Option<PathBuf>,
-        /// Output directory for generated code
-        #[arg(short = 'o', long)]
-        output: PathBuf,
-    },
-    /// Generate TypeScript definitions (.d.ts) from a .glue file
-    #[command(name = "ts-def")]
-    TypeScriptDef {
-        /// Path to the input .glue file (defaults to stdin if not provided)
-        #[arg(short = 'i', long)]
-        input: Option<PathBuf>,
-        /// Output directory for generated code
-        #[arg(short = 'o', long)]
-        output: PathBuf,
-    },
-    /// Generate TypeScript Zod schemas from a .glue file
-    #[command(name = "ts-zod")]
-    TypeScriptZod {
+enum CliAstSubcommand {
+    /// Generate a Mermaid diagram from a .glue file
+    #[command(name = "mermaid")]
+    Mermaid {
         /// Path to the input .glue file (defaults to stdin if not provided)
         #[arg(short = 'i', long)]
         input: Option<PathBuf>,
@@ -67,18 +53,58 @@ enum CliGenSubcommand {
     },
 }
 
+#[derive(clap::Args)]
+// Shared arguments for code generation commands
+struct GenArgs {
+    /// Path to the input .glue file (defaults to stdin if not provided)
+    #[arg(short = 'i', long)]
+    input: Option<PathBuf>,
+
+    /// Output directory for generated code
+    #[arg(short = 'o', long)]
+    output: PathBuf,
+
+    /// Optional config file for the code generator
+    #[arg(short = 'c', long)]
+    config: Option<PathBuf>,
+}
+
+#[derive(Subcommand)]
+enum CliGenSubcommand {
+    #[command(name = "jsonschema")]
+    JsonSchema {
+        #[command(flatten)]
+        args: GenArgs,
+    },
+    #[command(name = "rust-serde")]
+    RustSerde {
+        #[command(flatten)]
+        args: GenArgs,
+    },
+    /// Generate Python Pydantic models from a .glue file
+    #[command(name = "py-pydantic")]
+    PythonPydantic {
+        #[command(flatten)]
+        args: GenArgs,
+    },
+}
+
 #[derive(Debug, Error)]
 pub enum CliError {
+    #[error("Failed to read config file")]
+    ConfigReadError(#[from] anyhow::Error),
     #[error("I/O error")]
     IoError(#[from] std::io::Error),
-    #[error("Analyzer error")]
-    AnalyzerError(AnalyzerError),
+    #[error("Compilation error")]
+    CompilationError(LangError),
     #[error("Code generation error: {0}")]
     CodeGenError(codegen::CodeGenError),
 }
 
 // TODO: Don't return miette::Result from main functions, handle errors properly.
 fn main() -> Result<()> {
+    pretty_env_logger::init();
+
     let args = std::env::args().collect::<Vec<String>>();
     run_cli(&args.iter().map(String::as_str).collect::<Vec<&str>>())
 }
@@ -87,6 +113,15 @@ fn run_cli(cli_args: &[&str]) -> Result<()> {
     let args = Cli::parse_from(cli_args);
 
     match &args.command {
+        CliSubcommand::Ast { command } => match command {
+            CliAstSubcommand::Mermaid { input, output } => {
+                let (file_name, file_contents) = handle_file(input.clone())?;
+
+                let artifacts = check(&file_name, file_contents)?;
+                let mermaid = artifacts.ast.to_mermaid();
+                std::fs::write(output, mermaid).with_context(|| format!("failed to write to {}", output.display()))?;
+            }
+        },
         CliSubcommand::Check { input } => {
             let file_name = match input {
                 Some(path) => path.display().to_string(),
@@ -97,33 +132,54 @@ fn run_cli(cli_args: &[&str]) -> Result<()> {
                 Some(path) => Box::new(io::BufReader::new(std::fs::File::open(path).unwrap())),
                 None => Box::new(io::BufReader::new(io::stdin())),
             };
-            check(&file_name, file_contents).map(|_| {}).map_err(CliError::AnalyzerError)?;
+            check(&file_name, file_contents).map(|_| {})?;
         }
         CliSubcommand::Gen { command } => match command {
-            CliGenSubcommand::PythonPydantic { input, output } => {
+            CliGenSubcommand::JsonSchema {
+                args: GenArgs { input, output, config: _, .. },
+                ..
+            } => {
                 let (file_name, file_contents) = handle_file(input.clone())?;
 
-                let program = check(&file_name, file_contents).map_err(CliError::AnalyzerError)?;
-                let generated_code = PythonPydanticCodeGen::new().generate(&program).map_err(CliError::CodeGenError)?;
+                let artifacts = check(&file_name, file_contents)?;
+                let generated_code = JsonSchemaCodeGenerator::new(artifacts).generate().map_err(CliError::CodeGenError)?;
                 std::fs::write(output, generated_code).with_context(|| format!("failed to write to {}", output.display()))?;
             }
-            CliGenSubcommand::TypeScriptDef { input, output } => {
+            CliGenSubcommand::RustSerde {
+                args: GenArgs { input, output, config: _, .. },
+                ..
+            } => {
                 let (file_name, file_contents) = handle_file(input.clone())?;
 
-                let program = check(&file_name, file_contents).map_err(CliError::AnalyzerError)?;
-                let generated_code = TypeScriptDefCodeGen::new().generate(&program).map_err(CliError::CodeGenError)?;
+                let artifacts = check(&file_name, file_contents)?;
+                let generated_code = RustSerdeCodeGenerator::new(artifacts).generate().map_err(CliError::CodeGenError)?;
                 std::fs::write(output, generated_code).with_context(|| format!("failed to write to {}", output.display()))?;
             }
-            CliGenSubcommand::TypeScriptZod { input, output } => {
+            CliGenSubcommand::PythonPydantic {
+                args: GenArgs { input, output, config, .. },
+                ..
+            } => {
                 let (file_name, file_contents) = handle_file(input.clone())?;
+                let config = config
+                    .clone()
+                    .map(|ref path| read_config(path))
+                    .transpose()
+                    .map_err(CliError::ConfigReadError)?
+                    .unwrap_or_default();
 
-                let program = check(&file_name, file_contents).map_err(CliError::AnalyzerError)?;
-                let generated_code = TypeScriptZodCodeGen::new().generate(&program).map_err(CliError::CodeGenError)?;
-                std::fs::write(output, generated_code)?;
+                let artifacts = check(&file_name, file_contents)?;
+                let generated_code = PythonPydanticCodeGenerator::new(config, artifacts).generate().map_err(CliError::CodeGenError)?;
+                std::fs::write(output, generated_code).with_context(|| format!("failed to write to {}", output.display()))?;
             }
         },
     }
     Ok(())
+}
+
+fn read_config(path: &PathBuf) -> Result<GlueConfigSchema> {
+    let config_contents = std::fs::read_to_string(path).with_context(|| format!("failed to read config file '{}'", path.display()))?;
+    let config = serde_yaml::from_str(&config_contents).with_context(|| format!("failed to parse config file '{}'", path.display()))?;
+    Ok(config)
 }
 
 fn handle_file(input: Option<PathBuf>) -> Result<(String, Box<dyn io::BufRead>)> {
@@ -140,34 +196,25 @@ fn handle_file(input: Option<PathBuf>) -> Result<(String, Box<dyn io::BufRead>)>
     Ok((file_name, file_contents))
 }
 
-fn check<T: io::BufRead>(file_name: &str, mut file_contents: T) -> Result<Program, AnalyzerError> {
+fn check<'a, T: io::BufRead>(file_name: &str, mut file_contents: T) -> Result<SemanticAnalysisArtifacts, CliError> {
     let mut buf = String::new();
-    let _ = file_contents.read_to_string(&mut buf);
-    let analyzer = Analyzer::new(file_name, &buf);
-    let program = analyzer.analyze();
-
-    let program = match program {
-        Ok(program) => program,
-        Err(err) => match err {
-            AnalyzerError::SemanticErrors(errs) => {
-                report_errors(&errs);
-                return Err(AnalyzerError::SemanticErrors(errs));
-            }
-            AnalyzerError::ParserErrors(errs) => {
-                report_errors(&errs);
-                return Err(AnalyzerError::ParserErrors(errs));
-            }
-        },
-    };
-    Ok(program)
+    let _ = file_contents.read_to_string(&mut buf).map_err(CliError::IoError)?;
+    let tokens = Lexer::new(&buf).lex();
+    let parser_artifacts = GlueParser::new(file_name, &buf, &tokens).parse().map_err(|e| {
+        report_errors(&[e.clone()]);
+        CliError::CompilationError(e)
+    })?;
+    let semantic_analyzer_artifacts = SemanticAnalyzer::new(file_name, &buf, &parser_artifacts).analyze().map_err(|e| {
+        report_errors(&[e.clone()]);
+        CliError::CompilationError(e)
+    })?;
+    Ok(semantic_analyzer_artifacts)
 }
 
 fn report_errors(errs: &[impl miette::Diagnostic]) {
     for e in errs.iter() {
         let mut out = String::new();
-        GraphicalReportHandler::new()
-            .render_report(&mut out, e)
-            .expect("Rendering report failed");
+        GraphicalReportHandler::new().render_report(&mut out, e).expect("Rendering report failed");
         eprintln!("----");
         eprintln!("{out}");
     }

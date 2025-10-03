@@ -1,0 +1,19 @@
+model GlueConfigSchema {
+	/// Configuration for code generation (`glue gen [...]`)
+	generation: Generation
+}
+
+model Generation {
+	/// Configurations for Rust code generation using Serde (`glue gen rust-serde [...]`)
+	rust_serde: RustSerde
+	model RustSerde {
+		include_yaml: bool = false
+	}
+
+	/// Configurations for Python code generation using Pydantic (`glue gen py-pydantic [...]`)
+	python_pydantic: PythonPydantic
+	model PythonPydantic {
+		/// The full import path for the base model class to inherit from (e.g., `pydantic.BaseModel` or `my.module.CustomBaseModel`)
+		base_model: string = "pydantic.BaseModel"
+	}
+}

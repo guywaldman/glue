@@ -1,0 +1,6 @@
+{
+	"rust-analyzer.runnables.extraTestBinaryArgs": [
+		"--show-output",
+		"--no-capture"
+	]
+}

@@ -13,11 +13,7 @@ where
     });
     let mut scored_candidates: Vec<_> = scores.collect();
     scored_candidates.sort_by(|a, b| b.0.cmp(&a.0)); // Sort by score descending
-    scored_candidates
-        .into_iter()
-        .take(limit)
-        .map(|(score, candidate)| (candidate, score))
-        .collect()
+    scored_candidates.into_iter().take(limit).map(|(score, candidate)| (candidate, score)).collect()
 }
 
 fn levenshtein(a: &str, b: &str) -> usize {
@@ -27,11 +23,7 @@ fn levenshtein(a: &str, b: &str) -> usize {
         costs[0] = i + 1;
         let mut last_cost = i;
         for (j, cb) in b.chars().enumerate() {
-            let new_cost = if ca == cb {
-                last_cost
-            } else {
-                1 + last_cost.min(costs[j]).min(costs[j + 1])
-            };
+            let new_cost = if ca == cb { last_cost } else { 1 + last_cost.min(costs[j]).min(costs[j + 1]) };
             last_cost = costs[j + 1];
             costs[j + 1] = new_cost;
         }

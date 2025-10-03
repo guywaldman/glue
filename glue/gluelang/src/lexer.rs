@@ -1,7 +1,7 @@
 use core::fmt;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TokenKind<'a> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TokenKind {
     LBrace,
     RBrace,
     LBracket,
@@ -15,20 +15,38 @@ pub enum TokenKind<'a> {
     Hash,
     Pipe,
     AtSign,
-    Ident(&'a str),
-    StringLiteral(&'a str),
-    Number(i64),
-    DocBlock(Vec<&'a str>),
+    Ident,
+    StringLit,
+    IntLit,
+    BoolLit,
+    Number,
+    DocBlock,
     Eof,
-    Error(&'a str),
+    Error,
     // Keywords
     KeywordEnum,
     KeywordModel,
     KeywordEndpoint,
     KeywordResponse,
+    Noop,
 }
 
-impl fmt::Display for TokenKind<'_> {
+impl Default for TokenKind {
+    fn default() -> Self {
+        TokenKind::Noop
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TokenPayload {
+    None,
+    String(String),
+    Number(i64),
+    Bool(bool),
+    DocLines(Vec<String>),
+}
+
+impl fmt::Display for TokenKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             TokenKind::KeywordEnum => write!(f, "enum"),
@@ -48,12 +66,15 @@ impl fmt::Display for TokenKind<'_> {
             TokenKind::Hash => write!(f, "#"),
             TokenKind::Pipe => write!(f, "|"),
             TokenKind::AtSign => write!(f, "@"),
-            TokenKind::Number(n) => write!(f, "number({n})"),
-            TokenKind::Ident(s) => write!(f, "identifier({s})"),
-            TokenKind::StringLiteral(s) => write!(f, "string(\"{s}\")"),
-            TokenKind::DocBlock(_) => write!(f, "doc block"),
+            TokenKind::Number => write!(f, "number"),
+            TokenKind::Ident => write!(f, "identifier"),
+            TokenKind::StringLit => write!(f, "string"),
+            TokenKind::IntLit => write!(f, "integer"),
+            TokenKind::BoolLit => write!(f, "boolean"),
+            TokenKind::DocBlock => write!(f, "doc block"),
             TokenKind::Eof => write!(f, "end of file"),
-            TokenKind::Error(s) => write!(f, "error({s})"),
+            TokenKind::Error => write!(f, "error"),
+            TokenKind::Noop => write!(f, "noop"),
         }
     }
 }
@@ -67,10 +88,58 @@ pub struct Span {
     pub col_end: usize,
 }
 
+impl Default for Span {
+    fn default() -> Self {
+        Self {
+            start: 0,
+            end: 0,
+            line: 1,
+            col_start: 1,
+            col_end: 1,
+        }
+    }
+}
+
+impl Span {
+    pub fn merge(&self, other: &Span) -> Span {
+        Span {
+            start: self.start.min(other.start),
+            end: self.end.max(other.end),
+            line: self.line.min(other.line),
+            col_start: if self.line <= other.line { self.col_start } else { other.col_start },
+            col_end: if self.line >= other.line { self.col_end } else { other.col_end },
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Token<'a> {
-    pub kind: TokenKind<'a>,
+pub struct Token {
+    pub kind: TokenKind,
+    pub payload: TokenPayload,
     pub span: Span,
+}
+
+impl Token {
+    pub fn as_string(&self) -> Option<&str> {
+        match &self.payload {
+            TokenPayload::String(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    pub fn as_number(&self) -> Option<i64> {
+        match &self.payload {
+            TokenPayload::Number(n) => Some(*n),
+            _ => None,
+        }
+    }
+
+    pub fn as_doc_lines(&self) -> Option<&Vec<String>> {
+        match &self.payload {
+            TokenPayload::DocLines(lines) => Some(lines),
+            _ => None,
+        }
+    }
 }
 
 pub struct Lexer<'a> {
@@ -92,25 +161,26 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    pub fn lex(&mut self) -> Vec<Token<'a>> {
+    pub fn lex(mut self) -> Vec<Token> {
         let mut tokens = Vec::new();
         loop {
             let token = self.next_token();
-            tokens.push(token.clone());
-            if token.kind == TokenKind::Eof {
+            let is_eof = token.kind == TokenKind::Eof;
+            tokens.push(token);
+            if is_eof {
                 break;
             }
         }
         tokens
     }
 
-    pub fn next_token(&mut self) -> Token<'a> {
+    pub fn next_token(&mut self) -> Token {
         loop {
             self.skip_ws();
             let sp = self.span_start();
 
             if self.at_end() {
-                return self.make(TokenKind::Eof, sp);
+                return self.make(TokenKind::Eof, TokenPayload::None, sp);
             }
 
             // Snapshot lookaheads to avoid borrow issues
@@ -130,55 +200,55 @@ impl<'a> Lexer<'a> {
                 }
                 b'{' => {
                     self.advance();
-                    return self.make(TokenKind::LBrace, sp);
+                    return self.make(TokenKind::LBrace, TokenPayload::None, sp);
                 }
                 b'}' => {
                     self.advance();
-                    return self.make(TokenKind::RBrace, sp);
+                    return self.make(TokenKind::RBrace, TokenPayload::None, sp);
                 }
                 b'[' => {
                     self.advance();
-                    return self.make(TokenKind::LBracket, sp);
+                    return self.make(TokenKind::LBracket, TokenPayload::None, sp);
                 }
                 b']' => {
                     self.advance();
-                    return self.make(TokenKind::RBracket, sp);
+                    return self.make(TokenKind::RBracket, TokenPayload::None, sp);
                 }
                 b'(' => {
                     self.advance();
-                    return self.make(TokenKind::LParen, sp);
+                    return self.make(TokenKind::LParen, TokenPayload::None, sp);
                 }
                 b')' => {
                     self.advance();
-                    return self.make(TokenKind::RParen, sp);
+                    return self.make(TokenKind::RParen, TokenPayload::None, sp);
                 }
                 b',' => {
                     self.advance();
-                    return self.make(TokenKind::Comma, sp);
+                    return self.make(TokenKind::Comma, TokenPayload::None, sp);
                 }
                 b'=' => {
                     self.advance();
-                    return self.make(TokenKind::Equal, sp);
+                    return self.make(TokenKind::Equal, TokenPayload::None, sp);
                 }
                 b'?' => {
                     self.advance();
-                    return self.make(TokenKind::QuestionMark, sp);
+                    return self.make(TokenKind::QuestionMark, TokenPayload::None, sp);
                 }
                 b':' => {
                     self.advance();
-                    return self.make(TokenKind::Colon, sp);
+                    return self.make(TokenKind::Colon, TokenPayload::None, sp);
                 }
                 b'#' => {
                     self.advance();
-                    return self.make(TokenKind::Hash, sp);
+                    return self.make(TokenKind::Hash, TokenPayload::None, sp);
                 }
                 b'|' => {
                     self.advance();
-                    return self.make(TokenKind::Pipe, sp);
+                    return self.make(TokenKind::Pipe, TokenPayload::None, sp);
                 }
                 b'@' => {
                     self.advance();
-                    return self.make(TokenKind::AtSign, sp);
+                    return self.make(TokenKind::AtSign, TokenPayload::None, sp);
                 }
                 b'"' => {
                     self.advance(); // consume opening quote
@@ -190,11 +260,11 @@ impl<'a> Lexer<'a> {
                     if self.at_end() {
                         // Unterminated string
                         let slice = &self.src[start - 1..self.i];
-                        return self.make(TokenKind::Error(slice), sp);
+                        return self.make(TokenKind::Error, TokenPayload::String(slice.to_string()), sp);
                     } else {
                         self.advance(); // consume closing quote
                         let s = &self.src[start..end];
-                        return self.make(TokenKind::StringLiteral(s), sp);
+                        return self.make(TokenKind::StringLit, TokenPayload::String(s.to_string()), sp);
                     }
                 }
                 b'1'..=b'9' => {
@@ -207,13 +277,13 @@ impl<'a> Lexer<'a> {
                     let start = self.i;
                     self.advance();
                     let slice = &self.src[start..self.i];
-                    return self.make(TokenKind::Error(slice), sp);
+                    return self.make(TokenKind::Error, TokenPayload::String(slice.to_string()), sp);
                 }
             }
         }
     }
 
-    fn scan_number(&mut self, sp: Span) -> Token<'a> {
+    fn scan_number(&mut self, sp: Span) -> Token {
         let start = self.i;
         self.advance(); // first is valid
         while !self.at_end() && self.peek().is_ascii_digit() {
@@ -221,10 +291,10 @@ impl<'a> Lexer<'a> {
         }
         let s = &self.src[start..self.i];
         let number = s.parse::<i64>().expect("valid number");
-        self.make(TokenKind::Number(number), sp)
+        self.make(TokenKind::Number, TokenPayload::Number(number), sp)
     }
 
-    fn scan_ident_or_kw(&mut self, sp: Span) -> Token<'a> {
+    fn scan_ident_or_kw(&mut self, sp: Span) -> Token {
         let start = self.i;
         self.advance(); // first is valid
         while !self.at_end() && Self::is_id_cont(self.peek()) {
@@ -237,13 +307,27 @@ impl<'a> Lexer<'a> {
             "model" => TokenKind::KeywordModel,
             "endpoint" => TokenKind::KeywordEndpoint,
             "response" => TokenKind::KeywordResponse,
-            _ => TokenKind::Ident(s),
+            "true" => {
+                return self.make(TokenKind::BoolLit, TokenPayload::Bool(true), sp);
+            }
+            "false" => {
+                return self.make(TokenKind::BoolLit, TokenPayload::Bool(false), sp);
+            }
+            _ => TokenKind::Ident,
         };
-        self.make(kind, sp)
+
+        let payload = if kind == TokenKind::Ident {
+            TokenPayload::String(s.to_string())
+        } else {
+            TokenPayload::None
+        };
+
+        self.make(kind, payload, sp)
     }
 
-    fn scan_doc_block(&mut self, sp: Span) -> Token<'a> {
-        let mut lines: Vec<&'a str> = Vec::new();
+    fn scan_doc_block(&mut self, sp: Span) -> Token {
+        let mut lines = Vec::new();
+
         loop {
             self.advance_n(3); // "///"
 
@@ -263,7 +347,7 @@ impl<'a> Lexer<'a> {
                 end -= 1;
             }
 
-            lines.push(&self.src[start..end]);
+            lines.push(self.src[start..end].to_string());
 
             // consume newline if present
             if !self.at_end() && self.peek() == b'\n' {
@@ -275,7 +359,7 @@ impl<'a> Lexer<'a> {
                 break;
             }
         }
-        self.make(TokenKind::DocBlock(lines), sp)
+        self.make(TokenKind::DocBlock, TokenPayload::DocLines(lines), sp)
     }
 
     fn skip_line_comment(&mut self) {
@@ -343,10 +427,10 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn make(&self, kind: TokenKind<'a>, mut sp: Span) -> Token<'a> {
+    fn make(&self, kind: TokenKind, payload: TokenPayload, mut sp: Span) -> Token {
         sp.end = self.i;
         sp.col_end = self.col;
-        Token { kind, span: sp }
+        Token { kind, payload, span: sp }
     }
 
     #[inline]
@@ -362,19 +446,22 @@ impl<'a> Lexer<'a> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
+
     #[test]
     fn test_lexer_basic() {
         let src = r#"
-		model User {
-			/// A unique identifier for the user.
-			// INTERNAL NOTE: The ID is a UUID.
-			id: string
-			/// The user's email address.
-			email: string
-			/// The user's age.
-			age: int
-	    }
-	"#
+        model User {
+            /// A unique identifier for the user.
+            // INTERNAL NOTE: The ID is a UUID.
+            id: string
+            /// The user's email address.
+            email: string
+            /// The user's age.
+            age: int
+        }
+    "#
         .trim();
 
         let tokens = super::Lexer::new(src).lex();
@@ -383,51 +470,57 @@ mod tests {
         assert_eq!(
             token_kinds,
             vec![
-                &super::TokenKind::KeywordModel,
-                &super::TokenKind::Ident("User"),
-                &super::TokenKind::LBrace,
-                &super::TokenKind::DocBlock(vec!["A unique identifier for the user."]),
-                &super::TokenKind::Ident("id"),
-                &super::TokenKind::Colon,
-                &super::TokenKind::Ident("string"),
-                &super::TokenKind::DocBlock(vec!["The user's email address."]),
-                &super::TokenKind::Ident("email"),
-                &super::TokenKind::Colon,
-                &super::TokenKind::Ident("string"),
-                &super::TokenKind::DocBlock(vec!["The user's age."]),
-                &super::TokenKind::Ident("age"),
-                &super::TokenKind::Colon,
-                &super::TokenKind::Ident("int"),
-                &super::TokenKind::RBrace,
-                &super::TokenKind::Eof,
+                &TokenKind::KeywordModel,
+                &TokenKind::Ident,
+                &TokenKind::LBrace,
+                &TokenKind::DocBlock,
+                &TokenKind::Ident,
+                &TokenKind::Colon,
+                &TokenKind::Ident,
+                &TokenKind::DocBlock,
+                &TokenKind::Ident,
+                &TokenKind::Colon,
+                &TokenKind::Ident,
+                &TokenKind::DocBlock,
+                &TokenKind::Ident,
+                &TokenKind::Colon,
+                &TokenKind::Ident,
+                &TokenKind::RBrace,
+                &TokenKind::Eof,
             ]
         );
+
+        // Test specific payloads
+        assert_eq!(tokens[1].as_string(), Some("User"));
+        assert_eq!(tokens[3].as_doc_lines(), Some(&vec!["A unique identifier for the user.".to_owned()]));
+        assert_eq!(tokens[4].as_string(), Some("id"));
     }
 
     #[test]
     fn test_lexer_multiple_models() {
         let src = r#"
-		model User {
-			/// A unique identifier for the user.
-			// INTERNAL NOTE: The ID is a UUID.
-			id: string
-			/// The user's email address.
-			email: string
-			/// The user's age.
-			age: int
-	    }
+        model User {
+            /// A unique identifier for the user.
+            // INTERNAL NOTE: The ID is a UUID.
+            id: string
+            /// The user's email address.
+            email: string
+            /// The user's age.
+            age: int
+        }
 
         model Post {
             /// A unique identifier for the post.
             id: string
             /// The title of the post.
+            /// It should be concise yet descriptive.
             title: string
             /// The content of the post.
             content: string
             /// The ID of the user who created the post.
             author_id: string
         }
-	"#
+    "#
         .trim();
 
         let tokens = super::Lexer::new(src).lex();
@@ -436,43 +529,44 @@ mod tests {
         assert_eq!(
             token_kinds,
             vec![
-                &super::TokenKind::KeywordModel,
-                &super::TokenKind::Ident("User"),
-                &super::TokenKind::LBrace,
-                &super::TokenKind::DocBlock(vec!["A unique identifier for the user."]),
-                &super::TokenKind::Ident("id"),
-                &super::TokenKind::Colon,
-                &super::TokenKind::Ident("string"),
-                &super::TokenKind::DocBlock(vec!["The user's email address."]),
-                &super::TokenKind::Ident("email"),
-                &super::TokenKind::Colon,
-                &super::TokenKind::Ident("string"),
-                &super::TokenKind::DocBlock(vec!["The user's age."]),
-                &super::TokenKind::Ident("age"),
-                &super::TokenKind::Colon,
-                &super::TokenKind::Ident("int"),
-                &super::TokenKind::RBrace,
-                &super::TokenKind::KeywordModel,
-                &super::TokenKind::Ident("Post"),
-                &super::TokenKind::LBrace,
-                &super::TokenKind::DocBlock(vec!["A unique identifier for the post."]),
-                &super::TokenKind::Ident("id"),
-                &super::TokenKind::Colon,
-                &super::TokenKind::Ident("string"),
-                &super::TokenKind::DocBlock(vec!["The title of the post."]),
-                &super::TokenKind::Ident("title"),
-                &super::TokenKind::Colon,
-                &super::TokenKind::Ident("string"),
-                &super::TokenKind::DocBlock(vec!["The content of the post."]),
-                &super::TokenKind::Ident("content"),
-                &super::TokenKind::Colon,
-                &super::TokenKind::Ident("string"),
-                &super::TokenKind::DocBlock(vec!["The ID of the user who created the post."]),
-                &super::TokenKind::Ident("author_id"),
-                &super::TokenKind::Colon,
-                &super::TokenKind::Ident("string"),
-                &super::TokenKind::RBrace,
-                &super::TokenKind::Eof,
+                &TokenKind::KeywordModel,
+                &TokenKind::Ident,
+                &TokenKind::LBrace,
+                &TokenKind::DocBlock,
+                &TokenKind::Ident,
+                &TokenKind::Colon,
+                &TokenKind::Ident,
+                &TokenKind::DocBlock,
+                &TokenKind::Ident,
+                &TokenKind::Colon,
+                &TokenKind::Ident,
+                &TokenKind::DocBlock,
+                &TokenKind::Ident,
+                &TokenKind::Colon,
+                &TokenKind::Ident,
+                &TokenKind::RBrace,
+                &TokenKind::KeywordModel,
+                &TokenKind::Ident,
+                &TokenKind::LBrace,
+                &TokenKind::DocBlock,
+                &TokenKind::Ident,
+                &TokenKind::Colon,
+                &TokenKind::Ident,
+                &TokenKind::DocBlock,
+                &TokenKind::DocBlock,
+                &TokenKind::Ident,
+                &TokenKind::Colon,
+                &TokenKind::Ident,
+                &TokenKind::DocBlock,
+                &TokenKind::Ident,
+                &TokenKind::Colon,
+                &TokenKind::Ident,
+                &TokenKind::DocBlock,
+                &TokenKind::Ident,
+                &TokenKind::Colon,
+                &TokenKind::Ident,
+                &TokenKind::RBrace,
+                &TokenKind::Eof,
             ]
         );
     }
@@ -497,30 +591,30 @@ mod tests {
         assert_eq!(
             token_kinds,
             vec![
-                &super::TokenKind::KeywordModel,
-                &super::TokenKind::Ident("Post"),
-                &super::TokenKind::LBrace,
-                &super::TokenKind::Ident("id"),
-                &super::TokenKind::Colon,
-                &super::TokenKind::Ident("string"),
-                &super::TokenKind::Ident("user"),
-                &super::TokenKind::Colon,
-                &super::TokenKind::Ident("int"),
-                &super::TokenKind::Pipe,
-                &super::TokenKind::Hash,
-                &super::TokenKind::Ident("User"),
-                &super::TokenKind::RBrace,
-                &super::TokenKind::KeywordModel,
-                &super::TokenKind::Ident("User"),
-                &super::TokenKind::LBrace,
-                &super::TokenKind::Ident("id"),
-                &super::TokenKind::Colon,
-                &super::TokenKind::Ident("string"),
-                &super::TokenKind::Ident("email"),
-                &super::TokenKind::Colon,
-                &super::TokenKind::Ident("string"),
-                &super::TokenKind::RBrace,
-                &super::TokenKind::Eof,
+                &TokenKind::KeywordModel,
+                &TokenKind::Ident,
+                &TokenKind::LBrace,
+                &TokenKind::Ident,
+                &TokenKind::Colon,
+                &TokenKind::Ident,
+                &TokenKind::Ident,
+                &TokenKind::Colon,
+                &TokenKind::Ident,
+                &TokenKind::Pipe,
+                &TokenKind::Hash,
+                &TokenKind::Ident,
+                &TokenKind::RBrace,
+                &TokenKind::KeywordModel,
+                &TokenKind::Ident,
+                &TokenKind::LBrace,
+                &TokenKind::Ident,
+                &TokenKind::Colon,
+                &TokenKind::Ident,
+                &TokenKind::Ident,
+                &TokenKind::Colon,
+                &TokenKind::Ident,
+                &TokenKind::RBrace,
+                &TokenKind::Eof,
             ]
         );
     }
@@ -539,18 +633,21 @@ mod tests {
         assert_eq!(
             token_kinds,
             vec![
-                &super::TokenKind::Hash,
-                &super::TokenKind::LBracket,
-                &super::TokenKind::KeywordEndpoint,
-                &super::TokenKind::LParen,
-                &super::TokenKind::StringLiteral("/users/{id}"),
-                &super::TokenKind::RParen,
-                &super::TokenKind::RBracket,
-                &super::TokenKind::KeywordEndpoint,
-                &super::TokenKind::LBrace,
-                &super::TokenKind::RBrace,
-                &super::TokenKind::Eof,
+                &TokenKind::Hash,
+                &TokenKind::LBracket,
+                &TokenKind::KeywordEndpoint,
+                &TokenKind::LParen,
+                &TokenKind::StringLit,
+                &TokenKind::RParen,
+                &TokenKind::RBracket,
+                &TokenKind::KeywordEndpoint,
+                &TokenKind::LBrace,
+                &TokenKind::RBrace,
+                &TokenKind::Eof,
             ]
         );
+
+        // Test string literal payload
+        assert_eq!(tokens[4].as_string(), Some("/users/{id}"));
     }
 }

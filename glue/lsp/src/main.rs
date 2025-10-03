@@ -1,8 +1,8 @@
 use gluelang::{Analyzer, Program, Span};
 use log::info;
 use lsp_types::{
-    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams, InitializeParams, InitializeResult, Location, Position, Range,
-    ServerCapabilities, TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind,
+    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams, InitializeParams, InitializeResult, Location, Position, Range, ServerCapabilities, TextDocumentPositionParams,
+    TextDocumentSyncCapability, TextDocumentSyncKind,
 };
 use std::sync::{Arc, RwLock};
 use tower_lsp::{Client, LanguageServer, LspService, Server};
@@ -148,11 +148,7 @@ impl LanguageServer for Backend {
         // TODO: Optimize - this is horribly inefficient and unmaintainable.
         for model in &program.models() {
             if pos_within_span(line, col, &model.span) {
-                let contents = format!(
-                    "{}\n```glue\nmodel {} {{ ... }}\n```",
-                    model.doc.as_ref().unwrap_or(&"".into()),
-                    model.name
-                );
+                let contents = format!("{}\n```glue\nmodel {} {{ ... }}\n```", model.doc.as_ref().unwrap_or(&"".into()), model.name);
                 let hover = Hover {
                     contents: lsp_types::HoverContents::Scalar(lsp_types::MarkedString::String(contents)),
                     range: Some(Range {
@@ -274,12 +270,7 @@ impl LanguageServer for Backend {
                 // Also rename the model definition itself
                 // Adjust the rest of the row on the right, since the new name may be longer.
                 let entire_line = st.text.lines().nth(model.span.line - 1).unwrap_or_default().to_string();
-                let adjusted_line = format!(
-                    "{}{} {}",
-                    &entire_line[..model.span.col_start - 1],
-                    new_name,
-                    &entire_line[model.span.col_end..]
-                );
+                let adjusted_line = format!("{}{} {}", &entire_line[..model.span.col_start - 1], new_name, &entire_line[model.span.col_end..]);
 
                 edits.push(lsp_types::TextEdit {
                     range: Range {
@@ -365,9 +356,7 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lsp_types::{
-        DidOpenTextDocumentParams, GotoDefinitionParams, TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams,
-    };
+    use lsp_types::{DidOpenTextDocumentParams, GotoDefinitionParams, TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams};
 
     #[tokio::test]
     async fn test_goto_definition_uri() {

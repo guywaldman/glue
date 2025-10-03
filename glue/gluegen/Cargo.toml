@@ -7,7 +7,13 @@ edition = "2024"
 anyhow = "1.0.100"
 clap = { version = "4.5.48", features = ["derive"] }
 gluelang = { path = "../gluelang" }
+indoc = "2.0.6"
+json = "0.12.4"
+log = "0.4.28"
 miette = { version = "7.6.0", features = ["fancy"] }
+pretty_env_logger = "0.5.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_yaml = "0.9.34"
 thiserror = "2.0.16"
 
 [dev-dependencies]

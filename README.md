@@ -20,11 +20,6 @@ A domain-specific language and translator toolchain for modelling data.
 
 ...
 
-## Components
-
-- `gluelang` - DSL (domain-specific language) for defining data models (similar to [protobuf](https://protobuf.dev/)) 
-- `gluecli` - CLI for code generation (e.g., generate TypeScript definitions from a Glue file, generate Markdown tables to describe a Glue file)
-
 ## DSL
 
 ### Models

@@ -1,4 +1,3 @@
-use gluelang::Program;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -15,6 +14,8 @@ pub enum CodeGenError {
     AggregatedError(Vec<CodeGenError>),
 }
 
-pub trait CodeGen {
-    fn generate(&self, program: &Program) -> Result<String, CodeGenError>;
+pub type EmitResult = Result<String, CodeGenError>;
+
+pub trait CodeGenerator {
+    fn generate(self) -> EmitResult;
 }
