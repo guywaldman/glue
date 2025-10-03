@@ -1,5 +1,5 @@
-mod cli;
+mod glue_cli;
 mod subcommand_gen;
 mod types;
 
-pub use cli::GlueCli;
+pub use glue_cli::GlueCli;

@@ -31,10 +31,10 @@ impl CodeGenerator for PythonPydanticCodeGenerator {
         // Traverse the top-level models and enums of the AST.
         for node in top_level_nodes {
             match node.kind() {
-                AstNodeKind::Model { .. } => {
+                AstNodeKind::Model => {
                     result.push_str(&self.emit_model(&node)?);
                 }
-                AstNodeKind::Enum { .. } => {
+                AstNodeKind::Enum => {
                     result.push_str(&self.emit_enum(&node)?);
                 }
                 _ => {}
@@ -63,14 +63,14 @@ impl PythonPydanticCodeGenerator {
 
         for child in &children {
             match child.kind() {
-                AstNodeKind::Field { .. } => {
+                AstNodeKind::Field => {
                     inner_emits.push_str(&self.emit_field(child)?);
                     inner_emits.push('\n');
                 }
-                AstNodeKind::Enum { .. } => {
+                AstNodeKind::Enum => {
                     inner_emits.push_str(&self.emit_enum(child)?);
                 }
-                AstNodeKind::Model { .. } => {
+                AstNodeKind::Model => {
                     let nested = &self.emit_model(child)?;
                     nested_type_emits.push(nested.clone());
                 }
@@ -163,13 +163,13 @@ impl PythonPydanticCodeGenerator {
                     PrimitiveType::Int => atom_str.push_str("int"),
                     PrimitiveType::Bool => atom_str.push_str("bool"),
                 },
-                TypeVariant::Ref(name) => atom_str.push_str(&name),
+                TypeVariant::Ref(name) => atom_str.push_str(name),
             }
 
             if atom.is_array {
-                atom_str = format!("List[{}]", atom_str);
+                atom_str = format!("List[{atom_str}]");
             } else if atom.is_optional {
-                atom_str = format!("Optional[{}]", atom_str);
+                atom_str = format!("Optional[{atom_str}]");
             }
 
             result.push_str(&atom_str);

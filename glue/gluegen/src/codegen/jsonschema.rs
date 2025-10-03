@@ -20,7 +20,7 @@ impl CodeGenerator for JsonSchemaCodeGenerator {
 
         // Find the model that has the `@root` decorator
         let root_model_node = top_level_nodes.iter().find(|node| {
-            if let AstNodeKind::Model { .. } = node.kind() {
+            if let AstNodeKind::Model = node.kind() {
                 let Some(root_decorators) = self
                     .ast
                     .get_children_fn(node.id(), |n| matches!(n.payload(), AstNodePayload::Decorator { name, .. } if name == "root"))
@@ -66,7 +66,7 @@ impl JsonSchemaCodeGenerator {
     fn emit_model(&mut self, model: &AstNode) -> Result<json::object::Object, CodeGenError> {
         let mut result = json::object::Object::new();
 
-        let AstNodeKind::Model { .. } = model.kind() else {
+        let AstNodeKind::Model = model.kind() else {
             return Err(CodeGenError::Other("Expected a model node".to_string()));
         };
 

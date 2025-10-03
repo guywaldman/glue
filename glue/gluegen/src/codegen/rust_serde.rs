@@ -29,11 +29,11 @@ impl CodeGenerator for RustSerdeCodeGenerator {
         // Traverse the top-level models and enums of the AST.
         for node in top_level_nodes {
             match node.kind() {
-                AstNodeKind::Model { .. } => {
+                AstNodeKind::Model => {
                     result.push_str(&self.emit_model(&node)?);
                     result.push('\n');
                 }
-                AstNodeKind::Enum { .. } => {
+                AstNodeKind::Enum => {
                     result.push_str(&self.emit_enum(&node)?);
                     result.push('\n');
                 }
@@ -46,7 +46,7 @@ impl CodeGenerator for RustSerdeCodeGenerator {
 					#![allow(unused_imports)]
 					#![allow(dead_code)]
 				"#});
-        prelude.push_str("\n");
+        prelude.push('\n');
 
         prelude.extend(self.preludes.iter().cloned());
 
@@ -85,13 +85,13 @@ impl RustSerdeCodeGenerator {
 
         for child in &children {
             match child.kind() {
-                AstNodeKind::Field { .. } => {
+                AstNodeKind::Field => {
                     field_emits.push(self.emit_field(model, child)?);
                 }
-                AstNodeKind::Enum { .. } => {
+                AstNodeKind::Enum => {
                     nested_type_emits.push(self.emit_enum(child)?);
                 }
-                AstNodeKind::Model { .. } => {
+                AstNodeKind::Model => {
                     nested_type_emits.push(self.emit_model(child)?);
                 }
                 _ => {}

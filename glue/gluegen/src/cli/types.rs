@@ -49,11 +49,11 @@ pub enum CliAstSubcommand {
 #[derive(Debug, Error)]
 pub enum CliError {
     #[error("Failed to read config file")]
-    ConfigReadError(#[from] anyhow::Error),
+    ConfigRead(#[from] anyhow::Error),
     #[error("I/O error")]
-    IoError(#[from] std::io::Error),
+    Io(#[from] std::io::Error),
     #[error("Compilation error")]
-    CompilationError(LangError),
+    Compilation(#[from] Box<LangError>),
     #[error("Code generation error: {0}")]
-    CodeGenError(CodeGenError),
+    CodeGen(CodeGenError),
 }

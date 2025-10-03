@@ -10,11 +10,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let src = std::fs::read_to_string(&file_name).expect("Failed to read input file");
     let tokens = Lexer::new(&src).lex();
     let parser_artifacts = Parser::new(&file_name, &src, &tokens).parse().unwrap_or_else(|e| {
-        report_errors(&[e]);
+        report_errors(&[*e]);
         std::process::exit(1);
     });
     let semantic = SemanticAnalyzer::new(&file_name, &src, &parser_artifacts).analyze().unwrap_or_else(|e| {
-        report_errors(&[e]);
+        report_errors(&[*e]);
         std::process::exit(1);
     });
     if !semantic.warnings.is_empty() {

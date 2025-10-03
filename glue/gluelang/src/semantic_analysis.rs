@@ -1,7 +1,8 @@
 use colored::Colorize;
 
 use crate::{
-    LangError, Span,
+    AstNodePayload, LangError, Span,
+    diagnostics::LangResult,
     parser::{Ast, AstNode, AstNodeId, AstNodeKind, AstSymbol, ParserArtifacts, SymbolTable, TreeNode, Type, TypeVariant},
     utils::fuzzy::fuzzy_match,
 };
@@ -37,7 +38,7 @@ impl<'a> SemanticAnalyzer<'a> {
     }
 
     // TODO: Return multiple errors
-    pub fn analyze(mut self) -> Result<SemanticAnalysisArtifacts, LangError> {
+    pub fn analyze(mut self) -> LangResult<SemanticAnalysisArtifacts> {
         let root_id = self.ast.get_root();
         let Some(top_level_nodes) = self.ast.get_children(root_id) else {
             return Ok(self.artifacts);
@@ -59,11 +60,11 @@ impl<'a> SemanticAnalyzer<'a> {
         Ok(self.artifacts)
     }
 
-    fn analyze_model(&mut self, model: &AstNode) -> Result<(), LangError> {
+    fn analyze_model(&mut self, model: &AstNode) -> LangResult {
         if model.kind() != AstNodeKind::Model {
             return Err(self.err(*model.span(), "Expected a model node".to_string(), None, Some("EInternal")));
         }
-        let Some((name, _)) = model.as_model() else {
+        let AstNodePayload::Model { name, .. } = &model.payload() else {
             return Err(self.err(*model.span(), "Expected a model node with payload".to_string(), None, Some("EInternal")));
         };
         // Model names must start with an uppercase letter
@@ -85,7 +86,7 @@ impl<'a> SemanticAnalyzer<'a> {
         Ok(())
     }
 
-    fn analyze_field(&self, node_id: AstNodeId) -> Result<(), LangError> {
+    fn analyze_field(&self, node_id: AstNodeId) -> LangResult {
         let node = self
             .ast
             .get_node(node_id)
@@ -93,7 +94,7 @@ impl<'a> SemanticAnalyzer<'a> {
         if node.kind() != AstNodeKind::Field {
             return Err(self.err(*node.span(), "Expected a field node".to_string(), None, Some("EInternal")));
         }
-        let Some((_, _, ty, _)) = node.as_field() else {
+        let AstNodePayload::Field { ty, .. } = &node.payload() else {
             return Err(self.err(*node.span(), "Expected a field node with payload".to_string(), None, Some("EInternal")));
         };
         let type_refs = match ty {
@@ -123,10 +124,7 @@ impl<'a> SemanticAnalyzer<'a> {
                     .as_ref()
                     .map(|s| s.contains_key(&AstSymbol::Model(ref_name.clone())) || s.contains_key(&AstSymbol::Enum(ref_name.clone())))
                     .unwrap_or(false);
-                let type_nodes = self
-                    .ast
-                    .get_children_fn(node_id, |n| n.kind() == AstNodeKind::Type)
-                    .unwrap_or_default();
+                let type_nodes = self.ast.get_children_fn(node_id, |n| n.kind() == AstNodeKind::Type).unwrap_or_default();
                 let span = type_nodes.get(i).map(|n| *n.span()).unwrap_or_else(|| *node.span());
                 if !is_defined {
                     let symbol_names = symbols_in_scope
@@ -173,8 +171,8 @@ impl<'a> SemanticAnalyzer<'a> {
         Ok(())
     }
 
-    fn err(&self, span: Span, msg: impl Into<String>, note: Option<String>, code: Option<&str>) -> LangError {
-        LangError::error(self.file_name, self.src, span, msg, note, code)
+    fn err(&self, span: Span, msg: impl Into<String>, note: Option<String>, code: Option<&str>) -> Box<LangError> {
+        Box::new(LangError::error(self.file_name, self.src, span, msg, note, code))
     }
 
     fn warn(&mut self, span: Span, msg: impl Into<String>, note: Option<String>, code: Option<&str>) {
@@ -191,7 +189,7 @@ mod tests {
 
     use super::*;
 
-    fn analyze(src: &str) -> Result<SemanticAnalysisArtifacts, LangError> {
+    fn analyze(src: &str) -> LangResult<SemanticAnalysisArtifacts> {
         let tokens = Lexer::new(src).lex();
         let parser_artifacts = Parser::new("test.glue", src, &tokens).parse()?;
         let semantic = SemanticAnalyzer::new("test.glue", src, &parser_artifacts).analyze()?;

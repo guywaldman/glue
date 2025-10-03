@@ -6,23 +6,12 @@ use std::{
     },
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Span {
     pub start: usize,
     pub end: usize,
     pub line: usize,
     pub col: usize,
-}
-
-impl Default for Span {
-    fn default() -> Self {
-        Span {
-            start: 0,
-            end: 0,
-            line: 0,
-            col: 0,
-        }
-    }
 }
 
 const ORDERING: Ordering = Ordering::Relaxed;
@@ -307,6 +296,7 @@ where
 }
 
 #[cfg(test)]
+#[allow(unused_variables)]
 mod tests {
     use std::sync::{Arc, Barrier};
     use std::thread;

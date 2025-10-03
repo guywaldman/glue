@@ -1,6 +1,6 @@
 use core::fmt;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TokenKind {
     LBrace,
     RBrace,
@@ -27,13 +27,8 @@ pub enum TokenKind {
     KeywordModel,
     KeywordEndpoint,
     KeywordResponse,
+    #[default]
     Noop,
-}
-
-impl Default for TokenKind {
-    fn default() -> Self {
-        TokenKind::Noop
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

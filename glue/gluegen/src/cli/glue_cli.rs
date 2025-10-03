@@ -53,15 +53,15 @@ impl GlueCli {
 
     pub fn check<T: io::BufRead>(file_name: &str, mut file_contents: T) -> Result<SemanticAnalysisArtifacts, CliError> {
         let mut buf = String::new();
-        let _ = file_contents.read_to_string(&mut buf).map_err(CliError::IoError)?;
+        let _ = file_contents.read_to_string(&mut buf).map_err(CliError::Io)?;
         let tokens = Lexer::new(&buf).lex();
         let parser_artifacts = gluelang::Parser::new(file_name, &buf, &tokens).parse().map_err(|e| {
-            Self::report_errors(&[e.clone()]);
-            CliError::CompilationError(e)
+            Self::report_errors(&[*e.clone()]);
+            CliError::Compilation(Box::new(*e))
         })?;
         let semantic_analyzer_artifacts = SemanticAnalyzer::new(file_name, &buf, &parser_artifacts).analyze().map_err(|e| {
-            Self::report_errors(&[e.clone()]);
-            CliError::CompilationError(e)
+            Self::report_errors(&[*e.clone()]);
+            CliError::Compilation(Box::new(*e))
         })?;
         Ok(semantic_analyzer_artifacts)
     }

@@ -6,12 +6,17 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
 
-fn default_true() -> bool { false }
-fn default_false() -> bool { true }
-fn python_pydantic_default_pydantic_basemodel() -> String { "pydantic.BaseModel".to_string() }
+fn default_true() -> bool {
+    false
+}
+fn default_false() -> bool {
+    true
+}
+fn python_pydantic_default_pydantic_basemodel() -> String {
+    "pydantic.BaseModel".to_string()
+}
 
 use serde::{Deserialize, Serialize};
-
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GlueConfigSchema {
@@ -56,4 +61,3 @@ pub struct Generation {
     #[serde(default)]
     pub python_pydantic: PythonPydantic,
 }
-

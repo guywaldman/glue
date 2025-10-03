@@ -14,6 +14,10 @@ pub struct LangError {
     pub severity: miette::Severity,
 }
 
+/// A specialized `Result` type for language processing operations.
+/// We box the `LangError` to reduce its size.
+pub type LangResult<T = ()> = Result<T, Box<LangError>>;
+
 impl LangError {
     pub fn error<T: Into<String>>(file_name: &str, src: &str, span: Span, message: impl Into<String>, note: Option<T>, code: Option<&str>) -> Self {
         Self {

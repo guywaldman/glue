@@ -202,39 +202,4 @@ impl AstNode {
             _ => None,
         }
     }
-
-    pub fn as_model(&self) -> Option<(&str, Option<&str>)> {
-        match &self.payload {
-            AstNodePayload::Model { name, doc } => Some((name, doc.as_deref())),
-            _ => None,
-        }
-    }
-
-    pub fn as_field(&self) -> Option<(&str, Option<&str>, &Type, Option<&ConstantValue>)> {
-        match &self.payload {
-            AstNodePayload::Field { name, doc, ty, default } => Some((name, doc.as_deref(), ty, default.as_ref())),
-            _ => None,
-        }
-    }
-
-    pub fn as_enum(&self) -> Option<(&str, Option<&str>, &[String], Option<&ConstantValue>)> {
-        match &self.payload {
-            AstNodePayload::Enum { name, doc, variants, default } => Some((name, doc.as_deref(), variants, default.as_ref())),
-            _ => None,
-        }
-    }
-
-    pub fn as_type(&self) -> Option<&Type> {
-        match &self.payload {
-            AstNodePayload::Type(ty) => Some(ty),
-            _ => None,
-        }
-    }
-
-    pub fn as_decorator(&self) -> Option<(&str, &HashMap<String, ConstantValue>)> {
-        match &self.payload {
-            AstNodePayload::Decorator { name, args } => Some((name, args)),
-            _ => None,
-        }
-    }
 }

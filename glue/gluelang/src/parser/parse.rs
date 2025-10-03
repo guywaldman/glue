@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     Span,
-    diagnostics::LangError,
+    diagnostics::{LangError, LangResult},
     lexer::{Token, TokenKind, TokenPayload},
     parser::{
         Ast, AstSymbol, SymbolTable,
@@ -50,7 +50,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Parses a sequence of tokens into an AST.
-    pub fn parse(mut self) -> Result<ParserArtifacts, LangError> {
+    pub fn parse(mut self) -> LangResult<ParserArtifacts> {
         let root_id = self.ast.get_root();
         while self.peek_kind() != TokenKind::Eof {
             let curr_kind = self.peek_kind();
@@ -112,7 +112,7 @@ impl<'a> Parser<'a> {
     /// ```
     ///
     /// Returns the enum's AST node ID and its name.
-    fn parse_enum(&mut self) -> Result<(AstNodeId, String), LangError> {
+    fn parse_enum(&mut self) -> LangResult<(AstNodeId, String)> {
         let doc = self.parse_optional_docblocks()?;
         let span = self.curr_span();
         expect_tokens!(self, TokenKind::KeywordEnum);
@@ -165,7 +165,7 @@ impl<'a> Parser<'a> {
     /// ```
     ///
     /// Returns the model's AST node ID and its name.
-    fn parse_model(&mut self) -> Result<(AstNodeId, String), LangError> {
+    fn parse_model(&mut self) -> LangResult<(AstNodeId, String)> {
         let doc = self.parse_optional_docblocks()?;
 
         let mut decorator_node_id = None;
@@ -251,7 +251,7 @@ impl<'a> Parser<'a> {
     /// primitive_type := ("string" | "int" | "float" | "bool) [ "?" ]
     /// compound_type := ident [ "?" ] | primitive_type "|" type
     /// ```
-    fn parse_type(&mut self) -> Result<Type, LangError> {
+    fn parse_type(&mut self) -> LangResult<Type> {
         let mut types = Vec::new();
 
         loop {
@@ -301,7 +301,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_constant_value(&mut self) -> Result<Option<ConstantValue>, LangError> {
+    fn parse_constant_value(&mut self) -> LangResult<Option<ConstantValue>> {
         let token = self.advance()?;
         match token.kind {
             TokenKind::StringLit => {
@@ -329,7 +329,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_decorator(&mut self) -> Result<AstNodeId, LangError> {
+    fn parse_decorator(&mut self) -> LangResult<AstNodeId> {
         self.expect(TokenKind::AtSign)?;
         let TokenPayload::String(decorator_name) = self.expect(TokenKind::Ident)?.payload else {
             return Err(self.err(self.curr_span(), "Expected decorator name identifier", None, Some("EExpectedDecoratorName")));
@@ -367,7 +367,7 @@ impl<'a> Parser<'a> {
         Ok(decorator_node_id)
     }
 
-    fn parse_optional_docblocks(&mut self) -> Result<Option<String>, LangError> {
+    fn parse_optional_docblocks(&mut self) -> LangResult<Option<String>> {
         let mut parts: Vec<String> = Vec::new();
         while self.peek_kind() == TokenKind::DocBlock {
             if let Some(Token {
@@ -387,7 +387,7 @@ impl<'a> Parser<'a> {
     /// ```text
     /// field := [docblock] ident ":" type
     /// ```
-    fn parse_field(&mut self) -> Result<(AstNodeId, String), LangError> {
+    fn parse_field(&mut self) -> LangResult<(AstNodeId, String)> {
         let doc = self.parse_optional_docblocks()?;
         let identifier_token = self.expect(TokenKind::Ident)?;
         let TokenPayload::String(ident) = identifier_token.payload else {
@@ -453,7 +453,7 @@ impl<'a> Parser<'a> {
     }
 
     #[inline]
-    fn advance(&mut self) -> Result<Token, LangError> {
+    fn advance(&mut self) -> LangResult<Token> {
         if self.current < self.tokens.len() {
             let token = self.tokens[self.current].clone();
             self.current += 1;
@@ -464,14 +464,14 @@ impl<'a> Parser<'a> {
     }
 
     #[inline]
-    fn advance_n(&mut self, n: usize) -> Result<(), LangError> {
+    fn advance_n(&mut self, n: usize) -> LangResult {
         for _ in 0..n {
             self.advance()?;
         }
         Ok(())
     }
 
-    fn expect(&mut self, expected: TokenKind) -> Result<Token, LangError> {
+    fn expect(&mut self, expected: TokenKind) -> LangResult<Token> {
         let curr_kind = self.peek_kind();
         match curr_kind {
             kind if kind == expected => {
@@ -487,8 +487,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn err(&self, span: Span, msg: impl Into<String>, note: Option<String>, code: Option<&str>) -> LangError {
-        LangError::error(self.file_name, self.src, span, msg, note, code)
+    fn err(&self, span: Span, msg: impl Into<String>, note: Option<String>, code: Option<&str>) -> Box<LangError> {
+        Box::new(LangError::error(self.file_name, self.src, span, msg, note, code))
     }
 }
 
@@ -499,13 +499,13 @@ mod tests {
     // Bring trait into scope so we can call id() on AstNode in tests.
     use crate::parser::tree::TreeNode;
     use indoc::indoc;
-    use pretty_assertions::assert_eq;
+    use pretty_assertions::{assert_eq, assert_matches};
 
     fn lex(input: &str) -> Vec<Token> {
         Lexer::new(input).lex()
     }
 
-    fn parse(input: &'static str) -> Result<ParserArtifacts, LangError> {
+    fn parse(input: &'static str) -> LangResult<ParserArtifacts> {
         let tokens_vec = lex(input);
         // Leak tokens so the AST can safely reference them for test duration.
         let leaked: &'static [Token] = Box::leak(tokens_vec.into_boxed_slice());
@@ -536,9 +536,9 @@ mod tests {
         let root_children = ast.get_children(root_node_id).unwrap();
         assert_eq!(root_children.len(), 2);
         assert_eq!(root_children[0].kind(), AstNodeKind::Enum);
-        assert_eq!(root_children[0].as_enum().unwrap().0, "Status");
+        assert_matches!(root_children[0].payload(), AstNodePayload::Enum { name, .. } if name == "Status");
         assert_eq!(root_children[1].kind(), AstNodeKind::Model);
-        assert_eq!(root_children[1].as_model().unwrap().0, "User");
+        assert_matches!(root_children[1].payload(), AstNodePayload::Model { name, .. } if name == "User");
     }
 
     #[test]
@@ -559,9 +559,7 @@ mod tests {
         let model_children = ast.get_children(model_node.id()).unwrap();
         let decorator = model_children.iter().find(|n| n.kind() == AstNodeKind::Decorator);
         assert!(decorator.is_some());
-        let (dec_name, dec_args) = decorator.unwrap().as_decorator().unwrap();
-        assert_eq!(dec_name, "foo");
-        assert_eq!(dec_args.len(), 2);
+        assert_matches!(decorator.unwrap().payload(), AstNodePayload::Decorator { name, args } if name == "foo" && args.len() == 2);
     }
 
     #[test]
@@ -580,11 +578,9 @@ mod tests {
         let model_children = ast.get_children(root_children[0].id()).unwrap();
         let fields: Vec<_> = model_children.iter().filter(|n| n.kind() == AstNodeKind::Field).collect();
         assert_eq!(fields.len(), 1);
-        let (name, doc, _, _) = fields[0].as_field().unwrap();
-        assert_eq!(name, "author");
-        let d = doc.unwrap();
-        assert!(d.contains("The author of the post"));
-        assert!(d.contains("full user object"));
+        let field = fields[0];
+        assert_matches!(field.payload(), AstNodePayload::Field { name, .. } if name == "author");
+        assert_matches!(field.payload(), AstNodePayload::Field { name, doc, .. } if name == "author" && doc.is_some());
     }
 
     #[test]
@@ -633,7 +629,7 @@ mod tests {
         // Find Post model id
         let post_node = root_children
             .iter()
-            .find(|n| n.kind() == AstNodeKind::Model && n.as_model().map(|(name, _)| name == "Post").unwrap_or(false))
+            .find(|n| matches!(n.payload(), AstNodePayload::Model { name, .. } if name == "Post"))
             .expect("Post model not found");
         let post_id = post_node.id();
         let post_children = ast.get_children(post_id).unwrap();
@@ -641,16 +637,18 @@ mod tests {
         // Check for nested AdditionalPostDetails model
         let has_nested_model = post_children
             .iter()
-            .any(|n| n.kind() == AstNodeKind::Model && n.as_model().map(|(name, _)| name == "AdditionalPostDetails").unwrap_or(false));
+            .any(|n| matches!(n.payload(), AstNodePayload::Model { name, .. } if name == "AdditionalPostDetails"));
         assert!(has_nested_model, "Expected nested AdditionalPostDetails model");
 
         // Find author field
         let author_field = post_children
             .iter()
-            .find(|n| n.kind() == AstNodeKind::Field && n.as_field().map(|(name, _, _, _)| name == "author").unwrap_or(false))
+            .find(|n| matches!(n.payload(), AstNodePayload::Field { name, .. } if name == "author"))
             .expect("author field not found");
-        let (_, doc, _, _) = author_field.as_field().unwrap();
-        let author_doc = doc.expect("author field should have documentation");
+        let AstNodePayload::Field { doc, .. } = &author_field.payload() else {
+            panic!("author field should have Field payload");
+        };
+        let author_doc = doc.clone().expect("author field should have documentation");
         assert!(author_doc.contains("The author of the post"));
         assert!(author_doc.contains("full user object"));
     }
@@ -680,7 +678,7 @@ mod tests {
 
         // Post should be in the root scope
         let post_model_id = ast
-            .find(|n| n.kind() == AstNodeKind::Model && n.as_model().map(|(name, _)| name == "Post").unwrap_or(false))
+            .find(|n| matches!(n.payload(), AstNodePayload::Model { name, .. } if name == "Post"))
             .unwrap()
             .id();
         let root_scope = symbols.symbols_in_scope(root_id).unwrap();
@@ -689,7 +687,7 @@ mod tests {
 
         // User should be in the root scope
         let user_model_id = ast
-            .find(|n| n.kind() == AstNodeKind::Model && n.as_model().map(|(name, _)| name == "User").unwrap_or(false))
+            .find(|n| matches!(n.payload(), AstNodePayload::Model { name, .. } if name == "User"))
             .unwrap()
             .id();
         let user_in_root_scope = root_scope.get(&AstSymbol::Model("User".to_string())).unwrap().id;
@@ -697,7 +695,7 @@ mod tests {
 
         // AdditionalPostDetails should be in Post's scope
         let additional_details_id = ast
-            .find(|n| n.kind() == AstNodeKind::Model && n.as_model().map(|(name, _)| name == "AdditionalPostDetails").unwrap_or(false))
+            .find(|n| matches!(n.payload(), AstNodePayload::Model { name, .. } if name == "AdditionalPostDetails"))
             .unwrap()
             .id();
         let post_scope = symbols.symbols_in_scope(post_model_id).unwrap();
@@ -730,7 +728,7 @@ mod tests {
 
         let root_id = ast.get_root();
         let baz_field_id = ast
-            .find(|n| n.kind() == AstNodeKind::Field && n.as_field().map(|(name, _, _, _)| name == "baz").unwrap_or(false))
+            .find(|n| matches!(n.payload(), AstNodePayload::Field { name, .. } if name == "baz"))
             .unwrap()
             .id();
 

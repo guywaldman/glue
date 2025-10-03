@@ -1,4 +1,4 @@
-pub fn fuzzy_match<'a, T>(input: &str, candidates: &'a Vec<T>, limit: usize) -> Vec<(&'a T, i64)>
+pub fn fuzzy_match<'a, T>(input: &str, candidates: &'a [T], limit: usize) -> Vec<(&'a T, i64)>
 where
     T: AsRef<str>,
 {
