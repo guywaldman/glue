@@ -21,6 +21,17 @@ pub struct GlueConfigSchema {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub enum Watermark {
+    #[serde(rename = "full")]
+    #[default]
+    Full,
+    #[serde(rename = "short")]
+    Short,
+    #[serde(rename = "none")]
+    None,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RustSerde {
     #[serde(default = "default_false")]
     pub include_yaml: bool,
@@ -35,6 +46,9 @@ pub struct PythonPydantic {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Generation {
+    /// Mode for the watermark at the top of the generated files
+    #[serde(default)]
+    pub watermark: Watermark,
     /// Configurations for Rust code generation using Serde (`glue gen rust-serde [...]`)
     #[serde(default)]
     pub rust_serde: RustSerde,

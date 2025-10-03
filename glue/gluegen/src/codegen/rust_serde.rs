@@ -1,5 +1,5 @@
 use gluelang::{Ast, AstNode, AstNodeKind, ConstantValue, PrimitiveType, SemanticAnalysisArtifacts, TreeNode, Type, TypeVariant};
-use indoc::indoc;
+use indoc::{formatdoc, indoc};
 
 use crate::codegen::{CodeGenError, CodeGenerator, types::EmitResult};
 
@@ -179,7 +179,10 @@ impl RustSerdeCodeGenerator {
     fn emit_enum(&mut self, enum_node: &AstNode) -> EmitResult {
         let mut result = String::new();
 
-        let AstNodeKind::Enum { name, variants, doc, .. } = enum_node.kind() else {
+        let AstNodeKind::Enum {
+            name, variants, doc, default, ..
+        } = enum_node.kind()
+        else {
             return Err(CodeGenError::Other("Expected an enum node".to_string()));
         };
 
@@ -191,12 +194,18 @@ impl RustSerdeCodeGenerator {
         }
 
         result.push_str("#[derive(Debug, Clone, Default, Serialize, Deserialize)]\n");
+
         result.push_str(&format!("pub enum {name} {{\n"));
 
         for variant in variants {
             // Convert variant to PascalCase for Rust enum variants
             let variant_name = to_pascal_case(variant);
             result.push_str(&format!("    #[serde(rename = \"{variant}\")]\n"));
+            if let Some(ConstantValue::String(lit)) = default
+                && lit == variant
+            {
+                result.push_str("    #[default]\n");
+            }
             result.push_str(&format!("    {variant_name},\n"));
         }
 

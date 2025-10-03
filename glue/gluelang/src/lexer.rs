@@ -19,7 +19,6 @@ pub enum TokenKind {
     StringLit,
     IntLit,
     BoolLit,
-    Number,
     DocBlock,
     Eof,
     Error,
@@ -66,10 +65,9 @@ impl fmt::Display for TokenKind {
             TokenKind::Hash => write!(f, "#"),
             TokenKind::Pipe => write!(f, "|"),
             TokenKind::AtSign => write!(f, "@"),
-            TokenKind::Number => write!(f, "number"),
+            TokenKind::IntLit => write!(f, "number"),
             TokenKind::Ident => write!(f, "identifier"),
             TokenKind::StringLit => write!(f, "string"),
-            TokenKind::IntLit => write!(f, "integer"),
             TokenKind::BoolLit => write!(f, "boolean"),
             TokenKind::DocBlock => write!(f, "doc block"),
             TokenKind::Eof => write!(f, "end of file"),
@@ -291,7 +289,7 @@ impl<'a> Lexer<'a> {
         }
         let s = &self.src[start..self.i];
         let number = s.parse::<i64>().expect("valid number");
-        self.make(TokenKind::Number, TokenPayload::Number(number), sp)
+        self.make(TokenKind::IntLit, TokenPayload::Number(number), sp)
     }
 
     fn scan_ident_or_kw(&mut self, sp: Span) -> Token {

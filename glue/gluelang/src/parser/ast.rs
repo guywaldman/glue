@@ -1,4 +1,4 @@
-use std::default;
+use std::{collections::HashMap, default};
 
 use crate::{
     Span,
@@ -77,6 +77,7 @@ pub enum AstNodeKind {
         name: String,
         doc: Option<String>,
         variants: Vec<String>,
+        default: Option<ConstantValue>,
     },
     Model {
         name: String,
@@ -87,6 +88,10 @@ pub enum AstNodeKind {
         doc: Option<String>,
         ty: Type,
         default: Option<ConstantValue>,
+    },
+    Decorator {
+        name: String,
+        args: HashMap<String, ConstantValue>,
     },
     Identifier(String),
     Type(Type),
@@ -119,6 +124,7 @@ impl std::fmt::Debug for AstNode {
             AstNodeKind::Model { name, .. } => format!("Model({name})"),
             AstNodeKind::Field { name, ty, .. } => format!("Field(name: {name}, ty: {ty})"),
             AstNodeKind::Enum { name, variants, .. } => format!("Enum(name: {name}, {variants:?})"),
+            AstNodeKind::Decorator { name, args } => format!("Decorator(name: {name}, args: {args:?})"),
             AstNodeKind::Identifier(name) => format!("Identifier({name})"),
             AstNodeKind::Type(ty) => format!("Type({ty})"),
         };

@@ -2,8 +2,6 @@ use gluelang::{Ast, AstNode, AstNodeKind, AstSymbol, PrimitiveType, SemanticAnal
 
 use crate::codegen::{CodeGenError, CodeGenerator, types::EmitResult};
 
-const ROOT_MODEL_NAME: &str = "GlueConfigSchema";
-
 pub struct JsonSchemaCodeGenerator {
     ast: Ast,
     symbols: SymbolTable,
@@ -18,21 +16,33 @@ impl CodeGenerator for JsonSchemaCodeGenerator {
             .get_children(self.ast.get_root())
             .ok_or_else(|| CodeGenError::Other("AST root has no children".to_string()))?;
 
-        // Find `Root` model.
-        let root_model_node = top_level_nodes
-            .iter()
-            .find(|node| {
-                if let AstNodeKind::Model { name, .. } = node.kind() {
-                    name == ROOT_MODEL_NAME
-                } else {
-                    false
-                }
-            })
-            .ok_or_else(|| CodeGenError::Other(format!("No '{ROOT_MODEL_NAME}' model found")))?;
+        // Find the model that has the `@root` decorator
+        let root_model_node = top_level_nodes.iter().find(|node| {
+            if let AstNodeKind::Model { .. } = node.kind() {
+                let Some(root_decorators) = self
+                    .ast
+                    .get_children_fn(node.id(), |n| matches!(n.kind(), AstNodeKind::Decorator { name, .. } if name == "root"))
+                else {
+                    return false;
+                };
+                !root_decorators.is_empty()
+            } else {
+                false
+            }
+        });
+        let Some(root_model_node) = root_model_node else {
+            return Err(CodeGenError::Other(
+                "For JSON schema generation, one top-level model must be decorated with the `@root` decorator".to_string(),
+            ));
+        };
+        let root_model_node_name = match root_model_node.kind() {
+            AstNodeKind::Model { name, .. } => name,
+            _ => return Err(CodeGenError::Other("Expected a model node".to_string())),
+        };
         let root_model = self.emit_model(root_model_node)?;
 
         json["$schema"] = json::JsonValue::String("http://json-schema.org/draft-07/schema#".to_string());
-        json["title"] = json::JsonValue::String(ROOT_MODEL_NAME.to_string());
+        json["title"] = json::JsonValue::String(root_model_node_name.to_string());
         json["type"] = json::JsonValue::String("object".to_string());
         json["properties"] = json::JsonValue::Object(root_model);
 

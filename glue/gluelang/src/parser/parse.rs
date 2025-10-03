@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{
     Span,
     diagnostics::LangError,
@@ -51,8 +53,12 @@ impl<'a> Parser<'a> {
     pub fn parse(mut self) -> Result<ParserArtifacts, LangError> {
         let root_id = self.ast.get_root();
         while self.peek_kind() != TokenKind::Eof {
-            match (self.peek_kind(), self.peek_ahead_kind(1)) {
-                (TokenKind::DocBlock, TokenKind::KeywordModel) | (TokenKind::KeywordModel, _) => {
+            let Some(next_relevant_token) = self.tokens.iter().find(|t| matches!(t.kind, TokenKind::KeywordModel | TokenKind::KeywordEnum)) else {
+                break;
+            };
+
+            match next_relevant_token.kind {
+                TokenKind::KeywordModel => {
                     let (node_id, name) = self.parse_model()?;
                     self.ast.append_child(root_id, node_id);
                     // Link model's symbol entry parent to root scope for ancestor visibility.
@@ -60,18 +66,14 @@ impl<'a> Parser<'a> {
                     // Ensure the model's own scope entry knows its parent for upward traversal.
                     self.symbols.set_scope_parent(node_id, root_id);
                 }
-                (TokenKind::DocBlock, TokenKind::KeywordEnum) | (TokenKind::KeywordEnum, _) => {
+                TokenKind::KeywordEnum => {
                     let (node_id, name) = self.parse_enum()?;
                     self.ast.append_child(root_id, node_id);
                     // Enum treated as model symbol for now; parent root scope.
                     self.symbols.insert(root_id, AstSymbol::Model(name.clone()), node_id, Some(root_id));
                     self.symbols.set_scope_parent(node_id, root_id);
                 }
-                (TokenKind::DocBlock, _) => {
-                    // Stray docblock at top-level; consume so we don't loop forever.
-                    self.advance()?;
-                }
-                (TokenKind::Eof, _) => break,
+                TokenKind::Eof => break,
                 _ => {
                     // Unknown token at top-level; advance to avoid infinite loop.
                     self.advance()?;
@@ -116,11 +118,20 @@ impl<'a> Parser<'a> {
                 break;
             }
         }
+
+        let default = if self.peek_kind() == TokenKind::Equal {
+            self.advance()?; // consume '='
+            self.parse_constant_value()?
+        } else {
+            None
+        };
+
         let enum_node = AstNode::new_with_span(
             AstNodeKind::Enum {
                 name: enum_name.clone(),
                 doc,
                 variants,
+                default,
             },
             span,
         );
@@ -137,6 +148,16 @@ impl<'a> Parser<'a> {
     /// Returns the model's AST node ID and its name.
     fn parse_model(&mut self) -> Result<(AstNodeId, String), LangError> {
         let doc = self.parse_optional_docblocks()?;
+
+        let mut decorator_node_id = None;
+        // Parse decorators
+        if self.peek_kind() == TokenKind::AtSign {
+            // Decorator(s) present
+            while self.peek_kind() == TokenKind::AtSign {
+                decorator_node_id = Some(self.parse_decorator()?);
+            }
+        }
+
         let span = self.curr_span();
 
         expect_tokens!(self, TokenKind::KeywordModel);
@@ -196,6 +217,10 @@ impl<'a> Parser<'a> {
 
         for field_node_id in fields.into_iter() {
             self.ast.append_child(model_node_id, field_node_id);
+        }
+
+        if let Some(decorator_id) = decorator_node_id {
+            self.ast.append_child(model_node_id, decorator_id);
         }
 
         Ok((model_node_id, model_name))
@@ -284,6 +309,40 @@ impl<'a> Parser<'a> {
             }
             _ => Err(self.err(token.span, "Expected constant value", None, Some("EExpectedConstantValue"))),
         }
+    }
+
+    fn parse_decorator(&mut self) -> Result<AstNodeId, LangError> {
+        self.expect(TokenKind::AtSign)?;
+        let TokenPayload::String(decorator_name) = self.expect(TokenKind::Ident)?.payload else {
+            return Err(self.err(self.curr_span(), "Expected decorator name identifier", None, Some("EExpectedDecoratorName")));
+        };
+        let decorator_name = decorator_name.to_string();
+
+        let mut args = HashMap::new();
+        if self.peek_kind() == TokenKind::LParen {
+            self.advance()?; // consume '('
+            while self.peek_kind() != TokenKind::RParen && self.peek_kind() != TokenKind::Eof {
+                let TokenPayload::String(arg_name) = self.expect(TokenKind::Ident)?.payload else {
+                    return Err(self.err(self.curr_span(), "Expected argument name identifier", None, Some("EExpectedArgName")));
+                };
+                let arg_name = arg_name.to_string();
+                self.expect(TokenKind::Equal)?;
+                let arg_value = self
+                    .parse_constant_value()?
+                    .ok_or_else(|| self.err(self.curr_span(), "Expected constant value for argument", None, Some("EExpectedArgValue")))?;
+                args.insert(arg_name, arg_value);
+                if self.peek_kind() == TokenKind::Comma {
+                    self.advance()?; // consume ','
+                } else {
+                    break;
+                }
+            }
+            self.expect(TokenKind::RParen)?; // consume ')'
+        }
+
+        let decorator_node = AstNode::new_with_span(AstNodeKind::Decorator { name: decorator_name, args }, self.curr_span());
+        let decorator_node_id = self.ast.add_node(decorator_node);
+        Ok(decorator_node_id)
     }
 
     fn parse_optional_docblocks(&mut self) -> Result<Option<String>, LangError> {
@@ -483,6 +542,25 @@ mod tests {
         assert_match_nodes!(
             root_children,
             AstNodeKind::Enum { name, .. } if name == "Status",
+            AstNodeKind::Model { name, .. } if name == "User"
+        );
+    }
+
+    #[test]
+    fn test_parse_model_with_decorator() {
+        let input = indoc! {r#"
+            @foo(bar="baz", count=3)
+            model User {
+                id: int
+                name: string
+            }
+        "#};
+        let ast = parse(input).unwrap().ast;
+        let root_node_id = ast.get_root();
+        let root_children = ast.get_children(root_node_id).unwrap();
+        assert_match_nodes!(
+            root_children,
+            AstNodeKind::Decorator { name, args } if name == "foo" && args.len() == 2,
             AstNodeKind::Model { name, .. } if name == "User"
         );
     }

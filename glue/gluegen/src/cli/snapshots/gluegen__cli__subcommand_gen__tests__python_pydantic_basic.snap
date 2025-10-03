@@ -1,0 +1,33 @@
+---
+source: gluegen/src/cli/subcommand_gen.rs
+expression: snapshot
+---
+from pydantic import 
+from pydantic import Field
+from enum import StrEnum
+from typing import Annotated, List, Optional
+
+class User():
+    id: Annotated[int, Field()]
+    """The unique ID of the user"""
+    name: Annotated[str, Field()]
+    """The user's name"""
+    email: Annotated[str, Field()]
+    """The user's email address"""
+    is_active: Annotated[bool, Field()]
+    """Whether the user is active"""
+class Post():
+    class AdditionalPostDetails():
+        likes: Annotated[int, Field()]
+        """The number of likes the post has received"""
+
+    id: Annotated[int, Field()]
+    """The unique ID of the post"""
+    title: Annotated[str, Field()]
+    """The title of the post"""
+    content: Annotated[str, Field()]
+    """The content of the post"""
+    author: Annotated[int | User, Field()]
+    """The author of the post Can be either the user ID or the full user object"""
+    additional_details: Annotated[Optional[AdditionalPostDetails], Field()]
+    """Optional additional details about the post"""
