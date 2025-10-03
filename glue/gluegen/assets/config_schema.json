@@ -6,6 +6,15 @@
         "generation": {
             "type": "object",
             "properties": {
+                "watermark": {
+                    "type": "string",
+                    "enum": [
+                        "full",
+                        "short",
+                        "none"
+                    ],
+                    "description": "Mode for the watermark at the top of the generated files"
+                },
                 "rust_serde": {
                     "type": "object",
                     "properties": {

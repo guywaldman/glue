@@ -1,7 +1,7 @@
 // --------------------------------------------------
 // This file is auto-generated. Do not edit manually.
+// Generated on 2025-10-03
 // --------------------------------------------------
-
 
 #![allow(unused_imports)]
 #![allow(dead_code)]

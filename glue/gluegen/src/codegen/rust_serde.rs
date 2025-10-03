@@ -1,9 +1,10 @@
 use gluelang::{Ast, AstNode, AstNodeKind, ConstantValue, PrimitiveType, SemanticAnalysisArtifacts, TreeNode, Type, TypeVariant};
 use indoc::{formatdoc, indoc};
 
-use crate::codegen::{CodeGenError, CodeGenerator, types::EmitResult};
+use crate::codegen::{CodeGenError, CodeGenerator, GlueConfigSchema, types::EmitResult, utils::generate_watermark};
 
 pub struct RustSerdeCodeGenerator {
+    config: GlueConfigSchema,
     ast: Ast,
     preludes: Vec<String>,
 }
@@ -49,26 +50,24 @@ impl CodeGenerator for RustSerdeCodeGenerator {
 
         prelude.extend(self.preludes.iter().cloned());
 
-        let gen_doc = indoc! {r#"
-					// --------------------------------------------------
-					// This file is auto-generated. Do not edit manually.
-					// --------------------------------------------------
-				"#};
+        let watermark = generate_watermark(self.config.generation.watermark);
+        let watermark = watermark.iter().map(|line| format!("// {line}")).collect::<Vec<_>>().join("\n");
         let imports = indoc! {r#"
 					use serde::{Deserialize, Serialize};
 				"#};
 
-        result = format!("{gen_doc}\n\n{prelude}\n\n{imports}\n\n{result}");
+        result = format!("{watermark}\n\n{prelude}\n\n{imports}\n\n{result}");
 
         Ok(result)
     }
 }
 
 impl RustSerdeCodeGenerator {
-    pub fn new(artifacts: SemanticAnalysisArtifacts) -> Self {
+    pub fn new(config: GlueConfigSchema, artifacts: SemanticAnalysisArtifacts) -> Self {
         Self {
-            ast: artifacts.ast,
+            config,
             preludes: Vec::new(),
+            ast: artifacts.ast,
         }
     }
 

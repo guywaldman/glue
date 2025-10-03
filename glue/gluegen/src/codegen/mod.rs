@@ -3,6 +3,7 @@ mod jsonschema;
 mod python_pydantic;
 mod rust_serde;
 mod types;
+mod utils;
 
 pub use config_schema_generated::*;
 pub use jsonschema::JsonSchemaCodeGenerator;

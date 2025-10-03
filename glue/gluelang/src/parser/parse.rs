@@ -69,8 +69,7 @@ impl<'a> Parser<'a> {
                 TokenKind::KeywordEnum => {
                     let (node_id, name) = self.parse_enum()?;
                     self.ast.append_child(root_id, node_id);
-                    // Enum treated as model symbol for now; parent root scope.
-                    self.symbols.insert(root_id, AstSymbol::Model(name.clone()), node_id, Some(root_id));
+                    self.symbols.insert(root_id, AstSymbol::Enum(name.clone()), node_id, Some(root_id));
                     self.symbols.set_scope_parent(node_id, root_id);
                 }
                 TokenKind::Eof => break,
@@ -195,7 +194,7 @@ impl<'a> Parser<'a> {
                     let (nested_id, nested_name) = self.parse_enum()?;
                     nested_models.push(nested_id);
                     self.symbols
-                        .insert(model_node_id, AstSymbol::Model(nested_name.clone()), nested_id, Some(model_node_id));
+                        .insert(model_node_id, AstSymbol::Enum(nested_name.clone()), nested_id, Some(model_node_id));
                     self.symbols.set_scope_parent(nested_id, model_node_id);
                 }
                 _ => {

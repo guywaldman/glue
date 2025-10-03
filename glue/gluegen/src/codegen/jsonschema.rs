@@ -107,10 +107,14 @@ impl JsonSchemaCodeGenerator {
                     result[field_name] = json::JsonValue::Object(field_obj);
                 }
                 AstNodeKind::Model { .. } => {
-                    let AstNodeKind::Model { name: nested_name, .. } = child.kind() else {
+                    let AstNodeKind::Model { name: _nested_name, .. } = child.kind() else {
                         continue;
                     };
-                    // Add model to definitions
+                    // Nested models are handled when referenced by fields
+                }
+                AstNodeKind::Enum { .. } => {
+                    // Inline enum definitions are handled when referenced by fields
+                    continue;
                 }
                 _ => continue,
             }
@@ -141,6 +145,7 @@ impl JsonSchemaCodeGenerator {
             TypeVariant::Ref(ref_name) => {
                 let symbols = self.symbols.symbols_in_scope(node.id());
                 if let Some(symbols) = symbols {
+                    // Try to find as a model first
                     if let Some(entry) = symbols.get(&AstSymbol::Model(ref_name.clone())) {
                         let model_node = self
                             .ast
@@ -163,8 +168,45 @@ impl JsonSchemaCodeGenerator {
                             obj["properties"] = json::JsonValue::Object(model_properties);
                             Ok(json::JsonValue::Object(obj))
                         }
+                    } 
+                    // Try to find as an enum
+                    else if let Some(entry) = symbols.get(&AstSymbol::Enum(ref_name.clone())) {
+                        let enum_node = self
+                            .ast
+                            .get_node(entry.id)
+                            .ok_or_else(|| CodeGenError::Other(format!("Referenced enum node with ID {} not found", entry.id)))?;
+                        
+                        let AstNodeKind::Enum { variants, doc, .. } = enum_node.kind() else {
+                            return Err(CodeGenError::Other("Expected an enum node".to_string()));
+                        };
+
+                        if atom.is_array {
+                            let mut items_obj = json::object::Object::new();
+                            items_obj["type"] = json::JsonValue::String("string".to_string());
+                            items_obj["enum"] = json::JsonValue::Array(
+                                variants.iter().map(|v| json::JsonValue::String(v.clone())).collect()
+                            );
+                            if let Some(doc_str) = doc {
+                                items_obj["description"] = json::JsonValue::String(doc_str.clone());
+                            }
+
+                            let mut array_obj = json::object::Object::new();
+                            array_obj["type"] = json::JsonValue::String("array".to_string());
+                            array_obj["items"] = json::JsonValue::Object(items_obj);
+                            Ok(json::JsonValue::Object(array_obj))
+                        } else {
+                            let mut obj = json::object::Object::new();
+                            obj["type"] = json::JsonValue::String("string".to_string());
+                            obj["enum"] = json::JsonValue::Array(
+                                variants.iter().map(|v| json::JsonValue::String(v.clone())).collect()
+                            );
+                            if let Some(doc_str) = doc {
+                                obj["description"] = json::JsonValue::String(doc_str.clone());
+                            }
+                            Ok(json::JsonValue::Object(obj))
+                        }
                     } else {
-                        Err(CodeGenError::Other(format!("Referenced model '{ref_name}' not found in symbols")))
+                        Err(CodeGenError::Other(format!("Referenced type '{ref_name}' not found in symbols")))
                     }
                 } else {
                     Err(CodeGenError::Other("No symbols found in scope".to_string()))

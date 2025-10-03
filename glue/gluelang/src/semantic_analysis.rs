@@ -116,7 +116,7 @@ impl<'a> SemanticAnalyzer<'a> {
             if let TypeVariant::Ref(ref_name) = &ty_ref.variant {
                 let is_defined = symbols_in_scope
                     .as_ref()
-                    .map(|s| s.contains_key(&AstSymbol::Model(ref_name.clone())))
+                    .map(|s| s.contains_key(&AstSymbol::Model(ref_name.clone())) || s.contains_key(&AstSymbol::Enum(ref_name.clone())))
                     .unwrap_or(false);
                 let type_nodes = self
                     .ast

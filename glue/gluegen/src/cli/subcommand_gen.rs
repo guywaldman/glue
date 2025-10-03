@@ -63,13 +63,14 @@ impl GenSubcommand {
                 std::fs::write(output, generated_code).with_context(|| format!("failed to write to {}", output.display()))?;
             }
             CliGenSubcommand::RustSerde {
-                args: GenArgs { input, output, config: _, .. },
+                args: GenArgs { input, output, config, .. },
                 ..
             } => {
                 let (file_name, file_contents) = GlueCli::handle_file(input.clone())?;
+                let config = GlueCli::read_config(config.as_ref())?;
 
                 let artifacts = GlueCli::check(&file_name, file_contents)?;
-                let generated_code = RustSerdeCodeGenerator::new(artifacts).generate().map_err(CliError::CodeGenError)?;
+                let generated_code = RustSerdeCodeGenerator::new(config, artifacts).generate().map_err(CliError::CodeGenError)?;
                 std::fs::write(output, generated_code).with_context(|| format!("failed to write to {}", output.display()))?;
             }
             CliGenSubcommand::PythonPydantic {
@@ -77,12 +78,7 @@ impl GenSubcommand {
                 ..
             } => {
                 let (file_name, file_contents) = GlueCli::handle_file(input.clone())?;
-                let config = config
-                    .clone()
-                    .map(|ref path| GlueCli::read_config(path))
-                    .transpose()
-                    .map_err(CliError::ConfigReadError)?
-                    .unwrap_or_default();
+                let config = GlueCli::read_config(config.as_ref())?;
 
                 let artifacts = GlueCli::check(&file_name, file_contents)?;
                 let generated_code = PythonPydanticCodeGenerator::new(config, artifacts).generate().map_err(CliError::CodeGenError)?;
