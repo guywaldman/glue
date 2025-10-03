@@ -91,58 +91,90 @@ impl GenSubcommand {
 
 #[cfg(test)]
 mod tests {
+    use indoc::indoc;
+
     use super::*;
-
-    const USER_AND_POST_GLUE: &str = indoc::indoc! {r#"
-        /// A user of the system
-        model User {
-          /// The unique ID of the user
-          id: int
-          /// The user's name
-          name: string
-          /// The user's email address
-          email: string
-          /// Whether the user is active
-          is_active: bool
-        }
-
-        /// A blog post
-        model Post {
-          /// The unique ID of the post
-          id: int
-          /// The title of the post
-          title: string
-          /// The content of the post
-          content: string
-          /// The author of the post
-          /// Can be either the user ID or the full user object
-          author: int | User
-
-          /// Optional additional details about the post
-          additional_details: AdditionalPostDetails?
-
-          model AdditionalPostDetails {
-            /// The number of likes the post has received
-            likes: int
-          }
-        }
-    "#};
 
     #[test]
     fn test_jsonschema_basic() {
-        let snapshot = run_snapshot_test("jsonschema_basic", USER_AND_POST_GLUE, "jsonschema").unwrap();
+        let src = indoc! {r#"
+            @root
+            model Config {
+                title: string
+                version: string
+                debug: bool
+                database: DatabaseConfig
+
+                model DatabaseConfig {
+                    host: string
+                    port: int
+                    username: string
+                    password: string
+                }
+            }"#};
+
+        let snapshot = run_snapshot_test("jsonschema_basic", src, "jsonschema").unwrap();
         insta::assert_snapshot!(snapshot)
     }
 
     #[test]
     fn test_python_pydantic_basic() {
-        let snapshot = run_snapshot_test("python_pydantic_basic", USER_AND_POST_GLUE, "py-pydantic").unwrap();
+        let src = indoc! {r#"
+            /// A user of the system
+            model User {
+            /// The unique ID of the user
+            id: int
+            /// The user's name
+            name: string
+            /// The user's email address
+            email: string
+            /// Whether the user is active
+            is_active: bool
+            }
+
+            /// A blog post
+            model Post {
+            /// The unique ID of the post
+            id: int
+            /// The title of the post
+            title: string
+            /// The content of the post
+            content: string
+            /// The author of the post
+            /// Can be either the user ID or the full user object
+            author: int | User
+
+            /// Optional additional details about the post
+            additional_details: AdditionalPostDetails?
+
+            model AdditionalPostDetails {
+                /// The number of likes the post has received
+                likes: int
+            }
+            }
+        "#};
+        let snapshot = run_snapshot_test("python_pydantic_basic", src, "py-pydantic").unwrap();
         insta::assert_snapshot!(snapshot)
     }
 
     #[test]
     fn test_rust_serde_basic() {
-        let snapshot = run_snapshot_test("rust_serde_basic", USER_AND_POST_GLUE, "rust-serde").unwrap();
+        let src = indoc! {r#"
+            /// A user of the system
+            model User {
+            /// The unique ID of the user
+            id: int
+            /// The user's name
+            name: string
+            /// The user's email address
+            email: string
+            /// The status of the user
+            status: UserStatus
+
+            enum UserStatus = "active" | "inactive" | "banned"
+            }
+        "#};
+        let snapshot = run_snapshot_test("rust_serde_basic", src, "rust-serde").unwrap();
         insta::assert_snapshot!(snapshot)
     }
 

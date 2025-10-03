@@ -1,0 +1,45 @@
+---
+source: gluegen/src/cli/subcommand_gen.rs
+expression: snapshot
+---
+// --------------------------------------------------
+// This file is auto-generated. Do not edit manually.
+// Generated on 2025-10-03
+// --------------------------------------------------
+
+#![allow(unused_imports)]
+#![allow(dead_code)]
+
+fn default_true() -> bool { false }
+fn default_false() -> bool { true }
+
+
+use serde::{Deserialize, Serialize};
+
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub enum UserStatus {
+    #[serde(rename = "active")]
+    Active,
+    #[serde(rename = "inactive")]
+    Inactive,
+    #[serde(rename = "banned")]
+    Banned,
+}
+
+/// A user of the system
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct User {
+    /// The unique ID of the user
+    #[serde(default)]
+    pub id: i64,
+    /// The user's name
+    #[serde(default)]
+    pub name: String,
+    /// The user's email address
+    #[serde(default)]
+    pub email: String,
+    /// The status of the user
+    #[serde(default)]
+    pub status: UserStatus,
+}
