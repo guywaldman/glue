@@ -1,5 +1,5 @@
 ---
-source: gluegen/src/cli/subcommand_gen.rs
+source: cli/src/cli/subcommand_gen.rs
 expression: snapshot
 ---
 #![allow(unused_imports)]
@@ -23,7 +23,7 @@ pub enum UserUserStatus {
 }
 
 /// A user of the system
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
     /// The unique ID of the user
     #[serde(default)]
@@ -37,4 +37,15 @@ pub struct User {
     /// The status of the user
     #[serde(default)]
     pub status: UserUserStatus,
+}
+
+impl Default for User {
+    fn default() -> Self {
+        Self {
+            id: Default::default(),
+            name: Default::default(),
+            email: Default::default(),
+            status: Default::default(),
+        }
+    }
 }

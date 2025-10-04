@@ -3,9 +3,9 @@ build:
 
 generate: build
 	# TODO: Use release
-	cd glue && ./target/debug/gluegen gen jsonschema -i gluegen/assets/config_schema.glue -o gluegen/assets/config_schema.json
-	cd glue && ./target/debug/gluegen gen rust-serde -i gluegen/assets/config_schema.glue -o gluegen/src/codegen/config_schema_generated.rs
-	cd glue && cargo fmt -- gluegen/src/codegen/config_schema_generated.rs
+	cd glue && ./target/debug/cli gen jsonschema -i cli/assets/config_schema.glue -o cli/assets/config_schema.json
+	cd glue && ./target/debug/cli gen rust-serde -i cli/assets/config_schema.glue -o cli/src/codegen/config_schema_generated.rs
+	cd glue && cargo fmt -- cli/src/codegen/config_schema_generated.rs
 
 check-cli:
 	just lint-cli

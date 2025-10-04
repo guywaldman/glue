@@ -1,5 +1,5 @@
 ---
-source: gluegen/src/cli/subcommand_gen.rs
+source: cli/src/cli/subcommand_gen.rs
 expression: snapshot
 ---
 {

@@ -200,7 +200,7 @@ impl RustSerdeCodeGenerator {
         }
 
         // Emit derive macros
-        result.push_str("#[derive(Debug, Clone, Default, Serialize, Deserialize)]\n");
+        result.push_str("#[derive(Debug, Clone, Serialize, Deserialize)]\n");
 
         // Emit struct
         result.push_str(&format!("pub struct {name} {{\n"));
@@ -208,11 +208,57 @@ impl RustSerdeCodeGenerator {
         if field_emits.is_empty() {
             // Empty struct - no fields
         } else {
-            for field_emit in field_emits {
-                result.push_str(&field_emit);
+            for field_emit in &field_emits {
+                result.push_str(field_emit);
             }
         }
 
+        result.push_str("}\n");
+
+        // Emit custom Default implementation
+        result.push_str(&format!("\nimpl Default for {name} {{\n"));
+        result.push_str("    fn default() -> Self {\n");
+        result.push_str("        Self {\n");
+        
+        if !field_emits.is_empty() {
+            // For each field, emit the default initialization
+            for child in &children {
+                if child.kind() == AstNodeKind::Field {
+                    let AstNodePayload::Field { name: field_name, default, .. } = child.payload() else {
+                        continue;
+                    };
+                    
+                    if let Some(default) = default {
+                        let default_init = match default {
+                            ConstantValue::String(s) => {
+                                let AstNodePayload::Model { name: model_name, .. } = model.payload() else {
+                                    return Err(CodeGenError::Other("Expected a model node".to_string()));
+                                };
+                                let func_name = rustify_type_name(&format!("{}_default_{}", model_name, s.to_lowercase()));
+                                format!("{func_name}()")
+                            }
+                            ConstantValue::Int(i) => i.to_string(),
+                            ConstantValue::Bool(b) => {
+                                if *b {
+                                    "default_true()".to_string()
+                                } else {
+                                    "default_false()".to_string()
+                                }
+                            }
+                            ConstantValue::IntRange(_, _) => {
+                                return Err(CodeGenError::Other("Default values for IntRange are not supported".to_string()));
+                            }
+                        };
+                        result.push_str(&format!("            {field_name}: {default_init},\n"));
+                    } else {
+                        result.push_str(&format!("            {field_name}: Default::default(),\n"));
+                    }
+                }
+            }
+        }
+        
+        result.push_str("        }\n");
+        result.push_str("    }\n");
         result.push_str("}\n");
 
         Ok(result)

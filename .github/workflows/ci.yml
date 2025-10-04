@@ -77,17 +77,17 @@ jobs:
           path: glue/target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
       
-      - name: Build and install gluegen
+      - name: Build and install CLI
         run: |
-          cargo build --release --bin gluegen
-          cargo install --path gluegen --bin gluegen
+          cargo build --release --bin cli
+          cargo install --path cli --bin cli
         working-directory: glue
       
-      - name: Verify gluegen installation
-        run: gluegen --help
+      - name: Verify CLI installation
+        run: cli --help
       
-      - name: Run gluegen on sample file
-        run: gluegen gen py-pydantic -i glue/gluelang/samples/basic.glue --out sample_output.py
+      - name: Run CLI on sample file
+        run: cli gen py-pydantic -i glue/gluelang/samples/basic.glue --out sample_output.py
       
       - name: Verify sample output
         shell: bash
@@ -129,7 +129,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p artifacts
-          cp glue/target/release/gluegen${{ matrix.binary_extension }} artifacts/gluegen${{ matrix.binary_extension }}
+          cp glue/target/release/cli${{ matrix.binary_extension }} artifacts/cli${{ matrix.binary_extension }}
           cp glue/target/release/gluelang${{ matrix.binary_extension }} artifacts/gluelang${{ matrix.binary_extension }}
           cp glue/target/release/lsp${{ matrix.binary_extension }} artifacts/lsp${{ matrix.binary_extension }}
       

@@ -7,7 +7,7 @@ edition = "2024"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }
 tower-lsp = "0.20"
 gluelang = { path = "../gluelang" }
-gluegen = { path = "../gluegen" }
+cli = { path = "../cli" }
 log = "0.4.28"
 indoc = "2.0.6"
 anyhow = "1.0.100"

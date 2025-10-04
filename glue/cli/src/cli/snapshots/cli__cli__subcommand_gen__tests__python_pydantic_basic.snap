@@ -1,16 +1,16 @@
 ---
-source: gluegen/src/cli/subcommand_gen.rs
+source: cli/src/cli/subcommand_gen.rs
 expression: snapshot
 ---
 """
 """
 
-from pydantic import 
-from pydantic import Field
+from pydantic import BaseModel
+from pydantic import Field, BaseModel
 from enum import StrEnum
 from typing import Annotated, List, Optional
 
-class User():
+class User(BaseModel):
     id: Annotated[int, Field()]
     """The unique ID of the user"""
     name: Annotated[str, Field()]
@@ -19,8 +19,8 @@ class User():
     """The user's email address"""
     is_active: Annotated[bool, Field()]
     """Whether the user is active"""
-class Post():
-    class AdditionalPostDetails():
+class Post(BaseModel):
+    class AdditionalPostDetails(BaseModel):
         likes: Annotated[int, Field()]
         """The number of likes the post has received"""
 

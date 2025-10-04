@@ -87,7 +87,11 @@ impl GenSubcommand {
                 ..
             } => {
                 let (file_name, file_contents) = GlueCli::handle_file(input.clone())?;
-                let config = GlueCli::read_config(config.as_ref())?;
+                let config = match config {
+                    Some(path) => GlueCli::read_config(Some(path))?,
+                    None => Default::default(),
+                };
+                dbg!(&config);
 
                 let artifacts = GlueCli::analyze(&file_name, file_contents)?;
                 let generated_code = PythonPydanticCodeGenerator::new(config, artifacts).generate().map_err(CliError::CodeGen)?;
@@ -210,7 +214,7 @@ mod tests {
         std::fs::write(&temp_cfg_path, cfg_contents)?;
 
         GlueCli::new().run(&[
-            "gluegen",
+            "cli",
             "gen",
             gen_command,
             "-c",

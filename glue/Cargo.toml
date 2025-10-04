@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["gluelang", "gluegen", "lsp"]
+members = ["gluelang", "cli", "lsp"]
 
 [profile.dev.package]
 # https://insta.rs/docs/quickstart/#optional-faster-runs

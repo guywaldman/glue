@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# === Config ===
-BINARY_NAME="${BINARY_NAME:-gluegen}"  # Default to gluegen, can be set to gluelang
+BINARY_NAME="${BINARY_NAME:-cli}"
 REPO="guywaldman/glue"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 VERSION="${VERSION:-latest}"

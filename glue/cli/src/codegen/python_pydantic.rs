@@ -22,11 +22,12 @@ impl CodeGenerator for PythonPydanticCodeGenerator {
         result.push_str("\"\"\"\n\n");
 
         // TODO: Add imports based on usage.
+        dbg!(&self.config.generation.python_pydantic.base_model);
         let base_model_import = &self.config.generation.python_pydantic.base_model;
         let (module, class) = Self::parse_import(base_model_import);
         result.push_str(&format!("from {module} import {class}\n"));
 
-        result.push_str("from pydantic import Field\n");
+        result.push_str("from pydantic import Field, BaseModel\n");
         result.push_str("from enum import StrEnum\n");
         result.push_str("from typing import Annotated, List, Optional\n\n");
 

@@ -79,8 +79,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
       
-      - name: Build gluegen
-        run: cargo build --release --target ${{ matrix.target }} --bin gluegen
+      - name: Build CLI
+        run: cargo build --release --target ${{ matrix.target }} --bin cli
         working-directory: glue
       
       - name: Build gluelang
@@ -91,10 +91,10 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           mkdir -p dist
-          cp glue/target/${{ matrix.target }}/release/gluegen dist/
+          cp glue/target/${{ matrix.target }}/release/cli dist/
           cp glue/target/${{ matrix.target }}/release/gluelang dist/
           cd dist
-          tar -czf gluegen_${{ matrix.archive_os }}_${{ matrix.archive_arch }}.tar.gz gluegen
+          tar -czf cli_${{ matrix.archive_os }}_${{ matrix.archive_arch }}.tar.gz cli
           tar -czf gluelang_${{ matrix.archive_os }}_${{ matrix.archive_arch }}.tar.gz gluelang
       
       - name: Create archive (Windows)
@@ -102,20 +102,20 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist
-          Copy-Item glue/target/${{ matrix.target }}/release/gluegen.exe dist/
+          Copy-Item glue/target/${{ matrix.target }}/release/cli.exe dist/
           Copy-Item glue/target/${{ matrix.target }}/release/gluelang.exe dist/
           cd dist
-          tar -czf gluegen_${{ matrix.archive_os }}_${{ matrix.archive_arch }}.tar.gz gluegen.exe
+          tar -czf cli_${{ matrix.archive_os }}_${{ matrix.archive_arch }}.tar.gz cli.exe
           tar -czf gluelang_${{ matrix.archive_os }}_${{ matrix.archive_arch }}.tar.gz gluelang.exe
       
-      - name: Upload gluegen archive
+      - name: Upload CLI archive
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./dist/gluegen_${{ matrix.archive_os }}_${{ matrix.archive_arch }}.tar.gz
-          asset_name: gluegen_${{ matrix.archive_os }}_${{ matrix.archive_arch }}.tar.gz
+          asset_path: ./dist/cli_${{ matrix.archive_os }}_${{ matrix.archive_arch }}.tar.gz
+          asset_name: cli_${{ matrix.archive_os }}_${{ matrix.archive_arch }}.tar.gz
           asset_content_type: application/gzip
       
       - name: Upload gluelang archive
