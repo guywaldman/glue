@@ -147,9 +147,10 @@ impl RustSerdeCodeGenerator {
                     self.ast.update_node(node_id, |n| {
                         if let AstNodePayload::TypeAtom { ty } = n.payload_mut()
                             && let TypeVariant::Ref(r) = &mut ty.variant
-                                && r == ref_name {
-                                    *r = new_ref_name.clone();
-                                }
+                            && r == ref_name
+                        {
+                            *r = new_ref_name.clone();
+                        }
                     });
                 }
             }

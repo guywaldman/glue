@@ -18,7 +18,7 @@ lint-cli:
 	cd glue && cargo clippy --workspace --all -D warnings
 	cd glue && cargo fmt --all -- --check
 
-fmt-cli:
+fix-cli:
 	cd glue && cargo fmt --all
 	cd glue && cargo clippy --workspace --all --fix --allow-dirty --allow-staged
 
