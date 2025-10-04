@@ -360,10 +360,21 @@ impl<'a> Parser<'a> {
         };
         let decorator_name = decorator_name.to_string();
 
-        let mut args = HashMap::new();
+        let mut named_args = HashMap::new();
+        let mut positional_args = Vec::new();
+
         if self.peek_kind() == TokenKind::LParen {
             self.advance()?; // consume '('
+
             while self.peek_kind() != TokenKind::RParen && self.peek_kind() != TokenKind::Eof {
+                if self.peek().unwrap().kind != TokenKind::Ident {
+                    // Positional argument
+                    let arg_value = self
+                        .parse_constant_value()?
+                        .ok_or_else(|| self.err(self.curr_span(), "Expected constant value for positional argument", None, Some("EExpectedPosArgValue")))?;
+                    positional_args.push(arg_value);
+                    continue;
+                }
                 let TokenPayload::String(arg_name) = self.expect(TokenKind::Ident)?.payload else {
                     return Err(self.err(self.curr_span(), "Expected argument name identifier", None, Some("EExpectedArgName")));
                 };
@@ -372,7 +383,7 @@ impl<'a> Parser<'a> {
                 let arg_value = self
                     .parse_constant_value()?
                     .ok_or_else(|| self.err(self.curr_span(), "Expected constant value for argument", None, Some("EExpectedArgValue")))?;
-                args.insert(arg_name, arg_value);
+                named_args.insert(arg_name, arg_value);
                 if self.peek_kind() == TokenKind::Comma {
                     self.advance()?; // consume ','
                 } else {
@@ -382,7 +393,15 @@ impl<'a> Parser<'a> {
             self.expect(TokenKind::RParen)?; // consume ')'
         }
 
-        let decorator_node = AstNode::new_with_span(AstNodeKind::Decorator, AstNodePayload::Decorator { name: decorator_name, args }, self.curr_span());
+        let decorator_node = AstNode::new_with_span(
+            AstNodeKind::Decorator,
+            AstNodePayload::Decorator {
+                name: decorator_name,
+                named_args,
+                positional_args,
+            },
+            self.curr_span(),
+        );
         let decorator_node_id = self.ast.add_node(decorator_node);
         Ok(decorator_node_id)
     }
@@ -409,6 +428,13 @@ impl<'a> Parser<'a> {
     /// ```
     fn parse_field(&mut self) -> LangResult<(AstNodeId, String)> {
         let doc = self.parse_optional_docblocks()?;
+
+        let mut decorator_node_id = None;
+        if self.peek().unwrap().kind == TokenKind::AtSign {
+            // Field decorators are not currently supported; skip them.
+            decorator_node_id = Some(self.parse_decorator()?);
+        }
+
         let identifier_token = self.expect(TokenKind::Ident)?;
         let TokenPayload::String(ident) = identifier_token.payload else {
             let span = identifier_token.span;
@@ -437,10 +463,14 @@ impl<'a> Parser<'a> {
             },
             ident_span,
         ));
+
+        if let Some(decorator_node_id) = decorator_node_id {
+            self.ast.append_child(field_node_id, decorator_node_id);
+        }
+
         let identifier_node_id = self
             .ast
             .add_node(AstNode::new_with_span(AstNodeKind::Identifier, AstNodePayload::String(ident_string.clone()), ident_span));
-
         self.ast.append_child(field_node_id, identifier_node_id);
         self.ast.append_child(field_node_id, ty_node_id);
         Ok((field_node_id, ident_string))
@@ -580,7 +610,7 @@ mod tests {
         let model_children = ast.get_children(model_node.id()).unwrap();
         let decorator = model_children.iter().find(|n| n.kind() == AstNodeKind::Decorator);
         assert!(decorator.is_some());
-        assert_matches!(decorator.unwrap().payload(), AstNodePayload::Decorator { name, args } if name == "foo" && args.len() == 2);
+        assert_matches!(decorator.unwrap().payload(), AstNodePayload::Decorator { name, named_args, .. } if name == "foo" && named_args.len() == 2);
     }
 
     #[test]

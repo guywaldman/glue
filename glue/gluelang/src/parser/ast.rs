@@ -75,6 +75,16 @@ pub enum ConstantValue {
     Bool(bool),
 }
 
+impl std::fmt::Display for ConstantValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConstantValue::String(s) => write!(f, "\"{s}\""),
+            ConstantValue::Int(i) => write!(f, "{i}"),
+            ConstantValue::Bool(b) => write!(f, "{b}"),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TypeAtom {
     pub variant: TypeVariant,
@@ -154,7 +164,8 @@ pub enum AstNodePayload {
     },
     Decorator {
         name: String,
-        args: HashMap<String, ConstantValue>,
+        named_args: HashMap<String, ConstantValue>,
+        positional_args: Vec<ConstantValue>,
     },
     Type(Type),
 }
@@ -197,7 +208,29 @@ impl std::fmt::Debug for AstNode {
                 let variants_str = variants.join(" | ");
                 format!("Enum({name}: {variants_str})")
             }
-            (AstNodeKind::Decorator, AstNodePayload::Decorator { name, args }) => format!("Decorator(@{name}, args: {args:?})"),
+            (
+                AstNodeKind::Decorator,
+                AstNodePayload::Decorator {
+                    name,
+                    named_args,
+                    positional_args,
+                },
+            ) => {
+                let mut output = format!("@{name}(");
+                output.push_str(positional_args.iter().map(|a| format!("{a}")).collect::<Vec<_>>().join(", ").as_str());
+                if !named_args.is_empty() {
+                    if !positional_args.is_empty() {
+                        output.push_str(", ");
+                    }
+                    let args: Vec<String> = named_args.iter().map(|(k, v)| format!("{k}: {v}")).collect();
+                    if !positional_args.is_empty() {
+                        output.push_str(", ");
+                    }
+                    output.push_str(args.join(", ").as_str());
+                }
+                output.push(')');
+                output.replace("\"", "'")
+            }
             (AstNodeKind::Identifier, AstNodePayload::String(name)) => format!("Identifier({name})"),
             (AstNodeKind::Type, AstNodePayload::Type(ty)) => format!("Type({ty})"),
             (AstNodeKind::TypeAtom, AstNodePayload::TypeAtom { ty }) => match &ty.variant {

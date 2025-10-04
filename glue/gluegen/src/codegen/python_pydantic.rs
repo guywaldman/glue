@@ -14,7 +14,7 @@ impl CodeGenerator for PythonPydanticCodeGenerator {
         let mut result = String::new();
 
         let watermark = generate_watermark(&self.source_file, &self.config.generation.watermark);
-        result.push_str("\"\"\"");
+        result.push_str("\"\"\"\n");
         for line in watermark {
             result.push_str(&line);
             result.push('\n');
@@ -127,8 +127,22 @@ impl PythonPydanticCodeGenerator {
         let AstNodePayload::Field { name, ty, doc, .. } = field.payload() else {
             return Err(CodeGenError::Other("Expected a field node".to_string()));
         };
+        let decorator = self
+            .ast
+            .get_children(field.id())
+            .and_then(|children| children.iter().find(|c| c.kind() == AstNodeKind::Decorator).cloned());
 
-        result.push_str(&format!("    {}: Annotated[{}, Field()]", name, self.emit_type(ty)?));
+        let mut field_str = "Field(".to_string();
+        if let Some(AstNodePayload::Decorator { name, positional_args, .. }) = decorator.map(|d| d.payload().clone()) {
+            if name == "alias" {
+                if let Some(arg) = positional_args.first() {
+                    field_str.push_str(&format!("alias={arg}"));
+                }
+            }
+        }
+        field_str.push(')');
+
+        result.push_str(&format!("    {}: Annotated[{}, {}]", name, self.emit_type(ty)?, field_str));
         if let Some(doc) = doc {
             result.push('\n');
             result.push_str(&format!("    \"\"\"{}\"\"\"", doc.replace('\n', " ")));
