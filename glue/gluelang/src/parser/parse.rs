@@ -53,28 +53,11 @@ impl<'a> Parser<'a> {
     pub fn parse(mut self) -> LangResult<ParserArtifacts> {
         let root_id = self.ast.get_root();
         while self.peek_kind() != TokenKind::Eof {
-            let curr_kind = self.peek_kind();
-            match curr_kind {
-                TokenKind::DocBlock => {
-                    // Peek ahead to see what follows the docblock(s)
-                    let mut lookahead_idx = 1;
-                    while self.peek_ahead_kind(lookahead_idx) == TokenKind::DocBlock {
-                        lookahead_idx += 1;
-                    }
-                    let next_relevant = self.peek_ahead_kind(lookahead_idx);
-                    match next_relevant {
-                        TokenKind::KeywordEnum => {
-                            let (node_id, name) = self.parse_enum()?;
-                            self.ast.append_child(root_id, node_id);
-                            self.symbols.insert(root_id, AstSymbol::Enum(name.clone()), node_id);
-                        }
-                        _ => {
-                            let (node_id, name) = self.parse_model()?;
-                            self.ast.append_child(root_id, node_id);
-                            self.symbols.insert(root_id, AstSymbol::Model(name.clone()), node_id);
-                        }
-                    }
-                }
+            let next_relevant_kind = self.tokens[self.current..]
+                .iter()
+                .find(|t| t.kind != TokenKind::DocBlock)
+                .map_or(TokenKind::Eof, |t| t.kind);
+            match next_relevant_kind {
                 TokenKind::KeywordModel | TokenKind::AtSign => {
                     let (node_id, name) = self.parse_model()?;
                     self.ast.append_child(root_id, node_id);
@@ -355,10 +338,19 @@ impl<'a> Parser<'a> {
 
     fn parse_decorator(&mut self) -> LangResult<AstNodeId> {
         self.expect(TokenKind::AtSign)?;
-        let TokenPayload::String(decorator_name) = self.expect(TokenKind::Ident)?.payload else {
-            return Err(self.err(self.curr_span(), "Expected decorator name identifier", None, Some("EExpectedDecoratorName")));
+        let decorator_name = match self.peek_kind() {
+            TokenKind::Ident => {
+                let TokenPayload::String(decorator_name) = self.expect(TokenKind::Ident)?.payload else {
+                    return Err(self.err(self.curr_span(), "Expected decorator name identifier", None, Some("EExpectedDecoratorName")));
+                };
+                decorator_name
+            }
+            // Also accept "endpoint" the decoratorn name, it's lexed as a keyword.
+            TokenKind::KeywordEndpoint => "endpoint".to_string(),
+            _ => {
+                return Err(self.err(self.curr_span(), "Expected decorator name identifier", None, Some("EExpectedDecoratorName")));
+            }
         };
-        let decorator_name = decorator_name.to_string();
 
         let mut named_args = HashMap::new();
         let mut positional_args = Vec::new();
