@@ -35,8 +35,6 @@ impl CodeGenerator for PythonPydanticCodeGenerator {
             .get_children(self.ast.get_root())
             .ok_or(CodeGenError::Other("AST root has no children".to_string()))?;
 
-        debug!("Top-level AST nodes: {top_level_nodes:?}");
-
         // Traverse the top-level models and enums of the AST.
         for node in top_level_nodes {
             match node.kind() {

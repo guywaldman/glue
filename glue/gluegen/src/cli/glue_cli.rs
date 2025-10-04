@@ -10,6 +10,7 @@ use crate::{
 use anyhow::{Context, Result};
 use clap::Parser;
 use gluelang::{AstNode, Lexer, SemanticAnalysisArtifacts, SemanticAnalyzer};
+use log::debug;
 use miette::GraphicalReportHandler;
 
 pub struct GlueCli;
@@ -27,7 +28,7 @@ impl GlueCli {
                 CliAstSubcommand::Mermaid { input, output } => {
                     let (file_name, file_contents) = Self::handle_file(input.clone())?;
 
-                    let artifacts = Self::check(&file_name, file_contents)?;
+                    let artifacts = Self::analyze(&file_name, file_contents)?;
                     let mermaid = artifacts.ast.to_mermaid_with_formatter(Some(|node: &AstNode| {
                         format!("{node:?}<br/><span style=\"font-size: smaller; color: white;\">{}</span>", node.span())
                     }));
@@ -44,7 +45,7 @@ impl GlueCli {
                     Some(path) => Box::new(io::BufReader::new(std::fs::File::open(path).unwrap())),
                     None => Box::new(io::BufReader::new(io::stdin())),
                 };
-                Self::check(&file_name, file_contents).map(|_| {})?;
+                Self::analyze(&file_name, file_contents).map(|_| {})?;
             }
             CliSubcommand::Gen { command } => {
                 GenSubcommand::new().run(command)?;
@@ -53,14 +54,18 @@ impl GlueCli {
         Ok(())
     }
 
-    pub fn check<T: io::BufRead>(file_name: &str, mut file_contents: T) -> Result<SemanticAnalysisArtifacts, CliError> {
+    pub fn analyze<T: io::BufRead>(file_name: &str, mut file_contents: T) -> Result<SemanticAnalysisArtifacts, CliError> {
         let mut buf = String::new();
+        debug!("Reading file '{}'", file_name);
         let _ = file_contents.read_to_string(&mut buf).map_err(CliError::Io)?;
+        debug!("Lexing file '{}'", file_name);
         let tokens = Lexer::new(&buf).lex();
+        debug!("Parsing file '{}'", file_name);
         let parser_artifacts = gluelang::Parser::new(file_name, &buf, &tokens).parse().map_err(|e| {
             Self::report_errors(&[*e.clone()]);
             CliError::Compilation(Box::new(*e))
         })?;
+        debug!("Performing semantic analysis on file '{}'", file_name);
         let semantic_analyzer_artifacts = SemanticAnalyzer::new(file_name, &buf, &parser_artifacts).analyze().map_err(|e| {
             Self::report_errors(&[*e.clone()]);
             CliError::Compilation(Box::new(*e))

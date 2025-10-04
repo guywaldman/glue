@@ -26,7 +26,7 @@ impl AstSymbol {
 }
 
 /// A mapping from symbols to their corresponding AST node IDs within a specific scope.
-type SymbolsMapPerScope = HashMap<AstSymbol, SymbolTableEntry>;
+pub type SymbolsMapPerScope = HashMap<AstSymbol, SymbolTableEntry>;
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SymbolTableEntry {
@@ -46,11 +46,13 @@ impl SymbolTableEntry {
     }
 }
 
+pub type SymbolTableEntries = HashMap<AstNodeId, SymbolTableEntry>;
+
 /// A symbol table that maps symbols to their corresponding AST node IDs within different scopes.
 /// A scope is represented by an `AstNodeId`, and each scope can have its own set of symbols.
 #[derive(Debug, Clone, Default)]
 pub struct SymbolTable {
-    entries: HashMap<AstNodeId, SymbolTableEntry>,
+    entries: SymbolTableEntries,
 }
 
 impl SymbolTable {

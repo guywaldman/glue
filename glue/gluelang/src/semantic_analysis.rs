@@ -1,9 +1,11 @@
 use colored::Colorize;
+use log::debug;
+use rayon::prelude::*;
 
 use crate::{
     AstNodePayload, LangError, Span,
     diagnostics::LangResult,
-    parser::{Ast, AstNode, AstNodeId, AstNodeKind, AstSymbol, ParserArtifacts, SymbolTable, TreeNode, Type, TypeVariant},
+    parser::{Ast, AstNode, AstNodeId, AstNodeKind, AstSymbol, ParserArtifacts, SymbolTable, SymbolsMapPerScope, TreeNode, Type, TypeVariant},
     utils::fuzzy::fuzzy_match,
 };
 
@@ -46,49 +48,70 @@ impl<'a> SemanticAnalyzer<'a> {
             return Ok(self.artifacts);
         };
 
-        for node in top_level_nodes {
-            let node_kind = node.kind();
-            let node_id = node.id();
-            match node_kind {
-                AstNodeKind::Model => {
-                    self.analyze_model(&node)?;
+        // Analyze nodes in parallel and collect results
+        let results: Vec<_> = top_level_nodes
+            .par_iter()
+            .map(|node| {
+                let node_kind = node.kind();
+                match node_kind {
+                    AstNodeKind::Model => self.analyze_model(node),
+                    _ => Ok(vec![]),
                 }
-                AstNodeKind::Field => {
-                    self.analyze_field(node_id)?;
-                }
-                _ => {}
+            })
+            .collect();
+
+        // Collect errors and warnings from parallel execution
+        let mut errors = Vec::new();
+        for result in results {
+            match result {
+                Ok(warnings) => self.artifacts.warnings.extend(warnings),
+                Err(err) => errors.push(err),
             }
         }
+
+        // If any errors occurred, return the first one
+        // TODO: In the future, we could return all errors as a collection
+        if let Some(first_error) = errors.into_iter().next() {
+            return Err(first_error);
+        }
+
         Ok(self.artifacts)
     }
 
-    fn analyze_model(&mut self, model: &AstNode) -> LangResult {
+    fn analyze_model(&self, model: &AstNode) -> Result<Vec<LangError>, Box<LangError>> {
+        let mut warnings = Vec::new();
+
         if model.kind() != AstNodeKind::Model {
             return Err(self.err(*model.span(), "Expected a model node".to_string(), None, Some("EInternal")));
         }
         let AstNodePayload::Model { name, .. } = &model.payload() else {
             return Err(self.err(*model.span(), "Expected a model node with payload".to_string(), None, Some("EInternal")));
         };
+
         // Model names must start with an uppercase letter
         let is_recommended_model_name = name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false);
         if !is_recommended_model_name {
-            self.warn(
+            warnings.push(LangError::warning(
+                self.file_name,
+                self.src,
                 *model.span(),
                 format!("Model name '{name}' should start with an uppercase letter"),
                 Some("Consider renaming the model to start with an uppercase letter".to_string()),
                 Some("WModelName"),
-            );
+            ));
         }
 
         let children = self.ast.get_children(model.id()).unwrap_or_default();
         let fields = children.iter().filter(|n| n.kind() == AstNodeKind::Field).collect::<Vec<_>>();
+        let symbols = self.symbols.symbols_in_scope(self.ast, model.id()).unwrap_or_default();
         for field in fields {
-            self.analyze_field(field.id())?;
+            self.analyze_field(&symbols, field.id())?;
         }
-        Ok(())
+
+        Ok(warnings)
     }
 
-    fn analyze_field(&self, node_id: AstNodeId) -> LangResult {
+    fn analyze_field(&self, symbols: &SymbolsMapPerScope, node_id: AstNodeId) -> LangResult {
         let node = self
             .ast
             .get_node(node_id)
@@ -119,28 +142,20 @@ impl<'a> SemanticAnalyzer<'a> {
                 break;
             }
         }
-        let symbols_in_scope = self.symbols.symbols_in_scope(self.ast, scope_id);
         for (i, ty_ref) in type_refs.iter().enumerate() {
             if let TypeVariant::Ref(ref_name) = &ty_ref.variant {
-                let is_defined = symbols_in_scope
-                    .as_ref()
-                    .map(|s| s.contains_key(&AstSymbol::Model(ref_name.clone())) || s.contains_key(&AstSymbol::Enum(ref_name.clone())))
-                    .unwrap_or(false);
+                let is_defined = symbols.contains_key(&AstSymbol::Model(ref_name.clone())) || symbols.contains_key(&AstSymbol::Enum(ref_name.clone()));
                 let type_nodes = self.ast.get_children_fn(node_id, |n| n.kind() == AstNodeKind::Type).unwrap_or_default();
                 let span = type_nodes.get(i).map(|n| *n.span()).unwrap_or_else(|| *node.span());
                 if !is_defined {
-                    let symbol_names = symbols_in_scope
-                        .as_ref()
-                        .map(|s| {
-                            s.keys()
-                                .filter_map(|sym| match sym {
-                                    AstSymbol::Model(name) => Some(name.as_str()),
-                                    AstSymbol::Enum(name) => Some(name.as_str()),
-                                    _ => None,
-                                })
-                                .collect::<Vec<_>>()
+                    let symbol_names: Vec<&str> = symbols
+                        .keys()
+                        .filter_map(|sym| match sym {
+                            AstSymbol::Model(name) => Some(name.as_str()),
+                            AstSymbol::Enum(name) => Some(name.as_str()),
+                            _ => None,
                         })
-                        .unwrap_or_default();
+                        .collect();
                     let similarity_scores = fuzzy_match(ref_name, &symbol_names, 5);
                     if let Some((best_match, score)) = similarity_scores.first() {
                         if *score > 50 {
@@ -175,10 +190,6 @@ impl<'a> SemanticAnalyzer<'a> {
 
     fn err(&self, span: Span, msg: impl Into<String>, note: Option<String>, code: Option<&str>) -> Box<LangError> {
         Box::new(LangError::error(self.file_name, self.src, span, msg, note, code))
-    }
-
-    fn warn(&mut self, span: Span, msg: impl Into<String>, note: Option<String>, code: Option<&str>) {
-        self.artifacts.warnings.push(LangError::warning(self.file_name, self.src, span, msg, note, code));
     }
 }
 
