@@ -15,8 +15,9 @@ test-cli:
 	cd glue && cargo test --workspace --all-features
 
 lint-cli:
-	cd glue && cargo clippy --workspace --all-features -- -D warnings
+	cd glue && cargo clippy --workspace --all -D warnings
 	cd glue && cargo fmt --all -- --check
 
 fmt-cli:
 	cd glue && cargo fmt --all
+	cd glue && cargo clippy --workspace --all --fix --allow-dirty --allow-staged

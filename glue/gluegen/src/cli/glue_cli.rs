@@ -9,7 +9,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use clap::Parser;
-use gluelang::{Lexer, SemanticAnalysisArtifacts, SemanticAnalyzer};
+use gluelang::{AstNode, Lexer, SemanticAnalysisArtifacts, SemanticAnalyzer};
 use miette::GraphicalReportHandler;
 
 pub struct GlueCli;
@@ -28,7 +28,9 @@ impl GlueCli {
                     let (file_name, file_contents) = Self::handle_file(input.clone())?;
 
                     let artifacts = Self::check(&file_name, file_contents)?;
-                    let mermaid = artifacts.ast.to_mermaid();
+                    let mermaid = artifacts.ast.to_mermaid_with_formatter(Some(|node: &AstNode| {
+                        format!("{node:?}<br/><span style=\"font-size: smaller; color: white;\">{}</span>", node.span())
+                    }));
                     std::fs::write(output, mermaid).with_context(|| format!("failed to write to {}", output.display()))?;
                 }
             },

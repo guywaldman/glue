@@ -66,14 +66,12 @@ impl<'a> Parser<'a> {
                         TokenKind::KeywordEnum => {
                             let (node_id, name) = self.parse_enum()?;
                             self.ast.append_child(root_id, node_id);
-                            self.symbols.insert(root_id, AstSymbol::Enum(name.clone()), node_id, Some(root_id));
-                            self.symbols.set_scope_parent(node_id, root_id);
+                            self.symbols.insert(root_id, AstSymbol::Enum(name.clone()), node_id);
                         }
                         _ => {
                             let (node_id, name) = self.parse_model()?;
                             self.ast.append_child(root_id, node_id);
-                            self.symbols.insert(root_id, AstSymbol::Model(name.clone()), node_id, Some(root_id));
-                            self.symbols.set_scope_parent(node_id, root_id);
+                            self.symbols.insert(root_id, AstSymbol::Model(name.clone()), node_id);
                         }
                     }
                 }
@@ -81,15 +79,12 @@ impl<'a> Parser<'a> {
                     let (node_id, name) = self.parse_model()?;
                     self.ast.append_child(root_id, node_id);
                     // Link model's symbol entry parent to root scope for ancestor visibility.
-                    self.symbols.insert(root_id, AstSymbol::Model(name.clone()), node_id, Some(root_id));
-                    // Ensure the model's own scope entry knows its parent for upward traversal.
-                    self.symbols.set_scope_parent(node_id, root_id);
+                    self.symbols.insert(root_id, AstSymbol::Model(name.clone()), node_id);
                 }
                 TokenKind::KeywordEnum => {
                     let (node_id, name) = self.parse_enum()?;
                     self.ast.append_child(root_id, node_id);
-                    self.symbols.insert(root_id, AstSymbol::Enum(name.clone()), node_id, Some(root_id));
-                    self.symbols.set_scope_parent(node_id, root_id);
+                    self.symbols.insert(root_id, AstSymbol::Enum(name.clone()), node_id);
                 }
                 TokenKind::Eof => break,
                 _ => {
@@ -166,6 +161,8 @@ impl<'a> Parser<'a> {
     ///
     /// Returns the model's AST node ID and its name.
     fn parse_model(&mut self) -> LangResult<(AstNodeId, String)> {
+        let span = self.curr_span();
+
         let doc = self.parse_optional_docblocks()?;
 
         let mut decorator_node_id = None;
@@ -177,8 +174,6 @@ impl<'a> Parser<'a> {
             }
         }
 
-        let span = self.curr_span();
-
         expect_tokens!(self, TokenKind::KeywordModel);
 
         let TokenPayload::String(model_name) = self.expect(TokenKind::Ident)?.payload else {
@@ -188,9 +183,7 @@ impl<'a> Parser<'a> {
 
         expect_tokens!(self, TokenKind::LBrace);
 
-        let model_ast_node = AstNode::new_with_span(AstNodeKind::Model, AstNodePayload::Model { name: model_name.clone(), doc }, span);
-        let model_node_id = self.ast.add_node(model_ast_node);
-
+        let mut symbols = Vec::new();
         let mut fields = Vec::new();
         let mut nested_models: Vec<AstNodeId> = Vec::new();
         while {
@@ -204,30 +197,32 @@ impl<'a> Parser<'a> {
                     // Nested model definition
                     let (nested_id, nested_name) = self.parse_model()?;
                     nested_models.push(nested_id);
-                    self.symbols
-                        .insert(model_node_id, AstSymbol::Model(nested_name.clone()), nested_id, Some(model_node_id));
-                    self.symbols.set_scope_parent(nested_id, model_node_id);
+                    symbols.push((AstSymbol::Model(nested_name.clone()), nested_id));
                 }
                 (TokenKind::KeywordEnum, _) | (TokenKind::DocBlock, TokenKind::KeywordEnum) => {
                     // Nested enum definition
                     let (nested_id, nested_name) = self.parse_enum()?;
                     nested_models.push(nested_id);
-                    self.symbols
-                        .insert(model_node_id, AstSymbol::Enum(nested_name.clone()), nested_id, Some(model_node_id));
-                    self.symbols.set_scope_parent(nested_id, model_node_id);
+                    symbols.push((AstSymbol::Enum(nested_name.clone()), nested_id));
                 }
                 _ => {
                     // Field (possibly with leading docblocks)
                     let (field_node_id, field_name) = self.parse_field()?;
                     fields.push(field_node_id);
-                    self.symbols
-                        .insert(model_node_id, AstSymbol::Field(field_name.clone()), field_node_id, Some(model_node_id));
-                    self.symbols.set_scope_parent(field_node_id, model_node_id);
+                    symbols.push((AstSymbol::Field(field_name.clone()), field_node_id));
                 }
             }
         }
 
         expect_tokens!(self, TokenKind::RBrace);
+
+        let span = span.merge(&self.curr_span());
+        let model_ast_node = AstNode::new_with_span(AstNodeKind::Model, AstNodePayload::Model { name: model_name.clone(), doc }, span);
+        let model_node_id = self.ast.add_node(model_ast_node);
+
+        for (symbol, node_id) in symbols.into_iter() {
+            self.symbols.insert(model_node_id, symbol, node_id);
+        }
 
         for nested_id in nested_models.into_iter() {
             self.ast.append_child(model_node_id, nested_id);
@@ -251,8 +246,11 @@ impl<'a> Parser<'a> {
     /// primitive_type := ("string" | "int" | "float" | "bool) [ "?" ]
     /// compound_type := ident [ "?" ] | primitive_type "|" type
     /// ```
-    fn parse_type(&mut self) -> LangResult<Type> {
+    fn parse_type(&mut self) -> LangResult<(AstNodeId, Type)> {
         let mut types = Vec::new();
+        let mut type_atom_nodes = Vec::new();
+
+        let span = self.curr_span();
 
         loop {
             let type_token = self.advance()?;
@@ -280,11 +278,16 @@ impl<'a> Parser<'a> {
                 is_array = true;
             }
 
-            types.push(TypeAtom {
-                variant,
-                is_optional,
-                is_array,
-            });
+            types.push(TypeAtom { variant, is_optional, is_array });
+            let type_atom_node = AstNode::new_with_span(
+                AstNodeKind::TypeAtom,
+                AstNodePayload::TypeAtom {
+                    ty: types.last().unwrap().clone(),
+                },
+                type_token.span,
+            );
+            let type_atom_node_id = self.ast.add_node(type_atom_node);
+            type_atom_nodes.push(type_atom_node_id);
 
             if self.peek_kind() == TokenKind::Pipe {
                 self.advance()?;
@@ -294,11 +297,19 @@ impl<'a> Parser<'a> {
             }
         }
 
-        if types.len() == 1 {
-            Ok(Type::Single(types.into_iter().next().unwrap()))
-        } else {
-            Ok(Type::Union(types))
+        let ty = if types.len() == 1 { Type::Single(types[0].clone()) } else { Type::Union(types.clone()) };
+
+        // Use a span that covers from the start of the first type token to the current position
+        // For now, we'll use start_span as a reasonable approximation
+        let span = span.merge(&self.prev_span());
+        let type_node = AstNode::new_with_span(AstNodeKind::Type, AstNodePayload::Type(ty.clone()), span);
+        let type_node_id = self.ast.add_node(type_node);
+
+        for type_atom_id in type_atom_nodes.into_iter() {
+            self.ast.append_child(type_node_id, type_atom_id);
         }
+
+        Ok((type_node_id, ty))
     }
 
     fn parse_constant_value(&mut self) -> LangResult<Option<ConstantValue>> {
@@ -358,11 +369,7 @@ impl<'a> Parser<'a> {
             self.expect(TokenKind::RParen)?; // consume ')'
         }
 
-        let decorator_node = AstNode::new_with_span(
-            AstNodeKind::Decorator,
-            AstNodePayload::Decorator { name: decorator_name, args },
-            self.curr_span(),
-        );
+        let decorator_node = AstNode::new_with_span(AstNodeKind::Decorator, AstNodePayload::Decorator { name: decorator_name, args }, self.curr_span());
         let decorator_node_id = self.ast.add_node(decorator_node);
         Ok(decorator_node_id)
     }
@@ -398,8 +405,7 @@ impl<'a> Parser<'a> {
         let ident_string = ident.to_string();
 
         self.expect(TokenKind::Colon)?;
-        let ty_span = self.curr_span();
-        let ty = self.parse_type()?;
+        let (ty_node_id, ty) = self.parse_type()?;
 
         let mut default_value = None;
         if self.peek_kind() == TokenKind::Equal {
@@ -418,15 +424,12 @@ impl<'a> Parser<'a> {
             },
             ident_span,
         ));
-        let identifier_node_id = self.ast.add_node(AstNode::new_with_span(
-            AstNodeKind::Identifier,
-            AstNodePayload::String(ident_string.clone()),
-            ident_span,
-        ));
+        let identifier_node_id = self
+            .ast
+            .add_node(AstNode::new_with_span(AstNodeKind::Identifier, AstNodePayload::String(ident_string.clone()), ident_span));
 
-        let type_node_id = self.ast.add_node(AstNode::new_with_span(AstNodeKind::Type, AstNodePayload::Type(ty), ty_span));
         self.ast.append_child(field_node_id, identifier_node_id);
-        self.ast.append_child(field_node_id, type_node_id);
+        self.ast.append_child(field_node_id, ty_node_id);
         Ok((field_node_id, ident_string))
     }
 
@@ -445,6 +448,15 @@ impl<'a> Parser<'a> {
     #[inline]
     fn peek_ahead_kind(&self, n: usize) -> TokenKind {
         self.tokens.get(self.current + n).map_or(Default::default(), |t| t.kind)
+    }
+
+    #[inline]
+    fn prev_span(&self) -> Span {
+        if self.current == 0 {
+            Default::default()
+        } else {
+            self.tokens.get(self.current - 1).map_or(Default::default(), |t| t.span)
+        }
     }
 
     #[inline]
@@ -478,12 +490,7 @@ impl<'a> Parser<'a> {
                 let token = self.advance()?;
                 Ok(token)
             }
-            kind => Err(self.err(
-                self.curr_span(),
-                format!("Expected {expected:?}, found {kind:?}"),
-                None,
-                Some("EUnexpectedToken"),
-            )),
+            kind => Err(self.err(self.curr_span(), format!("Expected {expected:?}, found {kind:?}"), None, Some("EUnexpectedToken"))),
         }
     }
 
@@ -498,6 +505,7 @@ mod tests {
     use crate::lexer::{Lexer, Token};
     // Bring trait into scope so we can call id() on AstNode in tests.
     use crate::parser::tree::TreeNode;
+    use crate::span_of;
     use indoc::indoc;
     use pretty_assertions::{assert_eq, assert_matches};
 
@@ -654,6 +662,26 @@ mod tests {
     }
 
     #[test]
+    fn test_spans() {
+        let input = indoc! {r#"
+            model User {
+                id: string | int
+                name: string
+            }
+        "#}
+        .trim();
+        let artifacts = parse(input).unwrap();
+        let ast = &artifacts.ast;
+
+        // Test finding nodes at specific positions
+        // Line 2, col 9 should be in the "int" type
+        let string_span = span_of(input, "id: (string)").unwrap();
+        let string_node = ast.find_narrowest_node_at_position(string_span.lines.0, string_span.cols.0).unwrap();
+        assert_eq!(string_node.span(), &string_span);
+        assert_eq!(string_node.kind(), AstNodeKind::TypeAtom);
+    }
+
+    #[test]
     fn test_symbols() {
         let input = indoc! {r#"
             model User {
@@ -679,15 +707,17 @@ mod tests {
         // Post should be in the root scope
         let post_model_id = ast
             .find(|n| matches!(n.payload(), AstNodePayload::Model { name, .. } if name == "Post"))
+            .first()
             .unwrap()
             .id();
-        let root_scope = symbols.symbols_in_scope(root_id).unwrap();
+        let root_scope = symbols.symbols_in_scope(&ast, root_id).unwrap();
         let post_in_root_scope = root_scope.get(&AstSymbol::Model("Post".to_string())).unwrap().id;
         assert_eq!(post_in_root_scope, post_model_id);
 
         // User should be in the root scope
         let user_model_id = ast
             .find(|n| matches!(n.payload(), AstNodePayload::Model { name, .. } if name == "User"))
+            .first()
             .unwrap()
             .id();
         let user_in_root_scope = root_scope.get(&AstSymbol::Model("User".to_string())).unwrap().id;
@@ -696,13 +726,14 @@ mod tests {
         // AdditionalPostDetails should be in Post's scope
         let additional_details_id = ast
             .find(|n| matches!(n.payload(), AstNodePayload::Model { name, .. } if name == "AdditionalPostDetails"))
+            .first()
             .unwrap()
             .id();
-        let post_scope = symbols.symbols_in_scope(post_model_id).unwrap();
+        let post_scope = symbols.symbols_in_scope(&ast, post_model_id).unwrap();
         let additional_details_in_post_scope = post_scope.get(&AstSymbol::Model("AdditionalPostDetails".to_string())).unwrap().id;
         assert_eq!(additional_details_in_post_scope, additional_details_id);
         // ...and should also be in its own scope.
-        let additional_details_scope = symbols.symbols_in_scope(additional_details_id).unwrap();
+        let additional_details_scope = symbols.symbols_in_scope(&ast, additional_details_id).unwrap();
         let additional_details_in_its_own_scope = additional_details_scope.get(&AstSymbol::Model("AdditionalPostDetails".to_string())).unwrap().id;
         assert_eq!(additional_details_in_its_own_scope, additional_details_id);
     }
@@ -729,12 +760,38 @@ mod tests {
         let root_id = ast.get_root();
         let baz_field_id = ast
             .find(|n| matches!(n.payload(), AstNodePayload::Field { name, .. } if name == "baz"))
+            .first()
             .unwrap()
             .id();
 
-        let root_scopes = symbols.symbols_in_scope(root_id).unwrap();
+        let root_scopes = symbols.symbols_in_scope(ast, root_id).unwrap();
         assert!(root_scopes.contains_key(&AstSymbol::Model("Foo".to_string())));
-        let baz_field_scopes = symbols.symbols_in_scope(baz_field_id).unwrap();
+        let baz_field_scopes = symbols.symbols_in_scope(ast, baz_field_id).unwrap();
         assert!(baz_field_scopes.contains_key(&AstSymbol::Model("Baz".to_string())));
+    }
+
+    #[test]
+    fn test_symbols_3() {
+        let src = indoc! {r#"
+            model Foo {
+                    bar: Bar
+            }
+
+            model Bar {
+                    baz: string
+            }
+            "#}
+        .trim();
+
+        let artifacts = parse(src).unwrap();
+        let ast = &artifacts.ast;
+        let symbols = artifacts.symbols;
+
+        let bar_type_span = span_of(src, "bar: (Bar)").unwrap();
+        let bar_type_node = ast.find_narrowest_node_at_position(bar_type_span.lines.0, bar_type_span.cols.0).unwrap();
+        assert_matches!(bar_type_node.kind(), AstNodeKind::TypeAtom);
+
+        let symbols = symbols.symbols_in_scope(ast, bar_type_node.id()).unwrap();
+        assert!(symbols.contains_key(&AstSymbol::Model("Bar".to_string())));
     }
 }

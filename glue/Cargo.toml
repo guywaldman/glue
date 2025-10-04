@@ -1,3 +1,8 @@
 [workspace]
 resolver = "3"
-members = ["gluegen"]
+members = ["gluelang", "gluegen", "lsp"]
+
+[profile.dev.package]
+# https://insta.rs/docs/quickstart/#optional-faster-runs
+insta.opt-level = 3
+similar.opt-level = 3

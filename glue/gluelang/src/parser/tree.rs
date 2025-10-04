@@ -42,6 +42,8 @@ impl std::fmt::Display for TreeNodeId {
 pub trait TreeNode {
     fn id(&self) -> TreeNodeId;
     fn set_id(&mut self, id: TreeNodeId);
+    fn parent_id(&self) -> Option<TreeNodeId>;
+    fn set_parent_id(&mut self, parent_id: Option<TreeNodeId>);
 }
 
 struct TreeInner<T> {
@@ -112,6 +114,9 @@ where
     pub fn append_child(&self, parent_id: TreeNodeId, child_id: TreeNodeId) {
         let mut inner = self.inner.write().expect("Failed to acquire write lock on tree state");
         inner.adjacency.entry(parent_id).or_default().push(child_id);
+        if let Some(child) = inner.nodes.get_mut(&child_id) {
+            child.set_parent_id(Some(parent_id));
+        }
     }
 
     pub fn update_node<F, R>(&self, node_id: TreeNodeId, f: F) -> Option<R>
@@ -127,14 +132,16 @@ where
         inner.nodes.get(&node_id).cloned()
     }
 
-    pub fn find(&self, f: impl Fn(&T) -> bool) -> Option<T> {
+    pub fn find(&self, f: impl Fn(&T) -> bool) -> Vec<T> {
         let inner = self.inner.read().expect("Failed to acquire read lock on tree state");
         // BFS to find the node.
         let mut queue = vec![inner.root];
+        let mut results = Vec::new();
+
         while let Some(current_id) = queue.pop() {
             if let Some(node) = inner.nodes.get(&current_id) {
                 if f(node) {
-                    return Some(node.clone());
+                    results.push(node.clone());
                 }
             }
             if let Some(children) = inner.adjacency.get(&current_id) {
@@ -143,7 +150,8 @@ where
                 }
             }
         }
-        None
+
+        results
     }
 
     pub fn get_first_ancestor_fn<F>(&self, node_id: TreeNodeId, f: F) -> Option<T>
@@ -193,14 +201,10 @@ where
 
     pub fn get_children_fn(&self, node_id: TreeNodeId, f: impl Fn(&T) -> bool) -> Option<Vec<T>> {
         let inner = self.inner.read().expect("Failed to acquire read lock on tree state");
-        inner.adjacency.get(&node_id).map(|children_ids| {
-            children_ids
-                .iter()
-                .filter_map(|id| inner.nodes.get(id))
-                .filter(|node| f(node))
-                .cloned()
-                .collect()
-        })
+        inner
+            .adjacency
+            .get(&node_id)
+            .map(|children_ids| children_ids.iter().filter_map(|id| inner.nodes.get(id)).filter(|node| f(node)).cloned().collect())
     }
 
     pub fn get_root(&self) -> TreeNodeId {
@@ -213,69 +217,39 @@ where
         ids.iter().filter_map(|id| inner.nodes.get(id).cloned()).collect()
     }
 
-    // TODO: Remove, this is just for debugging.
     pub fn to_mermaid(&self) -> String {
+        self.to_mermaid_with_formatter(None::<fn(&T) -> String>)
+    }
+
+    pub fn to_mermaid_with_formatter<F>(&self, formatter: Option<F>) -> String
+    where
+        F: Fn(&T) -> String,
+    {
         let inner = self.inner.read().expect("Failed to acquire read lock on tree state");
         let root = self.get_root();
         let mut result = String::from("graph TD\n");
 
         fn get_node_color(node_id: TreeNodeId) -> &'static str {
-            let colors = [
-                "#4a0e0e", "#0f2a25", "#2d7a91", "#629e7a", "#ccb885", "#b366b3", "#66a89a", "#c4b058", "#9567a3", "#5a9bc4",
-            ];
+            let colors = ["#4a0e0e", "#0f2a25", "#2d7a91", "#629e7a", "#ccb885", "#b366b3", "#66a89a", "#c4b058", "#9567a3", "#5a9bc4"];
             colors[node_id.0 % colors.len()]
         }
 
-        fn format_node_label<T: std::fmt::Debug>(node: &T) -> String {
-            let debug_str = format!("{node:?}");
-
-            // Try to extract meaningful information from the debug string
-
-            if debug_str.contains('{') && debug_str.contains('}') {
-                // Handle struct-like debug output
-                let parts: Vec<&str> = debug_str.split(',').collect();
-                let mut lines = Vec::new();
-
-                for part in parts {
-                    let trimmed = part.trim().trim_start_matches('{').trim_end_matches('}');
-                    if !trimmed.is_empty() {
-                        lines.push(trimmed.replace('"', "&quot;"));
-                    }
-                }
-
-                if lines.len() > 1 {
-                    format!(
-                        "<b>{}</b><br/>{}",
-                        lines[0].split_whitespace().next().unwrap_or("Node"),
-                        lines[1..].join("<br/>")
-                    )
-                } else {
-                    format!("<b>{}</b>", lines.first().unwrap_or(&debug_str))
-                }
-            } else {
-                // Simple debug output
-                let clean = debug_str.replace('"', "&quot;").replace('\n', " ");
-                if clean.len() > 30 {
-                    format!("<b>{}</b>", clean[..27].to_string() + "...")
-                } else {
-                    format!("<b>{clean}</b>")
-                }
-            }
-        }
-
-        fn build_mermaid<T: std::fmt::Debug>(
+        fn build_mermaid<T: std::fmt::Debug, F>(
             inner: &TreeInner<T>,
             node_id: TreeNodeId,
             result: &mut String,
             visited: &mut std::collections::HashSet<TreeNodeId>,
-        ) {
+            formatter: &Option<F>,
+        ) where
+            F: Fn(&T) -> String,
+        {
             if visited.contains(&node_id) {
                 return;
             }
             visited.insert(node_id);
 
             if let Some(node) = inner.nodes.get(&node_id) {
-                let label = format_node_label(node);
+                let label = if let Some(f) = formatter { f(node) } else { format!("{node:?}") };
                 let color = get_node_color(node_id);
                 result.push_str(&format!("    {}[\"{}\"]\n", node_id.0, label));
                 result.push_str(&format!("    style {} fill:{},stroke:#333,stroke-width:2px,color:#fff\n", node_id.0, color));
@@ -283,14 +257,14 @@ where
                 if let Some(children) = inner.adjacency.get(&node_id) {
                     for &child_id in children {
                         result.push_str(&format!("    {} --> {}\n", node_id.0, child_id.0));
-                        build_mermaid(inner, child_id, result, visited);
+                        build_mermaid(inner, child_id, result, visited, formatter);
                     }
                 }
             }
         }
 
         let mut visited = std::collections::HashSet::new();
-        build_mermaid(&inner, root, &mut result, &mut visited);
+        build_mermaid(&inner, root, &mut result, &mut visited, &formatter);
         result
     }
 }
@@ -314,6 +288,7 @@ mod tests {
     #[derive(Debug, Clone)]
     struct TestNode {
         id: TreeNodeId,
+        parent_id: Option<TreeNodeId>,
         span: Span,
         kind: TestNodeKind,
         value: Option<usize>, // Added state for leaf nodes
@@ -327,12 +302,21 @@ mod tests {
         fn set_id(&mut self, id: TreeNodeId) {
             self.id = id;
         }
+
+        fn parent_id(&self) -> Option<TreeNodeId> {
+            self.parent_id
+        }
+
+        fn set_parent_id(&mut self, parent_id: Option<TreeNodeId>) {
+            self.parent_id = parent_id;
+        }
     }
 
     impl TestNode {
         fn new(span: Span, kind: TestNodeKind) -> Self {
             Self {
                 id: TreeNodeId::default(),
+                parent_id: None,
                 span: Default::default(),
                 kind,
                 value: None,
@@ -342,6 +326,7 @@ mod tests {
         fn new_with_value(span: Span, kind: TestNodeKind, value: usize) -> Self {
             Self {
                 id: TreeNodeId::default(),
+                parent_id: None,
                 span,
                 kind,
                 value: Some(value),

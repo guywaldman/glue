@@ -72,35 +72,57 @@ impl fmt::Display for TokenKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Span {
-    pub start: usize,
-    pub end: usize,
-    pub line: usize,
-    pub col_start: usize,
-    pub col_end: usize,
+    pub chars: (usize, usize),
+    pub lines: (usize, usize),
+    pub cols: (usize, usize),
 }
 
-impl Default for Span {
-    fn default() -> Self {
-        Self {
-            start: 0,
-            end: 0,
-            line: 1,
-            col_start: 1,
-            col_end: 1,
-        }
+impl fmt::Display for Span {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{} → {}:{}", self.lines.0, self.cols.0, self.lines.1, self.cols.1)
     }
 }
 
 impl Span {
+    pub fn new(chars: (usize, usize), lines: (usize, usize), cols: (usize, usize)) -> Self {
+        Self { chars, lines, cols }
+    }
+
+    pub fn from_ranges(char_range: std::ops::Range<usize>, line_range: std::ops::Range<usize>, col_range: std::ops::Range<usize>) -> Self {
+        Self {
+            chars: (char_range.start, char_range.end),
+            lines: (line_range.start, line_range.end),
+            cols: (col_range.start, col_range.end),
+        }
+    }
+
+    /// Creates a union span from the minimum start to the maximum end
     pub fn merge(&self, other: &Span) -> Span {
+        let start_char = self.chars.0.min(other.chars.0);
+        let end_char = self.chars.1.max(other.chars.1);
+
+        let (start_line, start_col) = if self.chars.0 < other.chars.0 {
+            (self.lines.0, self.cols.0)
+        } else if self.chars.0 > other.chars.0 {
+            (other.lines.0, other.cols.0)
+        } else {
+            (self.lines.0, self.cols.0.min(other.cols.0))
+        };
+
+        let (end_line, end_col) = if self.chars.1 > other.chars.1 {
+            (self.lines.1, self.cols.1)
+        } else if self.chars.1 < other.chars.1 {
+            (other.lines.1, other.cols.1)
+        } else {
+            (self.lines.1, self.cols.1.max(other.cols.1))
+        };
+
         Span {
-            start: self.start.min(other.start),
-            end: self.end.max(other.end),
-            line: self.line.min(other.line),
-            col_start: if self.line <= other.line { self.col_start } else { other.col_start },
-            col_end: if self.line >= other.line { self.col_end } else { other.col_end },
+            chars: (start_char, end_char),
+            lines: (start_line, end_line),
+            cols: (start_col, end_col),
         }
     }
 }
@@ -322,9 +344,9 @@ impl<'a> Lexer<'a> {
         let mut lines = Vec::new();
 
         loop {
-            self.advance_n(3); // "///"
+            self.advance_n(3); // Three slashes
 
-            // optional single space after "///"
+            // Optional single space after "///"
             while !self.at_end() && self.peek() == b' ' {
                 self.advance();
             }
@@ -335,20 +357,20 @@ impl<'a> Lexer<'a> {
             }
             let mut end = self.i;
 
-            // trim trailing spaces (but not newline)
+            // Trim trailing spaces (but not newline)
             while end > start && self.bytes[end - 1].is_ascii_whitespace() && self.bytes[end - 1] != b'\n' {
                 end -= 1;
             }
 
             lines.push(self.src[start..end].to_string());
 
-            // consume newline if present
-            if !self.at_end() && self.peek() == b'\n' {
-                self.advance();
-            }
+            let has_next_doc_line = !self.at_end() && self.peek() == b'\n' && self.peek_n(1) == b'/' && self.peek_n(2) == b'/' && self.peek_n(3) == b'/';
 
-            // stop if next line is not another "///"
-            if !(self.peek() == b'/' && self.peek_n(1) == b'/' && self.peek_n(2) == b'/') {
+            if has_next_doc_line {
+                // Consume the newline to continue to next doc line
+                self.advance();
+            } else {
+                // Don't consume the newline, not part of the doc block token
                 break;
             }
         }
@@ -412,18 +434,19 @@ impl<'a> Lexer<'a> {
 
     fn span_start(&self) -> Span {
         Span {
-            start: self.i,
-            end: self.i,
-            line: self.line,
-            col_start: self.col,
-            col_end: self.col,
+            chars: (self.i, self.i),
+            lines: (self.line, self.line),
+            cols: (self.col, self.col),
         }
     }
 
-    fn make(&self, kind: TokenKind, payload: TokenPayload, mut sp: Span) -> Token {
-        sp.end = self.i;
-        sp.col_end = self.col;
-        Token { kind, payload, span: sp }
+    fn make(&self, kind: TokenKind, payload: TokenPayload, start_span: Span) -> Token {
+        let span = Span {
+            chars: (start_span.chars.0, self.i),
+            lines: (start_span.lines.0, self.line),
+            cols: (start_span.cols.0, self.col),
+        };
+        Token { kind, payload, span }
     }
 
     #[inline]
@@ -437,9 +460,56 @@ impl<'a> Lexer<'a> {
     }
 }
 
+/// Find the first occurrence of `pattern` in `src` and return its `Span`.
+/// This is meant to be used only in tests.
+/// IMPORTANT: For convenience, if the pattern contains capturing groups, there is escaping expected. Otherwise, no escaping.
+pub fn span_of(src: &str, pattern: &str) -> Option<Span> {
+    // For convenience, escaping is not required unless using capturing groups.
+    let re = if pattern.contains('(') && pattern.contains(')') {
+        regex::Regex::new(pattern).unwrap()
+    } else {
+        regex::Regex::new(&regex::escape(pattern)).unwrap()
+    };
+    let bytes = src.as_bytes();
+
+    let cap = re.captures(src)?;
+    // Use the first capturing group, or the whole match if no groups
+    let m = cap.get(1).or_else(|| cap.get(0)).unwrap();
+    let start = m.start();
+    let end = m.end();
+
+    // Calculate line and column for start
+    let mut line = 1;
+    let mut col = 1;
+    for &b in &bytes[..start] {
+        if b == b'\n' {
+            line += 1;
+            col = 1;
+        } else {
+            col += 1;
+        }
+    }
+
+    let line_start = line;
+    let col_start = col;
+
+    // Calculate line and column for end
+    for &b in &bytes[start..end] {
+        if b == b'\n' {
+            line += 1;
+            col = 1;
+        } else {
+            col += 1;
+        }
+    }
+
+    Some(Span::new((start, end), (line_start, line), (col_start, col)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use indoc::indoc;
     use pretty_assertions::assert_eq;
 
     #[test]
@@ -642,5 +712,73 @@ mod tests {
 
         // Test string literal payload
         assert_eq!(tokens[4].as_string(), Some("/users/{id}"));
+    }
+
+    #[test]
+    fn test_lexer_spans() {
+        let src = indoc! {r#"
+            model User {
+                /// A unique identifier for the user.
+                // INTERNAL NOTE: The ID is a UUID.
+                id: string
+                /// The user's email address.
+                email: string
+                /// The user's age.
+                age: int
+            }
+        "#};
+        let tokens = super::Lexer::new(src).lex();
+
+        assert_eq!((tokens[0].kind, tokens[0].span), (TokenKind::KeywordModel, span_of(src, "model").unwrap()));
+        assert_eq!((tokens[1].kind, tokens[1].span), (TokenKind::Ident, span_of(src, "User").unwrap()));
+        assert_eq!((tokens[2].kind, tokens[2].span), (TokenKind::LBrace, span_of(src, "{").unwrap()));
+        assert_eq!(
+            (tokens[3].kind, tokens[3].span),
+            (TokenKind::DocBlock, span_of(src, "/// A unique identifier for the user.").unwrap())
+        );
+        assert_eq!((tokens[4].kind, tokens[4].span), (TokenKind::Ident, span_of(src, "(id):").unwrap()));
+        assert_eq!((tokens[5].kind, tokens[5].span), (TokenKind::Colon, span_of(src, "id(:)").unwrap()));
+        assert_eq!((tokens[6].kind, tokens[6].span), (TokenKind::Ident, span_of(src, "id: (string)").unwrap()));
+        assert_eq!(
+            (tokens[7].kind, tokens[7].span),
+            (TokenKind::DocBlock, span_of(src, "/// The user's email address.").unwrap())
+        );
+        assert_eq!((tokens[8].kind, tokens[8].span), (TokenKind::Ident, span_of(src, "(email):").unwrap()));
+        assert_eq!((tokens[9].kind, tokens[9].span), (TokenKind::Colon, span_of(src, "email(:)").unwrap()));
+        assert_eq!((tokens[10].kind, tokens[10].span), (TokenKind::Ident, span_of(src, "email: (string)").unwrap()));
+        assert_eq!((tokens[11].kind, tokens[11].span), (TokenKind::DocBlock, span_of(src, "/// The user's age.").unwrap()));
+        assert_eq!((tokens[12].kind, tokens[12].span), (TokenKind::Ident, span_of(src, "(age):").unwrap()));
+        assert_eq!((tokens[13].kind, tokens[13].span), (TokenKind::Colon, span_of(src, "age(:)").unwrap()));
+        assert_eq!((tokens[14].kind, tokens[14].span), (TokenKind::Ident, span_of(src, "age: (int)").unwrap()));
+        assert_eq!((tokens[15].kind, tokens[15].span), (TokenKind::RBrace, span_of(src, "}").unwrap()));
+        assert_eq!(tokens[16].kind, TokenKind::Eof);
+    }
+
+    #[test]
+    fn test_span_of_helper() {
+        let src = indoc! {r#"
+            model User {
+                id: string | int
+                name: UserName
+            }
+        "#};
+
+        // Test span_of for "User"
+        let user_span = span_of(src, "User").unwrap();
+        assert_eq!(user_span.chars, (6, 10));
+        assert_eq!(user_span.lines, (1, 1));
+        assert_eq!(user_span.cols, (7, 11));
+
+        // Test span_of for "id"
+        let id_span = span_of(src, "id").unwrap();
+        assert_eq!(id_span.chars, (17, 19));
+        assert_eq!(id_span.lines, (2, 2));
+        assert_eq!(id_span.cols, (5, 7));
+
+        // Test span_of for "string"
+        let string_span = span_of(src, "string").unwrap();
+        assert_eq!(string_span.chars, (21, 27));
+        assert_eq!(string_span.lines, (2, 2));
+        assert_eq!(string_span.cols, (9, 15));
     }
 }

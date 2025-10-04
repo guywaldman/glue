@@ -117,7 +117,7 @@ impl<'a> SemanticAnalyzer<'a> {
                 }
             }
         }
-        let symbols_in_scope = self.symbols.symbols_in_scope(scope_id);
+        let symbols_in_scope = self.symbols.symbols_in_scope(self.ast, scope_id);
         for (i, ty_ref) in type_refs.iter().enumerate() {
             if let TypeVariant::Ref(ref_name) = &ty_ref.variant {
                 let is_defined = symbols_in_scope
@@ -176,9 +176,7 @@ impl<'a> SemanticAnalyzer<'a> {
     }
 
     fn warn(&mut self, span: Span, msg: impl Into<String>, note: Option<String>, code: Option<&str>) {
-        self.artifacts
-            .warnings
-            .push(LangError::warning(self.file_name, self.src, span, msg, note, code));
+        self.artifacts.warnings.push(LangError::warning(self.file_name, self.src, span, msg, note, code));
     }
 }
 

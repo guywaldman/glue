@@ -64,7 +64,7 @@ impl Diagnostic for LangError {
 
     fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
         Some(Box::new(std::iter::once(LabeledSpan::at(
-            self.span.start..self.span.end.max(self.span.start + 1),
+            self.span.chars.0..self.span.chars.1.max(self.span.chars.0 + 1),
             self.message.clone(),
         ))))
     }

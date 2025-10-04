@@ -1,6 +1,4 @@
-use gluelang::{
-    Ast, AstNode, AstNodeKind, AstNodePayload, AstSymbol, PrimitiveType, SemanticAnalysisArtifacts, SymbolTable, TreeNode, Type, TypeAtom, TypeVariant,
-};
+use gluelang::{Ast, AstNode, AstNodeKind, AstNodePayload, AstSymbol, PrimitiveType, SemanticAnalysisArtifacts, SymbolTable, TreeNode, Type, TypeAtom, TypeVariant};
 
 use crate::codegen::{CodeGenError, CodeGenerator, types::EmitResult};
 
@@ -126,7 +124,7 @@ impl JsonSchemaCodeGenerator {
     fn emit_type_atom(&mut self, node: &AstNode, atom: &TypeAtom) -> Result<json::JsonValue, CodeGenError> {
         match &atom.variant {
             TypeVariant::Ref(ref_name) => {
-                let symbols = self.symbols.symbols_in_scope(node.id());
+                let symbols = self.symbols.symbols_in_scope(&self.ast, node.id());
                 if let Some(symbols) = symbols {
                     // Try to find as a model first
                     if let Some(entry) = symbols.get(&AstSymbol::Model(ref_name.clone())) {

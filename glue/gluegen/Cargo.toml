@@ -21,8 +21,3 @@ thiserror = "2.0.16"
 indoc = "2.0.6"
 insta = "1.43.2"
 rand = "0.9.2"
-
-[profile.dev.package]
-# https://insta.rs/docs/quickstart/#optional-faster-runs
-insta.opt-level = 3
-similar.opt-level = 3
