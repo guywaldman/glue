@@ -6,14 +6,6 @@ use std::{
     },
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct Span {
-    pub start: usize,
-    pub end: usize,
-    pub line: usize,
-    pub col: usize,
-}
-
 const ORDERING: Ordering = Ordering::Relaxed;
 
 const ROOT_NODE_ID: usize = 0;
@@ -139,10 +131,10 @@ where
         let mut results = Vec::new();
 
         while let Some(current_id) = queue.pop() {
-            if let Some(node) = inner.nodes.get(&current_id) {
-                if f(node) {
-                    results.push(node.clone());
-                }
+            if let Some(node) = inner.nodes.get(&current_id)
+                && f(node)
+            {
+                results.push(node.clone());
             }
             if let Some(children) = inner.adjacency.get(&current_id) {
                 for &child_id in children {
@@ -162,10 +154,10 @@ where
         let mut current_id = node_id;
 
         while let Some((parent_id, _)) = inner.adjacency.iter().find(|(_, children)| children.contains(&current_id)) {
-            if let Some(node) = inner.nodes.get(parent_id) {
-                if f(node) {
-                    return Some(node.clone());
-                }
+            if let Some(node) = inner.nodes.get(parent_id)
+                && f(node)
+            {
+                return Some(node.clone());
             }
             current_id = *parent_id;
         }
@@ -296,6 +288,8 @@ mod tests {
     use std::sync::{Arc, Barrier};
     use std::thread;
 
+    use crate::Span;
+
     use super::*;
 
     #[derive(Debug, Clone, Copy, PartialEq)]
@@ -334,7 +328,7 @@ mod tests {
     }
 
     impl TestNode {
-        fn new(span: Span, kind: TestNodeKind) -> Self {
+        fn new(kind: TestNodeKind) -> Self {
             Self {
                 id: TreeNodeId::default(),
                 parent_id: None,
@@ -344,11 +338,11 @@ mod tests {
             }
         }
 
-        fn new_with_value(span: Span, kind: TestNodeKind, value: usize) -> Self {
+        fn new_with_value(kind: TestNodeKind, value: usize) -> Self {
             Self {
                 id: TreeNodeId::default(),
                 parent_id: None,
-                span,
+                span: Default::default(),
                 kind,
                 value: Some(value),
             }
@@ -361,9 +355,9 @@ mod tests {
 
     #[test]
     fn test_leaf_node_with_value() {
-        let tree: Tree<TestNode> = Tree::new_with_root(TestNode::new(Span::default(), TestNodeKind::Root));
+        let tree: Tree<TestNode> = Tree::new_with_root(TestNode::new(TestNodeKind::Root));
         let leaf_value = 42;
-        let leaf = TestNode::new_with_value(Span::default(), TestNodeKind::Leaf, leaf_value);
+        let leaf = TestNode::new_with_value(TestNodeKind::Leaf, leaf_value);
         let leaf_id = tree.add_node(leaf);
 
         let retrieved = tree.get_node(leaf_id).unwrap();
@@ -373,8 +367,8 @@ mod tests {
 
     #[test]
     fn test_set_and_get_root() {
-        let tree: Tree<TestNode> = Tree::new_with_root(TestNode::new(Span::default(), TestNodeKind::Root));
-        let node = TestNode::new(Span::default(), TestNodeKind::Root);
+        let tree: Tree<TestNode> = Tree::new_with_root(TestNode::new(TestNodeKind::Root));
+        let node = TestNode::new(TestNodeKind::Root);
         let node_id = tree.add_node(node);
 
         tree.set_root(node_id);
@@ -383,10 +377,10 @@ mod tests {
 
     #[test]
     fn test_root_children() {
-        let tree: Tree<TestNode> = Tree::new_with_root(TestNode::new(Span::default(), TestNodeKind::Root));
-        let child1 = TestNode::new(Span::default(), TestNodeKind::Branch);
-        let child2 = TestNode::new(Span::default(), TestNodeKind::Leaf);
-        let grandchild1 = TestNode::new(Span::default(), TestNodeKind::Leaf);
+        let tree: Tree<TestNode> = Tree::new_with_root(TestNode::new(TestNodeKind::Root));
+        let child1 = TestNode::new(TestNodeKind::Branch);
+        let child2 = TestNode::new(TestNodeKind::Leaf);
+        let grandchild1 = TestNode::new(TestNodeKind::Leaf);
 
         let child1_id = tree.add_node(child1);
         let child2_id = tree.add_node(child2);
@@ -411,35 +405,10 @@ mod tests {
 
     #[test]
     fn test_append_child_and_get_children() {
-        let tree: Tree<TestNode> = Tree::new_with_root(TestNode::new(Span::default(), TestNodeKind::Root));
-        let parent = TestNode::new(
-            Span {
-                start: 0,
-                end: 20,
-                line: 1,
-                col: 0,
-            },
-            TestNodeKind::Root,
-        );
-        let child1 = TestNode::new(
-            Span {
-                start: 5,
-                end: 10,
-                line: 1,
-                col: 5,
-            },
-            TestNodeKind::Branch,
-        );
-        let child2 = TestNode::new_with_value(
-            Span {
-                start: 15,
-                end: 20,
-                line: 1,
-                col: 15,
-            },
-            TestNodeKind::Leaf,
-            100,
-        );
+        let tree: Tree<TestNode> = Tree::new_with_root(TestNode::new(TestNodeKind::Root));
+        let parent = TestNode::new(TestNodeKind::Root);
+        let child1 = TestNode::new(TestNodeKind::Branch);
+        let child2 = TestNode::new_with_value(TestNodeKind::Leaf, 100);
 
         let parent_id = tree.add_node(parent);
         let child1_id = tree.add_node(child1);
@@ -462,39 +431,22 @@ mod tests {
 
     #[test]
     fn test_get_children_nonexistent_parent() {
-        let tree: Tree<TestNode> = Tree::new_with_root(TestNode::new(Span::default(), TestNodeKind::Root));
+        let tree: Tree<TestNode> = Tree::new_with_root(TestNode::new(TestNodeKind::Root));
         assert_eq!(tree.get_children_ids(TreeNodeId(999)), None);
     }
 
     #[test]
     fn test_get_node_nonexistent() {
-        let tree: Tree<TestNode> = Tree::new_with_root(TestNode::new(Span::default(), TestNodeKind::Root));
+        let tree: Tree<TestNode> = Tree::new_with_root(TestNode::new(TestNodeKind::Root));
         let node = tree.get_node(TreeNodeId(999));
         assert!(node.is_none());
     }
 
     #[test]
     fn test_multiple_nodes_unique_ids() {
-        let tree: Tree<TestNode> = Tree::new_with_root(TestNode::new(Span::default(), TestNodeKind::Root));
-        let node1 = TestNode::new(
-            Span {
-                start: 0,
-                end: 5,
-                line: 1,
-                col: 0,
-            },
-            TestNodeKind::Branch,
-        );
-        let node2 = TestNode::new_with_value(
-            Span {
-                start: 5,
-                end: 10,
-                line: 1,
-                col: 5,
-            },
-            TestNodeKind::Leaf,
-            25,
-        );
+        let tree: Tree<TestNode> = Tree::new_with_root(TestNode::new(TestNodeKind::Root));
+        let node1 = TestNode::new(TestNodeKind::Branch);
+        let node2 = TestNode::new_with_value(TestNodeKind::Leaf, 25);
 
         let id1 = tree.add_node(node1);
         let id2 = tree.add_node(node2);
@@ -509,22 +461,13 @@ mod tests {
 
     #[test]
     fn test_leaf_values_preservation() {
-        let tree: Tree<TestNode> = Tree::new_with_root(TestNode::new(Span::default(), TestNodeKind::Root));
+        let tree: Tree<TestNode> = Tree::new_with_root(TestNode::new(TestNodeKind::Root));
         let values = [10, 20, 30, 40, 50];
         let mut leaf_ids = Vec::new();
 
         // Add multiple leaf nodes with different values
         for (i, &value) in values.iter().enumerate() {
-            let leaf = TestNode::new_with_value(
-                Span {
-                    start: i * 5,
-                    end: (i + 1) * 5,
-                    line: 1,
-                    col: i * 5,
-                },
-                TestNodeKind::Leaf,
-                value,
-            );
+            let leaf = TestNode::new_with_value(TestNodeKind::Leaf, value);
             let leaf_id = tree.add_node(leaf);
             leaf_ids.push(leaf_id);
         }
@@ -539,34 +482,10 @@ mod tests {
 
     #[test]
     fn test_ancestors() {
-        let tree: Tree<TestNode> = Tree::new_with_root(TestNode::new(Span::default(), TestNodeKind::Root));
-        let parent = TestNode::new(
-            Span {
-                start: 0,
-                end: 20,
-                line: 1,
-                col: 0,
-            },
-            TestNodeKind::Branch,
-        );
-        let child = TestNode::new(
-            Span {
-                start: 5,
-                end: 10,
-                line: 1,
-                col: 5,
-            },
-            TestNodeKind::Leaf,
-        );
-        let grandchild = TestNode::new(
-            Span {
-                start: 6,
-                end: 9,
-                line: 1,
-                col: 6,
-            },
-            TestNodeKind::Leaf,
-        );
+        let tree: Tree<TestNode> = Tree::new_with_root(TestNode::new(TestNodeKind::Root));
+        let parent = TestNode::new(TestNodeKind::Branch);
+        let child = TestNode::new(TestNodeKind::Leaf);
+        let grandchild = TestNode::new(TestNodeKind::Leaf);
 
         let parent_id = tree.add_node(parent);
         let child_id = tree.add_node(child);
@@ -590,7 +509,7 @@ mod tests {
 
     #[test]
     fn test_concurrent_access() {
-        let tree = Arc::new(Tree::<TestNode>::new_with_root(TestNode::new(Span::default(), TestNodeKind::Root)));
+        let tree = Arc::new(Tree::<TestNode>::new_with_root(TestNode::new(TestNodeKind::Root)));
         let barrier = Arc::new(Barrier::new(4));
         let mut handles = vec![];
 
@@ -600,16 +519,7 @@ mod tests {
         handles.push(thread::spawn(move || {
             barrier_clone.wait();
             for i in 0..10 {
-                let node = TestNode::new_with_value(
-                    Span {
-                        start: i,
-                        end: i + 5,
-                        line: 1,
-                        col: i,
-                    },
-                    TestNodeKind::Leaf,
-                    i * 10,
-                );
+                let node = TestNode::new_with_value(TestNodeKind::Leaf, i * 10);
                 tree_clone.add_node(node);
             }
         }));
@@ -619,15 +529,7 @@ mod tests {
         let barrier_clone = Arc::clone(&barrier);
         handles.push(thread::spawn(move || {
             barrier_clone.wait();
-            let node = TestNode::new(
-                Span {
-                    start: 100,
-                    end: 105,
-                    line: 2,
-                    col: 0,
-                },
-                TestNodeKind::Root,
-            );
+            let node = TestNode::new(TestNodeKind::Root);
             let root_id = tree_clone.add_node(node);
             tree_clone.set_root(root_id);
         }));
@@ -637,25 +539,8 @@ mod tests {
         let barrier_clone = Arc::clone(&barrier);
         handles.push(thread::spawn(move || {
             barrier_clone.wait();
-            let parent = TestNode::new(
-                Span {
-                    start: 200,
-                    end: 210,
-                    line: 3,
-                    col: 0,
-                },
-                TestNodeKind::Branch,
-            );
-            let child = TestNode::new_with_value(
-                Span {
-                    start: 205,
-                    end: 208,
-                    line: 3,
-                    col: 5,
-                },
-                TestNodeKind::Leaf,
-                999,
-            );
+            let parent = TestNode::new(TestNodeKind::Branch);
+            let child = TestNode::new_with_value(TestNodeKind::Leaf, 999);
             let parent_id = tree_clone.add_node(parent);
             let child_id = tree_clone.add_node(child);
             tree_clone.append_child(parent_id, child_id);

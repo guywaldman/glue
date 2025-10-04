@@ -112,11 +112,11 @@ impl<'a> SemanticAnalyzer<'a> {
         // Determine scope: nearest ancestor model else root.
         let mut scope_id = self.ast.get_root();
         for ancestor_id in self.ast.get_ancestor_ids(node_id) {
-            if let Some(n) = self.ast.get_node(ancestor_id) {
-                if n.kind() == AstNodeKind::Model {
-                    scope_id = ancestor_id;
-                    break;
-                }
+            if let Some(n) = self.ast.get_node(ancestor_id)
+                && n.kind() == AstNodeKind::Model
+            {
+                scope_id = ancestor_id;
+                break;
             }
         }
         let symbols_in_scope = self.symbols.symbols_in_scope(self.ast, scope_id);

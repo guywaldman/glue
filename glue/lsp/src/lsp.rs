@@ -99,11 +99,10 @@ impl LanguageServer for Lsp {
         // Full sync, single change with whole text
         if let Some(change) = params.content_changes.into_iter().last() {
             let uri = params.text_document.uri.to_string();
-            if let Err(e) = self.analyze(&uri, &change.text, true) {
-                if let Some(c) = &self.client {
+            if let Err(e) = self.analyze(&uri, &change.text, true)
+                && let Some(c) = &self.client {
                     let _ = c.log_message(lsp::MessageType::ERROR, format!("Error analyzing document: {e}")).await;
                 }
-            }
         }
     }
 

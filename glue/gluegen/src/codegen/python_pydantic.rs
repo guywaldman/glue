@@ -133,12 +133,11 @@ impl PythonPydanticCodeGenerator {
             .and_then(|children| children.iter().find(|c| c.kind() == AstNodeKind::Decorator).cloned());
 
         let mut field_str = "Field(".to_string();
-        if let Some(AstNodePayload::Decorator { name, positional_args, .. }) = decorator.map(|d| d.payload().clone()) {
-            if name == "alias" {
-                if let Some(arg) = positional_args.first() {
-                    field_str.push_str(&format!("alias={arg}"));
-                }
-            }
+        if let Some(AstNodePayload::Decorator { name, positional_args, .. }) = decorator.map(|d| d.payload().clone())
+            && name == "alias"
+            && let Some(arg) = positional_args.first()
+        {
+            field_str.push_str(&format!("alias={arg}"));
         }
         field_str.push(')');
 
