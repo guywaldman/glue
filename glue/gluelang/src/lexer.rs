@@ -15,6 +15,7 @@ pub enum TokenKind {
     Hash,
     Pipe,
     AtSign,
+    DoubleDot,
     Ident,
     StringLit,
     IntLit,
@@ -26,7 +27,6 @@ pub enum TokenKind {
     KeywordEnum,
     KeywordModel,
     KeywordEndpoint,
-    KeywordResponse,
     #[default]
     Noop,
 }
@@ -46,7 +46,6 @@ impl fmt::Display for TokenKind {
             TokenKind::KeywordEnum => write!(f, "enum"),
             TokenKind::KeywordModel => write!(f, "model"),
             TokenKind::KeywordEndpoint => write!(f, "endpoint"),
-            TokenKind::KeywordResponse => write!(f, "response"),
             TokenKind::LBrace => write!(f, "{{"),
             TokenKind::RBrace => write!(f, "}}"),
             TokenKind::LBracket => write!(f, "["),
@@ -60,6 +59,7 @@ impl fmt::Display for TokenKind {
             TokenKind::Hash => write!(f, "#"),
             TokenKind::Pipe => write!(f, "|"),
             TokenKind::AtSign => write!(f, "@"),
+            TokenKind::DoubleDot => write!(f, ".."),
             TokenKind::IntLit => write!(f, "number"),
             TokenKind::Ident => write!(f, "identifier"),
             TokenKind::StringLit => write!(f, "string"),
@@ -265,6 +265,10 @@ impl<'a> Lexer<'a> {
                     self.advance();
                     return self.make(TokenKind::AtSign, TokenPayload::None, sp);
                 }
+                b'.' if c2 == b'.' => {
+                    self.advance_n(2);
+                    return self.make(TokenKind::DoubleDot, TokenPayload::None, sp);
+                }
                 b'"' => {
                     self.advance(); // consume opening quote
                     let start = self.i;
@@ -321,7 +325,6 @@ impl<'a> Lexer<'a> {
             "enum" => TokenKind::KeywordEnum,
             "model" => TokenKind::KeywordModel,
             "endpoint" => TokenKind::KeywordEndpoint,
-            "response" => TokenKind::KeywordResponse,
             "true" => {
                 return self.make(TokenKind::BoolLit, TokenPayload::Bool(true), sp);
             }

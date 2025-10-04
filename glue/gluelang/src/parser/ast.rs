@@ -66,12 +66,14 @@ pub enum PrimitiveType {
 pub enum TypeVariant {
     Primitive(PrimitiveType),
     Ref(String),
+    AnonymousModel,
 }
 
 #[derive(Debug, Clone)]
 pub enum ConstantValue {
     String(String),
     Int(i64),
+    IntRange(i64, i64),
     Bool(bool),
 }
 
@@ -80,6 +82,7 @@ impl std::fmt::Display for ConstantValue {
         match self {
             ConstantValue::String(s) => write!(f, "\"{s}\""),
             ConstantValue::Int(i) => write!(f, "{i}"),
+            ConstantValue::IntRange(start, end) => write!(f, "{start}..{end}"),
             ConstantValue::Bool(b) => write!(f, "{b}"),
         }
     }
@@ -101,6 +104,7 @@ impl std::fmt::Display for TypeAtom {
                 PrimitiveType::Bool => "bool".to_string(),
             },
             TypeVariant::Ref(name) => name.clone(),
+            TypeVariant::AnonymousModel => "anonymous_model".to_string(),
         };
         let array_suffix = if self.is_array { "[]" } else { "" };
         let optional_suffix = if self.is_optional { "?" } else { "" };
@@ -132,6 +136,7 @@ pub enum AstNodeKind {
     Root,
     Enum,
     Model,
+    Endpoint,
     Field,
     Decorator,
     Identifier,
@@ -152,6 +157,13 @@ pub enum AstNodePayload {
     Model {
         name: String,
         doc: Option<String>,
+    },
+    Endpoint {
+        name: String,
+        doc: Option<String>,
+        method: String,
+        path: String,
+        path_params: Vec<String>,
     },
     Field {
         name: String,
@@ -236,6 +248,7 @@ impl std::fmt::Debug for AstNode {
             (AstNodeKind::TypeAtom, AstNodePayload::TypeAtom { ty }) => match &ty.variant {
                 TypeVariant::Primitive(p) => format!("TypeAtom({p:?}{})", if ty.is_array { "[]" } else { "" }),
                 TypeVariant::Ref(name) => format!("TypeAtom(#{}{})", name, if ty.is_array { "[]" } else { "" }),
+                TypeVariant::AnonymousModel => format!("TypeAtom(anonymous_model{})", if ty.is_array { "[]" } else { "" }),
             },
             _ => format!("{:?}", self.kind),
         };

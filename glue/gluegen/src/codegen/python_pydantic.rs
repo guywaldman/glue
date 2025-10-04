@@ -187,6 +187,9 @@ impl PythonPydanticCodeGenerator {
                     PrimitiveType::Bool => atom_str.push_str("bool"),
                 },
                 TypeVariant::Ref(name) => atom_str.push_str(name),
+                TypeVariant::AnonymousModel => {
+                    return Err(CodeGenError::Other("Anonymous models are not supported in this context".to_string()));
+                }
             }
 
             if atom.is_array {

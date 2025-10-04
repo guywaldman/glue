@@ -5,14 +5,13 @@ use crate::{Ast, TreeNode, parser::AstNodeId};
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AstSymbol {
     /// Represents a model by its identifier.
-    /// Nesting is represented by concatenating names with dots, e.g. "Post.AdditionalPostDetails"
     Model(String),
     /// Represents an enum by its identifier.
-    /// Nesting is represented by concatenating names with dots, e.g. "Post.Status"
     Enum(String),
     /// Represents a field by its identifier.
-    /// Nesting is represented by concatenating names with dots, e.g. "Post.title
     Field(String),
+    /// Represents an endpoint by its identifier.
+    Endpoint(String),
 }
 
 impl AstSymbol {
@@ -21,6 +20,7 @@ impl AstSymbol {
             AstSymbol::Model(name) => name,
             AstSymbol::Enum(name) => name,
             AstSymbol::Field(name) => name,
+            AstSymbol::Endpoint(name) => name,
         }
     }
 }

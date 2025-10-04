@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use regex::Regex;
+
 use crate::{
     Span,
     diagnostics::{LangError, LangResult},
@@ -55,11 +57,11 @@ impl<'a> Parser<'a> {
         while self.peek_kind() != TokenKind::Eof {
             let next_relevant_kind = self.tokens[self.current..]
                 .iter()
-                .find(|t| t.kind != TokenKind::DocBlock)
+                .find(|t| t.kind == TokenKind::KeywordModel || t.kind == TokenKind::KeywordEnum || t.kind == TokenKind::KeywordEndpoint)
                 .map_or(TokenKind::Eof, |t| t.kind);
             match next_relevant_kind {
                 TokenKind::KeywordModel | TokenKind::AtSign => {
-                    let (node_id, name) = self.parse_model()?;
+                    let (node_id, name) = self.parse_model(false)?;
                     self.ast.append_child(root_id, node_id);
                     // Link model's symbol entry parent to root scope for ancestor visibility.
                     self.symbols.insert(root_id, AstSymbol::Model(name.clone()), node_id);
@@ -68,6 +70,11 @@ impl<'a> Parser<'a> {
                     let (node_id, name) = self.parse_enum()?;
                     self.ast.append_child(root_id, node_id);
                     self.symbols.insert(root_id, AstSymbol::Enum(name.clone()), node_id);
+                }
+                TokenKind::KeywordEndpoint => {
+                    let (node_id, name) = self.parse_endpoint()?;
+                    self.ast.append_child(root_id, node_id);
+                    self.symbols.insert(root_id, AstSymbol::Endpoint(name.clone()), node_id);
                 }
                 TokenKind::Eof => break,
                 _ => {
@@ -151,29 +158,35 @@ impl<'a> Parser<'a> {
     /// ```
     ///
     /// Returns the model's AST node ID and its name.
-    fn parse_model(&mut self) -> LangResult<(AstNodeId, String)> {
+    fn parse_model(&mut self, anon: bool) -> LangResult<(AstNodeId, String)> {
         let span = self.curr_span();
 
-        let doc = self.parse_optional_docblocks()?;
-
+        let mut doc = None;
         let mut decorator_node_id = None;
-        // Parse decorators
-        if self.peek_kind() == TokenKind::AtSign {
-            // Decorator(s) present
-            while self.peek_kind() == TokenKind::AtSign {
-                decorator_node_id = Some(self.parse_decorator()?);
+        let mut identifier_node_id = None;
+        let mut model_name = "<anonymous>".to_string();
+
+        if !anon {
+            // Parse leading docblocks
+            doc = self.parse_optional_docblocks()?;
+
+            // Parse decorators
+            if self.peek_kind() == TokenKind::AtSign {
+                // Decorator(s) present
+                while self.peek_kind() == TokenKind::AtSign {
+                    decorator_node_id = Some(self.parse_decorator()?);
+                }
             }
+            expect_tokens!(self, TokenKind::KeywordModel);
+
+            let TokenPayload::String(curr_model_name) = self.expect(TokenKind::Ident)?.payload else {
+                return Err(self.err(self.curr_span(), "Expected model name identifier", None, Some("EExpectedModelName")));
+            };
+            let identifier_node = AstNode::new_with_span(AstNodeKind::Identifier, AstNodePayload::String(model_name.clone()), self.prev_span());
+            identifier_node_id = Some(self.ast.add_node(identifier_node));
+
+            model_name = curr_model_name.to_string();
         }
-
-        expect_tokens!(self, TokenKind::KeywordModel);
-
-        let TokenPayload::String(model_name) = self.expect(TokenKind::Ident)?.payload else {
-            return Err(self.err(self.curr_span(), "Expected model name identifier", None, Some("EExpectedModelName")));
-        };
-        let identifier_node = AstNode::new_with_span(AstNodeKind::Identifier, AstNodePayload::String(model_name.clone()), self.prev_span());
-        let identifier_node_id = self.ast.add_node(identifier_node);
-
-        let model_name = model_name.to_string();
 
         expect_tokens!(self, TokenKind::LBrace);
 
@@ -189,7 +202,7 @@ impl<'a> Parser<'a> {
             match (curr, next) {
                 (TokenKind::KeywordModel, _) | (TokenKind::DocBlock, TokenKind::KeywordModel) => {
                     // Nested model definition
-                    let (nested_id, nested_name) = self.parse_model()?;
+                    let (nested_id, nested_name) = self.parse_model(anon)?;
                     nested_models.push(nested_id);
                     symbols.push((AstSymbol::Model(nested_name.clone()), nested_id));
                 }
@@ -214,7 +227,9 @@ impl<'a> Parser<'a> {
         let model_ast_node = AstNode::new_with_span(AstNodeKind::Model, AstNodePayload::Model { name: model_name.clone(), doc }, span);
         let model_node_id = self.ast.add_node(model_ast_node);
 
-        self.ast.append_child(model_node_id, identifier_node_id);
+        if let Some(identifier_node_id) = identifier_node_id {
+            self.ast.append_child(model_node_id, identifier_node_id);
+        }
 
         for (symbol, node_id) in symbols.into_iter() {
             self.symbols.insert(model_node_id, symbol, node_id);
@@ -247,6 +262,22 @@ impl<'a> Parser<'a> {
         let mut type_atom_nodes = Vec::new();
 
         let span = self.curr_span();
+
+        if self.peek_kind() == TokenKind::LBrace {
+            // Anonymous model
+            let (anon_model_id, _) = self.parse_model(true)?;
+            types.push(TypeAtom {
+                variant: TypeVariant::AnonymousModel,
+                is_optional: false,
+                is_array: false,
+            });
+            let ty = Type::Single(types[0].clone());
+            let span = span.merge(&self.prev_span());
+            let type_node = AstNode::new_with_span(AstNodeKind::Type, AstNodePayload::Type(ty.clone()), span);
+            let type_node_id = self.ast.add_node(type_node);
+            self.ast.append_child(type_node_id, anon_model_id);
+            return Ok((type_node_id, Type::Single(types[0].clone())));
+        }
 
         loop {
             let type_token = self.advance()?;
@@ -308,31 +339,176 @@ impl<'a> Parser<'a> {
         Ok((type_node_id, ty))
     }
 
+    /// Parases an endpoint definition.
+    fn parse_endpoint(&mut self) -> LangResult<(AstNodeId, String)> {
+        let doc = self.parse_optional_docblocks()?;
+
+        let span = self.curr_span();
+        // A decorator is required for endpoints to specify method and path.
+        // Should look like: @endpoint("GET "/users/{id}")
+        let decorator_node_id = self.parse_decorator()?;
+        let decorator_node = self.ast.get_node(decorator_node_id).unwrap();
+        let AstNodePayload::Decorator { name, positional_args, .. } = &decorator_node.payload() else {
+            return Err(self.err(*decorator_node.span(), "Expected decorator node", None, Some("EExpectedDecoratorNode")));
+        };
+        if name != "endpoint" {
+            return Err(self.err(*decorator_node.span(), "Expected @endpoint decorator", None, Some("EExpectedEndpointDecorator")));
+        }
+        let method_and_path = positional_args.first().ok_or_else(|| {
+            self.err(
+                *decorator_node.span(),
+                "Expected method and path (e.g., \"GET /api/users/{id}\") as first positional argument to @endpoint",
+                None,
+                Some("EExpectedMethodAndPath"),
+            )
+        })?;
+        let ConstantValue::String(method_and_path) = method_and_path else {
+            return Err(self.err(
+                *decorator_node.span(),
+                "Expected method and path as string literal (e.g., \"GET /api/users/{id}\")",
+                None,
+                Some("EExpectedMethodAndPathString"),
+            ));
+        };
+        let (method, path) = method_and_path.split_once(' ').ok_or_else(|| {
+            self.err(
+                *decorator_node.span(),
+                "Expected method and path separated by space (e.g., \"GET /api/users/{id}\")",
+                None,
+                Some("EExpectedMethodAndPathFormat"),
+            )
+        })?;
+        let mut path_params = Vec::new();
+        for cap in Regex::new(r"\{(\w+)\}").unwrap().captures_iter(path) {
+            if let Some(param) = cap.get(1) {
+                path_params.push(param.as_str().to_string());
+            }
+        }
+
+        expect_tokens!(self, TokenKind::KeywordEndpoint);
+        let TokenPayload::String(endpoint_name) = self.expect(TokenKind::Ident)?.payload else {
+            return Err(self.err(self.curr_span(), "Expected endpoint name identifier", None, Some("EExpectedEndpointName")));
+        };
+        let identifier_node_id = self.ast.add_node(AstNode::new_with_span(
+            AstNodeKind::Identifier,
+            AstNodePayload::String(endpoint_name.to_string()),
+            self.prev_span(),
+        ));
+        let endpoint_name = endpoint_name.to_string();
+        expect_tokens!(self, TokenKind::LBrace);
+
+        let mut fields = Vec::new();
+        while {
+            let k = self.peek_kind();
+            k != TokenKind::RBrace && k != TokenKind::Eof
+        } {
+            let next_relevant_token = self.tokens[self.current..]
+                .windows(2)
+                .find(|w| {
+                    matches!(
+                        (w[0].kind, w[1].kind),
+                        (TokenKind::KeywordModel, _) | (TokenKind::KeywordEnum, _) | (TokenKind::Ident, TokenKind::Colon) | (TokenKind::StringLit, TokenKind::Colon)
+                    )
+                })
+                .map(|tt| tt[0].kind)
+                .unwrap_or(TokenKind::Eof);
+            match next_relevant_token {
+                TokenKind::KeywordModel => {
+                    // Nested model definition
+                    let (nested_id, nested_name) = self.parse_model(false)?;
+                    self.ast.append_child(identifier_node_id, nested_id);
+                    self.symbols.insert(identifier_node_id, AstSymbol::Model(nested_name.clone()), nested_id);
+                }
+                TokenKind::KeywordEnum => {
+                    // Nested enum definition
+                    let (nested_id, nested_name) = self.parse_enum()?;
+                    self.ast.append_child(identifier_node_id, nested_id);
+                    self.symbols.insert(identifier_node_id, AstSymbol::Enum(nested_name.clone()), nested_id);
+                }
+                TokenKind::Ident | TokenKind::StringLit => {
+                    // Field (possibly with leading docblocks)
+                    let (field_node_id, field_name) = self.parse_field()?;
+                    fields.push(field_node_id);
+                    self.symbols.insert(identifier_node_id, AstSymbol::Field(field_name.clone()), field_node_id);
+                }
+                _ => {
+                    return Err(self.err(self.curr_span(), "Unexpected token in endpoint body", None, Some("EUnexpectedTokenInEndpoint")));
+                }
+            }
+        }
+
+        expect_tokens!(self, TokenKind::RBrace);
+
+        let span = span.merge(&self.prev_span());
+        let endpoint_payload = AstNodePayload::Endpoint {
+            name: endpoint_name.clone(),
+            doc,
+            method: method.to_string(),
+            path: path.to_string(),
+            path_params,
+        };
+        let endpoint_node = AstNode::new_with_span(AstNodeKind::Endpoint, endpoint_payload, span);
+        let endpoint_node_id = self.ast.add_node(endpoint_node);
+
+        if let Some(decorator_node_id) = Some(decorator_node_id) {
+            self.ast.append_child(endpoint_node_id, decorator_node_id);
+        }
+        self.ast.append_child(endpoint_node_id, identifier_node_id);
+
+        for field_node_id in fields.into_iter() {
+            self.ast.append_child(endpoint_node_id, field_node_id);
+        }
+
+        Ok((endpoint_node_id, endpoint_name))
+    }
+
+    /// Parses a constant value (string, int, or bool).
     fn parse_constant_value(&mut self) -> LangResult<Option<ConstantValue>> {
         let token = self.advance()?;
-        match token.kind {
-            TokenKind::StringLit => {
+        match (token.kind, self.peek_kind()) {
+            (TokenKind::StringLit, _) => {
                 if let TokenPayload::String(s) = token.payload {
                     Ok(Some(ConstantValue::String(s)))
                 } else {
                     Err(self.err(token.span, "Expected string literal", None, Some("EExpectedStringLiteral")))
                 }
             }
-            TokenKind::IntLit => {
+            (TokenKind::IntLit, t) if t != TokenKind::DoubleDot => {
                 if let TokenPayload::Number(i) = token.payload {
                     Ok(Some(ConstantValue::Int(i)))
                 } else {
                     Err(self.err(token.span, "Expected integer literal", None, Some("EExpectedIntLiteral")))
                 }
             }
-            TokenKind::BoolLit => {
+            (TokenKind::IntLit, TokenKind::DoubleDot) => {
+                // Range literal (e.g., 1..10)
+                let start = if let TokenPayload::Number(i) = token.payload {
+                    i
+                } else {
+                    return Err(self.err(token.span, "Expected integer literal", None, Some("EExpectedIntLiteral")));
+                };
+                self.advance()?; // consume '..'
+                let end_token = self.expect(TokenKind::IntLit)?;
+                let end = if let TokenPayload::Number(i) = end_token.payload {
+                    i
+                } else {
+                    return Err(self.err(end_token.span, "Expected integer literal", None, Some("EExpectedIntLiteral")));
+                };
+                Ok(Some(ConstantValue::IntRange(start, end)))
+            }
+            (TokenKind::BoolLit, _) => {
                 if let TokenPayload::Bool(b) = token.payload {
                     Ok(Some(ConstantValue::Bool(b)))
                 } else {
                     Err(self.err(token.span, "Expected boolean literal", None, Some("EExpectedBoolLiteral")))
                 }
             }
-            _ => Err(self.err(token.span, "Expected constant value", None, Some("EExpectedConstantValue"))),
+            _ => Err(self.err(
+                token.span,
+                format!("Expected constant value, received {}", token.kind),
+                None,
+                Some("EExpectedConstantValue"),
+            )),
         }
     }
 
@@ -346,7 +522,10 @@ impl<'a> Parser<'a> {
                 decorator_name
             }
             // Also accept "endpoint" the decoratorn name, it's lexed as a keyword.
-            TokenKind::KeywordEndpoint => "endpoint".to_string(),
+            TokenKind::KeywordEndpoint => {
+                self.advance()?;
+                "endpoint".to_string()
+            }
             _ => {
                 return Err(self.err(self.curr_span(), "Expected decorator name identifier", None, Some("EExpectedDecoratorName")));
             }
@@ -414,10 +593,6 @@ impl<'a> Parser<'a> {
     }
 
     /// Parses a field definition.
-    ///
-    /// ```text
-    /// field := [docblock] ident ":" type
-    /// ```
     fn parse_field(&mut self) -> LangResult<(AstNodeId, String)> {
         let doc = self.parse_optional_docblocks()?;
 
@@ -427,10 +602,28 @@ impl<'a> Parser<'a> {
             decorator_node_id = Some(self.parse_decorator()?);
         }
 
-        let identifier_token = self.expect(TokenKind::Ident)?;
-        let TokenPayload::String(ident) = identifier_token.payload else {
-            let span = identifier_token.span;
-            return Err(self.err(span, "Expected field name identifier", None, Some("EExpectedFieldName")));
+        // Field identifiers can be normal identifiers or string literals.
+        // e.g., `foo: string` or `"foo-bar": string`
+        let (identifier_token, ident) = match self.peek_kind() {
+            TokenKind::Ident => {
+                let token = self.peek().unwrap().clone();
+                let TokenPayload::String(ident) = self.expect(TokenKind::Ident)?.payload else {
+                    let span = token.span;
+                    return Err(self.err(span, "Expected field name identifier", None, Some("EExpectedFieldName")));
+                };
+                (token, ident)
+            }
+            TokenKind::StringLit => {
+                let token = self.peek().unwrap().clone();
+                let TokenPayload::String(ident) = self.expect(TokenKind::StringLit)?.payload else {
+                    let span = token.span;
+                    return Err(self.err(span, "Expected field name identifier", None, Some("EExpectedFieldName")));
+                };
+                (token, ident)
+            }
+            _ => {
+                return Err(self.err(self.curr_span(), "Expected field name identifier", None, Some("EExpectedFieldName")));
+            }
         };
         let ident_span = identifier_token.span;
         let ident_string = ident.to_string();

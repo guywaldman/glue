@@ -249,6 +249,9 @@ impl RustSerdeCodeGenerator {
                         "default_false".to_string()
                     }
                 }
+                ConstantValue::IntRange(_, _) => {
+                    return Err(CodeGenError::Other("Default values for IntRange are not supported".to_string()));
+                }
             };
             result.push_str(&format!("    #[serde(default = \"{default_value}\")]\n"));
         } else {
@@ -317,6 +320,9 @@ impl RustSerdeCodeGenerator {
                     PrimitiveType::Bool => atom_str.push_str("bool"),
                 },
                 TypeVariant::Ref(name) => atom_str.push_str(name),
+                TypeVariant::AnonymousModel => {
+                    return Err(CodeGenError::Other("Anonymous models are not supported in this context".to_string()));
+                }
             }
 
             if atom.is_array {

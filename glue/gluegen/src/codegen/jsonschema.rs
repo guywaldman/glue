@@ -206,6 +206,7 @@ impl JsonSchemaCodeGenerator {
                     Ok(json::JsonValue::Object(obj))
                 }
             }
+            TypeVariant::AnonymousModel => Err(CodeGenError::Other("Anonymous models are not supported in this context".to_string())),
         }
     }
 }

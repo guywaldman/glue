@@ -1,0 +1,25 @@
+@endpoint("GET /users/{id}")
+endpoint GetUserById {
+	request: {
+		id: int
+	}
+
+	headers: {
+		"X-Request-ID": string
+	}
+
+	@response(200)
+	model Response200 {
+		user: User
+	}
+
+	@response(300..599)
+	model ResponseError {
+		error: string
+	}
+}
+
+model User {
+	id: int
+	name: string
+}
