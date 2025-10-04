@@ -21,3 +21,6 @@ lint-cli:
 fmt-cli:
 	cd glue && cargo fmt --all
 	cd glue && cargo clippy --workspace --all --fix --allow-dirty --allow-staged
+
+extension-dev:
+	cd extension && npm install && npm run package && code --install-extension glue-0.0.1.vsix

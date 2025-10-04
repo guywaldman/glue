@@ -193,7 +193,10 @@ impl std::fmt::Debug for AstNode {
             (AstNodeKind::Root, _) => "Root".to_string(),
             (AstNodeKind::Model, AstNodePayload::Model { name, .. }) => format!("Model(model {name})"),
             (AstNodeKind::Field, AstNodePayload::Field { name, ty, .. }) => format!("Field({name}: {ty})"),
-            (AstNodeKind::Enum, AstNodePayload::Enum { name, variants, .. }) => format!("Enum({name}: {variants:?})"),
+            (AstNodeKind::Enum, AstNodePayload::Enum { name, variants, .. }) => {
+                let variants_str = variants.join(" | ");
+                format!("Enum({name}: {variants_str})")
+            }
             (AstNodeKind::Decorator, AstNodePayload::Decorator { name, args }) => format!("Decorator(@{name}, args: {args:?})"),
             (AstNodeKind::Identifier, AstNodePayload::String(name)) => format!("Identifier({name})"),
             (AstNodeKind::Type, AstNodePayload::Type(ty)) => format!("Type({ty})"),

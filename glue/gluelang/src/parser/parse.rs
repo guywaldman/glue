@@ -114,6 +114,11 @@ impl<'a> Parser<'a> {
         let TokenPayload::String(enum_name) = self.expect(TokenKind::Ident)?.payload else {
             return Err(self.err(self.curr_span(), "Expected enum name identifier", None, Some("EExpectedEnumName")));
         };
+        let identifier_node_id = self.ast.add_node(AstNode::new_with_span(
+            AstNodeKind::Identifier,
+            AstNodePayload::String(enum_name.to_string()),
+            self.prev_span(),
+        ));
         let enum_name = enum_name.to_string();
         expect_tokens!(self, TokenKind::Equal);
 
@@ -150,6 +155,9 @@ impl<'a> Parser<'a> {
             span,
         );
         let enum_node_id = self.ast.add_node(enum_node);
+
+        self.ast.append_child(enum_node_id, identifier_node_id);
+
         Ok((enum_node_id, enum_name))
     }
 
@@ -179,6 +187,9 @@ impl<'a> Parser<'a> {
         let TokenPayload::String(model_name) = self.expect(TokenKind::Ident)?.payload else {
             return Err(self.err(self.curr_span(), "Expected model name identifier", None, Some("EExpectedModelName")));
         };
+        let identifier_node = AstNode::new_with_span(AstNodeKind::Identifier, AstNodePayload::String(model_name.clone()), self.prev_span());
+        let identifier_node_id = self.ast.add_node(identifier_node);
+
         let model_name = model_name.to_string();
 
         expect_tokens!(self, TokenKind::LBrace);
@@ -219,6 +230,8 @@ impl<'a> Parser<'a> {
         let span = span.merge(&self.curr_span());
         let model_ast_node = AstNode::new_with_span(AstNodeKind::Model, AstNodePayload::Model { name: model_name.clone(), doc }, span);
         let model_node_id = self.ast.add_node(model_ast_node);
+
+        self.ast.append_child(model_node_id, identifier_node_id);
 
         for (symbol, node_id) in symbols.into_iter() {
             self.symbols.insert(model_node_id, symbol, node_id);
