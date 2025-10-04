@@ -101,6 +101,7 @@ jobs:
   build-artifacts:
     name: Build artifacts for ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    needs: "e2e-test"
     strategy:
       fail-fast: false
       matrix:
