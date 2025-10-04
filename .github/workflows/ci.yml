@@ -87,7 +87,7 @@ jobs:
         run: gluegen --help
       
       - name: Run gluegen on sample file
-        run: gluegen gen py-pydantic --in glue/gluelang/samples/basic.glue --out sample_output.py
+        run: gluegen gen py-pydantic -i glue/gluelang/samples/basic.glue --out sample_output.py
       
       - name: Verify sample output
         shell: bash
