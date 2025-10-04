@@ -86,36 +86,8 @@ jobs:
       - name: Verify gluegen installation
         run: gluegen --help
       
-      - name: Create test Glue file
-        shell: bash
-        run: |
-          cat > test.glue << 'EOF'
-          /// A simple test model
-          model TestUser {
-            /// User ID
-            id: int
-            /// User name
-            name: string
-            /// User email
-            email: string
-          }
-          EOF
-      
-      - name: Run gluegen on test file (Python)
-        run: gluegen gen --lang python --in test.glue --out test_output.py
-      
-      - name: Verify Python output exists
-        shell: bash
-        run: |
-          if [ ! -f test_output.py ]; then
-            echo "Error: test_output.py was not generated"
-            exit 1
-          fi
-          echo "✅ Python output generated successfully"
-          cat test_output.py
-      
       - name: Run gluegen on sample file
-        run: gluegen gen --lang python --in glue/gluelang/samples/basic.glue --out sample_output.py
+        run: gluegen gen py-pydantic --in glue/gluelang/samples/basic.glue --out sample_output.py
       
       - name: Verify sample output
         shell: bash
@@ -125,3 +97,44 @@ jobs:
             exit 1
           fi
           echo "✅ Sample output generated successfully"
+  
+  build-artifacts:
+    name: Build artifacts for ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_name: glue-linux-x64
+            binary_extension: ""
+          - os: macos-latest
+            artifact_name: glue-macos-x64
+            binary_extension: ""
+          - os: windows-latest
+            artifact_name: glue-windows-x64
+            binary_extension: ".exe"
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Build release binaries
+        run: cargo build --release --workspace
+        working-directory: glue
+      
+      - name: Prepare artifact directory
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          cp glue/target/release/gluegen${{ matrix.binary_extension }} artifacts/gluegen${{ matrix.binary_extension }}
+          cp glue/target/release/gluelang${{ matrix.binary_extension }} artifacts/gluelang${{ matrix.binary_extension }}
+          cp glue/target/release/lsp${{ matrix.binary_extension }} artifacts/lsp${{ matrix.binary_extension }}
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: artifacts/*
+          if-no-files-found: error
