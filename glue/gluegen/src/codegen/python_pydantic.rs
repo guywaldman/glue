@@ -1,16 +1,25 @@
 use gluelang::{Ast, AstNode, AstNodeKind, AstNodePayload, PrimitiveType, SemanticAnalysisArtifacts, TreeNode, Type, TypeVariant};
 use log::debug;
 
-use crate::codegen::{CodeGenError, CodeGenerator, GlueConfigSchema, types::EmitResult};
+use crate::codegen::{CodeGenError, CodeGenerator, GlueConfigSchema, types::EmitResult, utils::generate_watermark};
 
 pub struct PythonPydanticCodeGenerator {
     config: GlueConfigSchema,
+    source_file: String,
     ast: Ast,
 }
 
 impl CodeGenerator for PythonPydanticCodeGenerator {
     fn generate(mut self) -> EmitResult {
         let mut result = String::new();
+
+        let watermark = generate_watermark(&self.source_file, &self.config.generation.watermark);
+        result.push_str("\"\"\"");
+        for line in watermark {
+            result.push_str(&line);
+            result.push('\n');
+        }
+        result.push_str("\"\"\"\n\n");
 
         // TODO: Add imports based on usage.
         let base_model_import = &self.config.generation.python_pydantic.base_model;
@@ -47,7 +56,11 @@ impl CodeGenerator for PythonPydanticCodeGenerator {
 
 impl PythonPydanticCodeGenerator {
     pub fn new(config: GlueConfigSchema, artifacts: SemanticAnalysisArtifacts) -> Self {
-        Self { config, ast: artifacts.ast }
+        Self {
+            config,
+            ast: artifacts.ast,
+            source_file: artifacts.source_file,
+        }
     }
 
     fn emit_model(&mut self, model: &AstNode) -> EmitResult {
@@ -81,13 +94,10 @@ impl PythonPydanticCodeGenerator {
         let mut result = String::new();
         let (_, base_model_class) = Self::parse_import(&self.config.generation.python_pydantic.base_model);
         result.push_str(&format!("class {name}({base_model_class}):\n"));
-        if let Some(doc) = children.iter().find_map(|c| {
-            if let AstNodePayload::Model { doc, .. } = c.payload() {
-                doc.clone()
-            } else {
-                None
-            }
-        }) {
+        if let Some(doc) = children
+            .iter()
+            .find_map(|c| if let AstNodePayload::Model { doc, .. } = c.payload() { doc.clone() } else { None })
+        {
             result.push_str(&format!("    \"\"\"{}\"\"\"\n\n", doc.replace("\"\"\"", "\"\"\"\"\"\"")));
         }
 

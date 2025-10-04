@@ -39,6 +39,20 @@ impl Ast {
             (has_children, span.chars.1 - span.chars.0)
         })
     }
+
+    // Specialized implementations
+
+    pub fn get_type_atoms(&self, node: &AstNode) -> Option<Vec<TypeAtom>> {
+        let mut result = vec![];
+        for type_node in self.get_children_fn(node.id(), |n| n.kind() == AstNodeKind::Type)? {
+            for type_atom_node in self.get_children_fn(type_node.id(), |n| n.kind() == AstNodeKind::TypeAtom)? {
+                if let AstNodePayload::TypeAtom { ty } = type_atom_node.payload().clone() {
+                    result.push(ty);
+                }
+            }
+        }
+        Some(result)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -232,6 +246,14 @@ impl AstNode {
         &self.payload
     }
 
+    pub fn payload_mut(&mut self) -> &mut AstNodePayload {
+        &mut self.payload
+    }
+
+    pub fn set_payload(&mut self, payload: AstNodePayload) {
+        self.payload = payload;
+    }
+
     pub fn span(&self) -> &Span {
         &self.span
     }
@@ -243,7 +265,6 @@ impl AstNode {
     pub fn set_tokens(&mut self, tokens: Vec<Token>) {
         self.tokens = tokens;
     }
-
     // Convenience methods to extract common payload data
     pub fn as_string(&self) -> Option<&str> {
         match &self.payload {

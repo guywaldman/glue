@@ -173,7 +173,7 @@ where
         None
     }
 
-    pub fn get_ancestors(&self, node_id: TreeNodeId) -> Vec<TreeNodeId> {
+    pub fn get_ancestor_ids(&self, node_id: TreeNodeId) -> Vec<TreeNodeId> {
         let inner = self.inner.read().expect("Failed to acquire read lock on tree state");
         let mut ancestors = Vec::new();
         let mut current_id = node_id;
@@ -212,9 +212,30 @@ where
         inner.root
     }
 
-    pub fn get_nodes(&self, ids: Vec<TreeNodeId>) -> Vec<T> {
+    pub fn nodes_by_ids(&self, ids: Vec<TreeNodeId>) -> Vec<T> {
         let inner = self.inner.read().expect("Failed to acquire read lock on tree state");
         ids.iter().filter_map(|id| inner.nodes.get(id).cloned()).collect()
+    }
+
+    pub fn nodes(&self) -> Vec<T> {
+        let inner = self.inner.read().expect("Failed to acquire read lock on tree state");
+        inner.nodes.values().cloned().collect()
+    }
+
+    pub fn visit(&self, f: impl Fn(&T)) {
+        let inner = self.inner.read().expect("Failed to acquire write lock on tree state");
+        let mut stack = vec![inner.root];
+
+        while let Some(node_id) = stack.pop() {
+            if let Some(node) = inner.nodes.get(&node_id) {
+                f(node);
+            }
+            if let Some(children) = inner.adjacency.get(&node_id) {
+                for &child_id in children {
+                    stack.push(child_id);
+                }
+            }
+        }
     }
 
     pub fn to_mermaid(&self) -> String {
@@ -554,16 +575,16 @@ mod tests {
         tree.append_child(parent_id, child_id);
         tree.append_child(child_id, grandchild_id);
 
-        let ancestors_of_grandchild = tree.get_ancestors(grandchild_id);
+        let ancestors_of_grandchild = tree.get_ancestor_ids(grandchild_id);
         assert_eq!(ancestors_of_grandchild.len(), 2);
         assert_eq!(ancestors_of_grandchild[0], child_id);
         assert_eq!(ancestors_of_grandchild[1], parent_id);
 
-        let ancestors_of_child = tree.get_ancestors(child_id);
+        let ancestors_of_child = tree.get_ancestor_ids(child_id);
         assert_eq!(ancestors_of_child.len(), 1);
         assert_eq!(ancestors_of_child[0], parent_id);
 
-        let ancestors_of_parent = tree.get_ancestors(parent_id);
+        let ancestors_of_parent = tree.get_ancestor_ids(parent_id);
         assert_eq!(ancestors_of_parent.len(), 0);
     }
 

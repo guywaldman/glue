@@ -108,7 +108,7 @@ impl SymbolTable {
     /// Looks up a symbol in the symbol table for a given scope.
     /// Returns `Some(AstNodeId)` if the symbol is found, otherwise returns `None`.
     pub fn lookup(&self, ast: &Ast, scope: AstNodeId, symbol: &AstSymbol) -> Option<AstNodeId> {
-        let scope_symbols = self.symbols_in_scope(&ast, scope)?;
+        let scope_symbols = self.symbols_in_scope(ast, scope)?;
         scope_symbols.get(symbol).map(|entry| entry.id)
     }
 }

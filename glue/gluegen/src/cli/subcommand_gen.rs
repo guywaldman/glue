@@ -19,7 +19,7 @@ pub struct GenArgs {
 
     /// Output directory for generated code
     #[arg(short = 'o', long)]
-    pub output: PathBuf,
+    pub output: Option<PathBuf>,
 
     /// Optional config file for the code generator
     #[arg(short = 'c', long)]
@@ -60,7 +60,11 @@ impl GenSubcommand {
 
                 let artifacts = GlueCli::check(&file_name, file_contents)?;
                 let generated_code = JsonSchemaCodeGenerator::new(artifacts).generate().map_err(CliError::CodeGen)?;
-                std::fs::write(output, generated_code).with_context(|| format!("failed to write to {}", output.display()))?;
+                if let Some(output) = output {
+                    std::fs::write(output, generated_code).with_context(|| format!("failed to write to {}", output.display()))?;
+                } else {
+                    println!("{generated_code}");
+                }
             }
             CliGenSubcommand::RustSerde {
                 args: GenArgs { input, output, config, .. },
@@ -71,7 +75,12 @@ impl GenSubcommand {
 
                 let artifacts = GlueCli::check(&file_name, file_contents)?;
                 let generated_code = RustSerdeCodeGenerator::new(config, artifacts).generate().map_err(CliError::CodeGen)?;
-                std::fs::write(output, generated_code).with_context(|| format!("failed to write to {}", output.display()))?;
+
+                if let Some(output) = output {
+                    std::fs::write(output, generated_code).with_context(|| format!("failed to write to {}", output.display()))?;
+                } else {
+                    println!("{generated_code}");
+                }
             }
             CliGenSubcommand::PythonPydantic {
                 args: GenArgs { input, output, config, .. },
@@ -82,7 +91,11 @@ impl GenSubcommand {
 
                 let artifacts = GlueCli::check(&file_name, file_contents)?;
                 let generated_code = PythonPydanticCodeGenerator::new(config, artifacts).generate().map_err(CliError::CodeGen)?;
-                std::fs::write(output, generated_code).with_context(|| format!("failed to write to {}", output.display()))?;
+                if let Some(output) = output {
+                    std::fs::write(output, generated_code).with_context(|| format!("failed to write to {}", output.display()))?;
+                } else {
+                    println!("{generated_code}");
+                }
             }
         }
         Ok(())
@@ -92,6 +105,8 @@ impl GenSubcommand {
 #[cfg(test)]
 mod tests {
     use indoc::indoc;
+
+    use crate::codegen::GlueConfigSchema;
 
     use super::*;
 
@@ -182,11 +197,29 @@ mod tests {
         let temp_dir = std::env::temp_dir();
         let test_id: u64 = rand::random();
         let test_dir_path = PathBuf::from(format!("{}/{}_{}", temp_dir.display(), test_name, test_id));
+
         std::fs::create_dir_all(&test_dir_path)?;
         let out_path = test_dir_path.join("out.d.ts");
         let input_path = format!("{}/in.glue", test_dir_path.display());
         std::fs::write(&input_path, glue)?;
-        GlueCli::new().run(&["gluegen", "gen", gen_command, "-i", &input_path, "-o", out_path.to_str().unwrap()])?;
+
+        let mut cfg = GlueConfigSchema::default();
+        cfg.generation.watermark = crate::codegen::GlueConfigSchemaGenerationWatermark::None;
+        let temp_cfg_path = test_dir_path.join("config.yaml");
+        let cfg_contents = serde_yaml::to_string(&cfg).unwrap();
+        std::fs::write(&temp_cfg_path, cfg_contents)?;
+
+        GlueCli::new().run(&[
+            "gluegen",
+            "gen",
+            gen_command,
+            "-c",
+            temp_cfg_path.to_str().unwrap(),
+            "-i",
+            &input_path,
+            "-o",
+            out_path.to_str().unwrap(),
+        ])?;
         let actual_out = std::fs::read_to_string(&out_path)?;
         Ok(actual_out)
     }

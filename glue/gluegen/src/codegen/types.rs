@@ -2,8 +2,6 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum CodeGenError {
-    #[error("Unsupported feature: {0}")]
-    UnsupportedError(String),
     #[error("Other error: {0}")]
     Other(String),
 }

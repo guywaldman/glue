@@ -710,7 +710,7 @@ mod tests {
             .first()
             .unwrap()
             .id();
-        let root_scope = symbols.symbols_in_scope(&ast, root_id).unwrap();
+        let root_scope = symbols.symbols_in_scope(ast, root_id).unwrap();
         let post_in_root_scope = root_scope.get(&AstSymbol::Model("Post".to_string())).unwrap().id;
         assert_eq!(post_in_root_scope, post_model_id);
 
@@ -729,11 +729,11 @@ mod tests {
             .first()
             .unwrap()
             .id();
-        let post_scope = symbols.symbols_in_scope(&ast, post_model_id).unwrap();
+        let post_scope = symbols.symbols_in_scope(ast, post_model_id).unwrap();
         let additional_details_in_post_scope = post_scope.get(&AstSymbol::Model("AdditionalPostDetails".to_string())).unwrap().id;
         assert_eq!(additional_details_in_post_scope, additional_details_id);
         // ...and should also be in its own scope.
-        let additional_details_scope = symbols.symbols_in_scope(&ast, additional_details_id).unwrap();
+        let additional_details_scope = symbols.symbols_in_scope(ast, additional_details_id).unwrap();
         let additional_details_in_its_own_scope = additional_details_scope.get(&AstSymbol::Model("AdditionalPostDetails".to_string())).unwrap().id;
         assert_eq!(additional_details_in_its_own_scope, additional_details_id);
     }

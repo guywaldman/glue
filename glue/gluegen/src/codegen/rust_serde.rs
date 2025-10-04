@@ -1,4 +1,9 @@
-use gluelang::{Ast, AstNode, AstNodeKind, AstNodePayload, ConstantValue, PrimitiveType, SemanticAnalysisArtifacts, TreeNode, Type, TypeVariant};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
+
+use gluelang::{Ast, AstNode, AstNodeId, AstNodeKind, AstNodePayload, ConstantValue, PrimitiveType, SemanticAnalysisArtifacts, TreeNode, TypeVariant};
 use indoc::indoc;
 
 use crate::codegen::{CodeGenError, CodeGenerator, GlueConfigSchema, types::EmitResult, utils::generate_watermark};
@@ -6,11 +11,14 @@ use crate::codegen::{CodeGenError, CodeGenerator, GlueConfigSchema, types::EmitR
 pub struct RustSerdeCodeGenerator {
     config: GlueConfigSchema,
     ast: Ast,
+    source_file: String,
     preludes: Vec<String>,
 }
 
 impl CodeGenerator for RustSerdeCodeGenerator {
     fn generate(mut self) -> EmitResult {
+        self.preprocess_ast().map_err(CodeGenError::Other)?;
+
         let mut result = String::new();
 
         self.preludes.push(
@@ -50,7 +58,7 @@ impl CodeGenerator for RustSerdeCodeGenerator {
 
         prelude.extend(self.preludes.iter().cloned());
 
-        let watermark = generate_watermark(self.config.generation.watermark);
+        let watermark = generate_watermark(&self.source_file, &self.config.generation.watermark);
         let watermark = watermark.iter().map(|line| format!("// {line}")).collect::<Vec<_>>().join("\n");
         let imports = indoc! {r#"
 					use serde::{Deserialize, Serialize};
@@ -68,7 +76,88 @@ impl RustSerdeCodeGenerator {
             config,
             preludes: Vec::new(),
             ast: artifacts.ast,
+            source_file: artifacts.source_file,
         }
+    }
+
+    fn preprocess_ast(&mut self) -> Result<(), String> {
+        // Change each nested model and enum name to be prefixed with its parent model name
+
+        // NOTE: We first collect the updates to avoid mutable aliasing issues during traversal
+        let updates: Arc<Mutex<HashMap<AstNodeId, (String, String)>>> = Arc::new(Mutex::new(HashMap::new()));
+
+        self.ast.visit(|node| {
+            let mut old_name = String::new();
+            if let AstNodePayload::Model { name, .. } = node.payload() {
+                old_name = name.to_string();
+            } else if let AstNodePayload::Enum { name, .. } = node.payload() {
+                old_name = name.to_string();
+            }
+            if !old_name.is_empty() {
+                let mut new_name = old_name.to_string();
+                let ancestor_ids = self.ast.get_ancestor_ids(node.id());
+                for ancestor_id in ancestor_ids {
+                    let ancestor = self.ast.get_node(ancestor_id).unwrap();
+                    if let AstNodePayload::Model { name: ancestor_name, .. } = ancestor.payload() {
+                        new_name = format!("{ancestor_name}{new_name}").to_string();
+                    } else if let AstNodePayload::Enum { name: ancestor_name, .. } = ancestor.payload() {
+                        new_name = format!("{ancestor_name}{new_name}").to_string();
+                    }
+                }
+                if new_name != *old_name {
+                    updates.lock().unwrap().insert(node.id(), (old_name, new_name));
+                }
+            }
+        });
+
+        let all_nodes = self.ast.nodes();
+        let updates = updates.lock().unwrap();
+        for node in all_nodes {
+            let node_id = node.id();
+            if let Some((old_name, new_name)) = updates.get(&node_id) {
+                match node.payload() {
+                    AstNodePayload::Model { name, .. } => {
+                        if name == old_name {
+                            self.ast.update_node(node_id, |n| {
+                                if let AstNodePayload::Model { name, .. } = n.payload_mut() {
+                                    *name = new_name.clone();
+                                }
+                            });
+                        }
+                    }
+                    AstNodePayload::Enum { name, .. } => {
+                        if name == old_name {
+                            self.ast.update_node(node_id, |n| {
+                                if let AstNodePayload::Enum { name, .. } = n.payload_mut() {
+                                    *name = new_name.clone();
+                                }
+                            });
+                        }
+                    }
+
+                    _ => {}
+                }
+            } else if let AstNodePayload::TypeAtom { ty, .. } = node.payload() {
+                // Check if updates contain a rename for this reference
+                // TODO: Fix potential bug with multiple references to the same name in different scopes.
+                let TypeVariant::Ref(ref_name) = &ty.variant else {
+                    continue;
+                };
+                if let Some((_, new_ref_name)) = updates.values().find(|(old, _)| old == ref_name) {
+                    self.ast.update_node(node_id, |n| {
+                        if let AstNodePayload::TypeAtom { ty } = n.payload_mut() {
+                            if let TypeVariant::Ref(r) = &mut ty.variant {
+                                if r == ref_name {
+                                    *r = new_ref_name.clone();
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+        }
+
+        Ok(())
     }
 
     fn emit_model(&mut self, model: &AstNode) -> EmitResult {
@@ -133,7 +222,7 @@ impl RustSerdeCodeGenerator {
     fn emit_field(&mut self, model: &AstNode, field: &AstNode) -> EmitResult {
         let mut result = String::new();
 
-        let AstNodePayload::Field { name, ty, doc, default, .. } = field.payload() else {
+        let AstNodePayload::Field { name, doc, default, .. } = field.payload() else {
             return Err(CodeGenError::Other("Expected a field node".to_string()));
         };
 
@@ -170,7 +259,7 @@ impl RustSerdeCodeGenerator {
         // Convert snake_case to match Rust conventions
         let rust_field_name = name;
 
-        result.push_str(&format!("    pub {}: {},\n", rust_field_name, self.emit_type(ty)?));
+        result.push_str(&format!("    pub {}: {},\n", rust_field_name, self.emit_type(field)?));
 
         Ok(result)
     }
@@ -178,10 +267,7 @@ impl RustSerdeCodeGenerator {
     fn emit_enum(&mut self, enum_node: &AstNode) -> EmitResult {
         let mut result = String::new();
 
-        let AstNodePayload::Enum {
-            name, variants, doc, default, ..
-        } = enum_node.payload()
-        else {
+        let AstNodePayload::Enum { name, variants, doc, default, .. } = enum_node.payload() else {
             return Err(CodeGenError::Other("Expected an enum node".to_string()));
         };
 
@@ -213,18 +299,8 @@ impl RustSerdeCodeGenerator {
         Ok(result)
     }
 
-    fn emit_type(&mut self, ty: &Type) -> EmitResult {
-        let type_atoms = match ty {
-            Type::Single(ty) => vec![ty],
-            Type::Union(_) => {
-                // For unions, we need to generate an enum or use a different approach
-                // For now, let's use a string representation that indicates it's a union
-                // In a real implementation, you might want to generate a dedicated enum
-                return Err(CodeGenError::UnsupportedError(
-                    "Union types not yet fully supported in Rust serde generator".to_string(),
-                ));
-            }
-        };
+    fn emit_type(&mut self, field: &AstNode) -> EmitResult {
+        let type_atoms = self.ast.get_type_atoms(field).unwrap();
 
         let mut result = String::new();
 
