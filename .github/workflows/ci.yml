@@ -16,7 +16,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # TODO: Run CI for macOS and windows too.
+        # os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest]
     steps:
       - uses: actions/checkout@v4
       
@@ -102,12 +104,12 @@ jobs:
           - os: ubuntu-latest
             artifact_name: glue-linux-x64
             binary_extension: ""
-          - os: macos-latest
-            artifact_name: glue-macos-x64
-            binary_extension: ""
-          - os: windows-latest
-            artifact_name: glue-windows-x64
-            binary_extension: ".exe"
+          # - os: macos-latest
+          #   artifact_name: glue-macos-x64
+          #   binary_extension: ""
+          # - os: windows-latest
+          #   artifact_name: glue-windows-x64
+          #   binary_extension: ".exe"
     steps:
       - uses: actions/checkout@v4
       

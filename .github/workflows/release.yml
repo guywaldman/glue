@@ -49,21 +49,21 @@ jobs:
             archive_os: linux
             archive_arch: arm64
           
-          # macOS
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            archive_os: darwin
-            archive_arch: amd64
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            archive_os: darwin
-            archive_arch: arm64
+          # # macOS
+          # - os: macos-latest
+          #   target: x86_64-apple-darwin
+          #   archive_os: darwin
+          #   archive_arch: amd64
+          # - os: macos-latest
+          #   target: aarch64-apple-darwin
+          #   archive_os: darwin
+          #   archive_arch: arm64
           
-          # Windows
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            archive_os: windows
-            archive_arch: amd64
+          # # Windows
+          # - os: windows-latest
+          #   target: x86_64-pc-windows-msvc
+          #   archive_os: windows
+          #   archive_arch: amd64
     
     steps:
       - uses: actions/checkout@v4
