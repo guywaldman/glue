@@ -34,3 +34,6 @@ fix-cli:
 
 extension-dev:
 	cd extension && npm install && npm run package && code --install-extension glue-0.0.1.vsix
+
+extension-publish:
+	cd extension && npm install && npm test && npm run publish

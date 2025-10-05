@@ -110,6 +110,48 @@ jobs:
       - name: Minimize uv cache
         run: uv cache prune --ci
     
+  extension:
+    name: VS Code extension
+    # TODO: Publish extension only after successful release and test
+    # needs: ["unit-tests", "e2e-tests"]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm install -g vsce
+        working-directory: extension
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+        
+      - name: Build LSP
+        run: cargo build --release --bin lsp
+        working-directory: glue
+
+      - name: Publish to VS Code Marketplace
+        run: |
+          npm run package
+          vsce publish --pat ${{ secrets.VS_CODE_EXTENSION_PUBLISH_PAT }}
+        working-directory: extension
+    
   build-artifacts:
     name: Build artifacts for ${{ matrix.os }}
     runs-on: ${{ matrix.os }}

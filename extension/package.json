@@ -2,6 +2,7 @@
   "name": "glue",
   "displayName": "Glue",
   "description": "Glue language support",
+  "publisher": "guywaldman",
   "version": "0.0.1",
   "repository": {
     "type": "git",
@@ -47,6 +48,7 @@
     "postbuild:lsp": "cp ../glue/target/release/lsp out/lsp && chmod +x out/lsp",
     "watch": "tsc -p . -w",
     "lint": "echo \"(add lint script)\"",
+    "test": "exit 0",
     "package": "npm run compile && npm run build:lsp && vsce package",
     "publish": "npm run compile && npm run build:lsp && vsce publish"
   },
