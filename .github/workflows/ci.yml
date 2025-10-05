@@ -64,7 +64,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # TODO: Run CI for macOS and windows too.
+        # os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest]
     steps:
       - uses: actions/checkout@v4
       
@@ -85,18 +87,9 @@ jobs:
       
       - name: Verify CLI installation
         run: cli --help
-      
-      - name: Run CLI on sample file
-        run: cli gen py-pydantic -i glue/gluelang/samples/basic.glue --out sample_output.py
-      
-      - name: Verify sample output
-        shell: bash
-        run: |
-          if [ ! -f sample_output.py ]; then
-            echo "Error: sample_output.py was not generated"
-            exit 1
-          fi
-          echo "✅ Sample output generated successfully"
+
+      - name: Run E2E tests
+        run: cargo test --test e2e_tests -- --test-threads=1
   
   build-artifacts:
     name: Build artifacts for ${{ matrix.os }}

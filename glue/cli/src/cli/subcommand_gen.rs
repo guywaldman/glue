@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use clap::Subcommand;
 
 use crate::{
-    cli::{GlueCli, types::CliError},
+    cli::{GlueCli, args::CliError},
     codegen::{CodeGenerator, JsonSchemaCodeGenerator, PythonPydanticCodeGenerator, RustSerdeCodeGenerator},
 };
 
@@ -91,7 +91,6 @@ impl GenSubcommand {
                     Some(path) => GlueCli::read_config(Some(path))?,
                     None => Default::default(),
                 };
-                dbg!(&config);
 
                 let artifacts = GlueCli::analyze(&file_name, file_contents)?;
                 let generated_code = PythonPydanticCodeGenerator::new(config, artifacts).generate().map_err(CliError::CodeGen)?;

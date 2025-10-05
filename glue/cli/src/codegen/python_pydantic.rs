@@ -1,5 +1,4 @@
 use gluelang::{Ast, AstNode, AstNodeKind, AstNodePayload, PrimitiveType, SemanticAnalysisArtifacts, TreeNode, Type, TypeVariant};
-use log::debug;
 
 use crate::codegen::{CodeGenError, CodeGenerator, GlueConfigSchema, types::EmitResult, utils::generate_watermark};
 
@@ -22,7 +21,6 @@ impl CodeGenerator for PythonPydanticCodeGenerator {
         result.push_str("\"\"\"\n\n");
 
         // TODO: Add imports based on usage.
-        dbg!(&self.config.generation.python_pydantic.base_model);
         let base_model_import = &self.config.generation.python_pydantic.base_model;
         let (module, class) = Self::parse_import(base_model_import);
         result.push_str(&format!("from {module} import {class}\n"));
@@ -63,8 +61,6 @@ impl PythonPydanticCodeGenerator {
     }
 
     fn emit_model(&mut self, model: &AstNode) -> EmitResult {
-        let mut inner_emits = String::new();
-
         let AstNodePayload::Model { name, .. } = model.payload() else {
             return Err(CodeGenError::Other("Expected a model node".to_string()));
         };
@@ -76,15 +72,13 @@ impl PythonPydanticCodeGenerator {
         for child in &children {
             match child.kind() {
                 AstNodeKind::Field => {
-                    inner_emits.push_str(&self.emit_field(child)?);
-                    inner_emits.push('\n');
+                    nested_type_emits.push(self.emit_field(child)?);
                 }
                 AstNodeKind::Enum => {
-                    inner_emits.push_str(&self.emit_enum(child)?);
+                    nested_type_emits.push(self.emit_enum(child)?);
                 }
                 AstNodeKind::Model => {
-                    let nested = &self.emit_model(child)?;
-                    nested_type_emits.push(nested.clone());
+                    nested_type_emits.push(self.emit_model(child)?);
                 }
                 _ => {}
             }
@@ -101,21 +95,16 @@ impl PythonPydanticCodeGenerator {
         }
 
         // Indent and emit nested types (models, enums, etc.) before the parent model, since there can be unresolved refs otherwise.
-        for emits in nested_type_emits {
+        for emits in &nested_type_emits {
             for line in emits.lines() {
-                result.push_str("    ");
-                result.push_str(line);
-                result.push('\n');
+                result.push_str(&format!("    {}\n", line));
             }
             result.push('\n');
         }
-        result.push_str(&inner_emits);
 
-        if inner_emits.is_empty() {
+        if nested_type_emits.is_empty() {
             result.push_str("    pass\n");
         }
-
-        inner_emits.push('\n');
 
         Ok(result)
     }
@@ -140,10 +129,10 @@ impl PythonPydanticCodeGenerator {
         }
         field_str.push(')');
 
-        result.push_str(&format!("    {}: Annotated[{}, {}]", name, self.emit_type(ty)?, field_str));
+        result.push_str(&format!("{}: Annotated[{}, {}]", name, self.emit_type(ty)?, field_str));
         if let Some(doc) = doc {
             result.push('\n');
-            result.push_str(&format!("    \"\"\"{}\"\"\"", doc.replace('\n', " ")));
+            result.push_str(&format!("\"\"\"{}\"\"\"", doc.replace('\n', " ")));
         }
 
         Ok(result)

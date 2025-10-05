@@ -54,7 +54,7 @@ impl Default for GlueConfigSchemaGenerationPythonPydantic {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct GlueConfigSchemaGeneration {
     /// Mode for the watermark at the top of the generated files
     #[serde(default)]
@@ -67,25 +67,9 @@ pub struct GlueConfigSchemaGeneration {
     pub python_pydantic: GlueConfigSchemaGenerationPythonPydantic,
 }
 
-impl Default for GlueConfigSchemaGeneration {
-    fn default() -> Self {
-        Self {
-            watermark: Default::default(),
-            rust_serde: Default::default(),
-            python_pydantic: Default::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct GlueConfigSchema {
     /// Configuration for code generation (`glue gen [...]`)
     #[serde(default)]
     pub generation: GlueConfigSchemaGeneration,
-}
-
-impl Default for GlueConfigSchema {
-    fn default() -> Self {
-        Self { generation: Default::default() }
-    }
 }

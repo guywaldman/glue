@@ -1,0 +1,5 @@
+---
+source: cli/tests/e2e_tests.rs
+expression: stdout
+---
+id='123e4567-e89b-12d3-a456-426614174000' registration_status='active'

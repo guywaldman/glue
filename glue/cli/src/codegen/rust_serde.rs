@@ -219,7 +219,7 @@ impl RustSerdeCodeGenerator {
         result.push_str(&format!("\nimpl Default for {name} {{\n"));
         result.push_str("    fn default() -> Self {\n");
         result.push_str("        Self {\n");
-        
+
         if !field_emits.is_empty() {
             // For each field, emit the default initialization
             for child in &children {
@@ -227,7 +227,7 @@ impl RustSerdeCodeGenerator {
                     let AstNodePayload::Field { name: field_name, default, .. } = child.payload() else {
                         continue;
                     };
-                    
+
                     if let Some(default) = default {
                         let default_init = match default {
                             ConstantValue::String(s) => {
@@ -256,7 +256,7 @@ impl RustSerdeCodeGenerator {
                 }
             }
         }
-        
+
         result.push_str("        }\n");
         result.push_str("    }\n");
         result.push_str("}\n");

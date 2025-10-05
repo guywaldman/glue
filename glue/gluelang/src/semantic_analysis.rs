@@ -1,5 +1,4 @@
 use colored::Colorize;
-use log::debug;
 use rayon::prelude::*;
 
 use crate::{
@@ -133,12 +132,10 @@ impl<'a> SemanticAnalyzer<'a> {
             Type::Union(atoms) => atoms.iter().filter(|a| matches!(a.variant, TypeVariant::Ref(_))).collect::<Vec<_>>(),
         };
         // Determine scope: nearest ancestor model else root.
-        let mut scope_id = self.ast.get_root();
         for ancestor_id in self.ast.get_ancestor_ids(node_id) {
             if let Some(n) = self.ast.get_node(ancestor_id)
                 && n.kind() == AstNodeKind::Model
             {
-                scope_id = ancestor_id;
                 break;
             }
         }

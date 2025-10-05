@@ -2,10 +2,15 @@ build:
 	cd glue && cargo build --workspace --all-features
 
 generate: build
+	#!/usr/bin/env bash
+
+	set -euo pipefail
+
+	cd glue
 	# TODO: Use release
-	cd glue && ./target/debug/cli gen jsonschema -i cli/assets/config_schema.glue -o cli/assets/config_schema.json
-	cd glue && ./target/debug/cli gen rust-serde -i cli/assets/config_schema.glue -o cli/src/codegen/config_schema_generated.rs
-	cd glue && cargo fmt -- cli/src/codegen/config_schema_generated.rs
+	# ./target/debug/cli gen jsonschema -i assets/config_schema.glue -o assets/config_schema.json
+	# ./target/debug/cli gen rust-serde -i assets/config_schema.glue -o cli/src/codegen/config_schema_generated.rs
+	# cargo fmt -- cli/src/codegen/config_schema_generated.rs
 
 check-cli:
 	just lint-cli
@@ -13,6 +18,7 @@ check-cli:
 
 test-cli:
 	cd glue && cargo test --workspace --all-features
+	cd glue && cargo test --test e2e_tests -- --test-threads=1
 
 lint-cli:
 	cd glue && cargo clippy --workspace --all -D warnings

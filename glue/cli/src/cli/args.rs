@@ -7,6 +7,7 @@ use thiserror::Error;
 use crate::{cli::subcommand_gen::CliGenSubcommand, codegen::CodeGenError};
 
 #[derive(Parser)]
+#[command(version, name="glue", about = "Glue Language CLI")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: CliSubcommand,

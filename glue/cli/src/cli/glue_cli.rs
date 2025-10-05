@@ -2,8 +2,8 @@ use std::{io, path::PathBuf};
 
 use crate::{
     cli::{
+        args::{Cli, CliAstSubcommand, CliError, CliSubcommand},
         subcommand_gen::GenSubcommand,
-        types::{Cli, CliAstSubcommand, CliError, CliSubcommand},
     },
     codegen::GlueConfigSchema,
 };
