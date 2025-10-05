@@ -45,8 +45,15 @@ jobs:
           path: glue/target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
       
-      - name: Run tests
-        run: cargo test --verbose
+      - name: Run unit tests
+        run: cargo test --verbose --workspace --exclude e2e_tests
+        working-directory: glue
+      
+      - name: Run E2E tests
+        run: |
+          cargo build --release --bin glue
+          cargo install --path cli --bin glue
+          cargo test --test e2e_tests -- --test-threads=1
         working-directory: glue
       
       - name: Run clippy
@@ -58,45 +65,11 @@ jobs:
         run: cargo fmt -- --check
         working-directory: glue
         if: matrix.os == 'ubuntu-latest'
-  
-  e2e-test:
-    name: E2E test on ${{ matrix.os }}
-    needs: test
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        # TODO: Run CI for macOS and windows too.
-        # os: [ubuntu-latest, macos-latest, windows-latest]
-        os: [ubuntu-latest]
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      
-      - name: Cache cargo build
-        uses: actions/cache@v4
-        with:
-          path: glue/target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
-      
-      - name: Build and install CLI
-        run: |
-          cargo build --release --bin cli
-          cargo install --path cli --bin cli
-        working-directory: glue
-      
-      - name: Verify CLI installation
-        run: cli --help
-
-      - name: Run E2E tests
-        run: cargo test --test e2e_tests -- --test-threads=1
-  
+    
   build-artifacts:
     name: Build artifacts for ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    needs: "e2e-test"
+    needs: "test"
     strategy:
       fail-fast: false
       matrix:
