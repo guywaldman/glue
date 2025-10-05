@@ -16,6 +16,10 @@ check-cli:
 	just lint-cli
 	just test-cli
 
+install-cli:
+	cd glue && cargo build --release --bin glue
+	cd glue && cargo install --path cli --bin glue
+
 test-cli:
 	cd glue && cargo test -- --skip e2e
 	cd glue && cargo test --test e2e_tests -- --test-threads=1
