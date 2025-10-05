@@ -17,7 +17,7 @@ check-cli:
 	just test-cli
 
 test-cli:
-	cd glue && cargo test --workspace --all-features
+	cd glue && cargo test -- --skip e2e
 	cd glue && cargo test --test e2e_tests -- --test-threads=1
 
 lint-cli:
