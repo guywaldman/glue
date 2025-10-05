@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -e
 
 BINARY_NAME="${BINARY_NAME:-cli}"
 REPO="guywaldman/glue"

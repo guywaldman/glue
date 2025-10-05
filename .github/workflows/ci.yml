@@ -46,7 +46,7 @@ jobs:
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
       
       - name: Run unit tests
-        run: cargo test --verbose --workspace --exclude e2e_tests
+        run: cargo test --workspace --exclude e2e_tests
         working-directory: glue
       
       - name: Run E2E tests

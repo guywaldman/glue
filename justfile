@@ -4,7 +4,7 @@ build:
 generate: build
 	#!/usr/bin/env bash
 
-	set -euo pipefail
+	set -e
 
 	cd glue
 	# TODO: Use release
