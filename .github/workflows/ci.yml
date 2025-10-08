@@ -183,7 +183,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p artifacts
-          cp glue/target/release/cli${{ matrix.binary_extension }} artifacts/cli${{ matrix.binary_extension }}
+          cp glue/target/release/glue${{ matrix.binary_extension }} artifacts/glue${{ matrix.binary_extension }}
           cp glue/target/release/gluelang${{ matrix.binary_extension }} artifacts/gluelang${{ matrix.binary_extension }}
           cp glue/target/release/lsp${{ matrix.binary_extension }} artifacts/lsp${{ matrix.binary_extension }}
       
