@@ -1,7 +1,5 @@
-use gluelang::{Ast, AstNode, AstNodeKind, AstNodePayload, AstSymbol, SymbolTable, TreeNode, TypeVariant};
-use log::debug;
 
-use crate::{cli::CodeGenMode, codegen::GlueConfigSchemaGenerationWatermark};
+use crate::codegen::GlueConfigSchemaGenerationWatermark;
 
 /// Generate watermark comments based on the specified mode.
 /// The lines themselves are generated, they should be commented appropriately by the caller.

@@ -32,7 +32,7 @@ impl GenSubcommand {
                 }
             }
         };
-        self.generate(&args, effective_mode)?;
+        self.generate(args, effective_mode)?;
         Ok(())
     }
 
