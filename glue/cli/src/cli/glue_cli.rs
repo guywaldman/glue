@@ -1,11 +1,8 @@
 use std::{io, path::PathBuf};
 
-use crate::{
-    cli::{
-        args::{Cli, CliAstSubcommand, CliError, CliSubcommand},
-        subcommand_gen::GenSubcommand,
-    },
-    codegen::GlueConfigSchema,
+use crate::cli::{
+    args::{Cli, CliAstSubcommand, CliError, CliSubcommand},
+    subcommand_gen::GenSubcommand,
 };
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -80,16 +77,6 @@ impl GlueCli {
             eprintln!("----");
             eprintln!("{out}");
         }
-    }
-
-    pub fn read_config(path: Option<&PathBuf>) -> Result<GlueConfigSchema> {
-        let Some(path) = path else {
-            // TODO: Derive Default
-            return Err(anyhow::anyhow!("no config file path provided"));
-        };
-        let config_contents = std::fs::read_to_string(path).with_context(|| format!("failed to read config file '{}'", path.display()))?;
-        let config = serde_yaml::from_str(&config_contents).with_context(|| format!("failed to parse config file '{}'", path.display()))?;
-        Ok(config)
     }
 
     pub fn handle_file(input: Option<PathBuf>) -> Result<(String, Box<dyn io::BufRead>)> {

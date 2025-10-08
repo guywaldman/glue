@@ -1,16 +1,12 @@
 use gluelang::{Ast, AstNode, AstNodeKind, AstNodePayload, PrimitiveType, SemanticAnalysisArtifacts, TreeNode, Type, TypeVariant};
 
-use crate::{
-    cli::CodeGenMode,
-    codegen::{CodeGenError, CodeGenerator, GlueConfigSchema, types::EmitResult, utils::generate_watermark},
-};
+use crate::codegen::{CodeGenError, CodeGenerator, GlueConfigSchema, types::EmitResult, utils::generate_watermark};
 
 pub struct PythonPydanticCodeGenerator {
     config: GlueConfigSchema,
     source_file: String,
     ast: Ast,
 }
-const CODEGEN_MODE: CodeGenMode = CodeGenMode::PythonPydantic;
 
 impl CodeGenerator for PythonPydanticCodeGenerator {
     fn generate(mut self) -> EmitResult {
