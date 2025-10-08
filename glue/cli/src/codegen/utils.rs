@@ -1,4 +1,7 @@
-use crate::codegen::GlueConfigSchemaGenerationWatermark;
+use gluelang::{Ast, AstNode, AstNodeKind, AstNodePayload, AstSymbol, SymbolTable, TreeNode, TypeVariant};
+use log::debug;
+
+use crate::{cli::CodeGenMode, codegen::GlueConfigSchemaGenerationWatermark};
 
 /// Generate watermark comments based on the specified mode.
 /// The lines themselves are generated, they should be commented appropriately by the caller.
@@ -18,3 +21,25 @@ pub fn generate_watermark(source_file: &str, mode: &GlueConfigSchemaGenerationWa
         }
     }
 }
+
+// pub fn resolve_node_from_ref(ast: &Ast, symbols: &SymbolTable, type_node: &AstNode) -> Option<AstNode> {
+//     let types: Vec<gluelang::TypeAtom> = ast.get_type_atoms(type_node)?;
+//     if types.len() != 1 {
+//         return None;
+//     }
+//     let type_atom = &types[0];
+//     let TypeVariant::Ref { name: ref_name, .. } = &type_atom.variant else {
+//         return None;
+//     };
+//     let symbols_in_scope = symbols.symbols_in_scope(ast, type_node.id())?;
+//     debug!(
+//         "Resolving reference to '{}' from symbols: {}",
+//         ref_name,
+//         symbols_in_scope.keys().map(|s| s.name()).collect::<Vec<_>>().join(", ")
+//     );
+//     let symbol_entry = symbols_in_scope
+//         .get(&AstSymbol::Model(ref_name.clone()))
+//         .or_else(|| symbols_in_scope.get(&AstSymbol::Enum(ref_name.clone())))?;
+//     let node = ast.get_node(symbol_entry.id)?;
+//     Some(node)
+// }

@@ -30,3 +30,13 @@ fn test_e2e_cli_python_pydantic() {
     let stdout = String::from_utf8_lossy(&res.stdout);
     insta::assert_snapshot!(stdout);
 }
+
+// #[test]
+// fn test_e2e_cli_rust_serde() {
+//     let dir = std::path::Path::new(EXAMPLES_DIR).join("rust_serde");
+//     debug!("Running e2e test in dir: {}", dir.display());
+//     run_cmd!(&dir, "sh", "generate.sh");
+//     let res = run_cmd!(&dir, "cargo", "run", "--quiet");
+//     let stdout = String::from_utf8_lossy(&res.stdout);
+//     insta::assert_snapshot!(stdout);
+// }

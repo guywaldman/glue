@@ -65,7 +65,7 @@ pub enum PrimitiveType {
 #[derive(Debug, Clone)]
 pub enum TypeVariant {
     Primitive(PrimitiveType),
-    Ref(String),
+    Ref { name: String, effective_name: String },
     AnonymousModel,
 }
 
@@ -103,7 +103,7 @@ impl std::fmt::Display for TypeAtom {
                 PrimitiveType::Int => "int".to_string(),
                 PrimitiveType::Bool => "bool".to_string(),
             },
-            TypeVariant::Ref(name) => name.clone(),
+            TypeVariant::Ref { name, effective_name, .. } => format!("#{}{}", name, if name != effective_name { format!(" (-> {})", effective_name) } else { "".to_string() }),
             TypeVariant::AnonymousModel => "anonymous_model".to_string(),
         };
         let array_suffix = if self.is_array { "[]" } else { "" };
@@ -150,12 +150,15 @@ pub enum AstNodePayload {
     String(String),
     Enum {
         name: String,
+        /// The effective name is the name used in the generated code, which may differ from the original name.
+        effective_name: Option<String>,
         doc: Option<String>,
         variants: Vec<String>,
-        default: Option<ConstantValue>,
     },
     Model {
         name: String,
+        /// The effective name is the name used in the generated code, which may differ from the original name.
+        effective_name: Option<String>,
         doc: Option<String>,
     },
     Endpoint {
@@ -184,10 +187,10 @@ pub enum AstNodePayload {
 
 #[derive(Clone)]
 pub struct AstNode {
-    id: TreeNodeId,
+    pub id: TreeNodeId,
     parent_id: Option<TreeNodeId>,
-    kind: AstNodeKind,
-    payload: AstNodePayload,
+    pub kind: AstNodeKind,
+    pub payload: AstNodePayload,
     tokens: Vec<Token>,
     span: Span,
 }
@@ -215,7 +218,16 @@ impl std::fmt::Debug for AstNode {
         let label = match (&self.kind, &self.payload) {
             (AstNodeKind::Root, _) => "Root".to_string(),
             (AstNodeKind::Model, AstNodePayload::Model { name, .. }) => format!("Model(model {name})"),
-            (AstNodeKind::Field, AstNodePayload::Field { name, ty, .. }) => format!("Field({name}: {ty})"),
+            (AstNodeKind::Field, AstNodePayload::Field { name, ty, default, .. }) => {
+                format!(
+                    "Field({name}: {ty}{})",
+                    if let Some(def) = default {
+                        format!(" = {def}").replace("\"", "'")
+                    } else {
+                        "".to_string()
+                    }
+                )
+            }
             (AstNodeKind::Enum, AstNodePayload::Enum { name, variants, .. }) => {
                 let variants_str = variants.join(" | ");
                 format!("Enum({name}: {variants_str})")
@@ -247,7 +259,11 @@ impl std::fmt::Debug for AstNode {
             (AstNodeKind::Type, AstNodePayload::Type(ty)) => format!("Type({ty})"),
             (AstNodeKind::TypeAtom, AstNodePayload::TypeAtom { ty }) => match &ty.variant {
                 TypeVariant::Primitive(p) => format!("TypeAtom({p:?}{})", if ty.is_array { "[]" } else { "" }),
-                TypeVariant::Ref(name) => format!("TypeAtom(#{}{})", name, if ty.is_array { "[]" } else { "" }),
+                TypeVariant::Ref { name, effective_name } => format!(
+                    "TypeAtom(#{}{})",
+                    name,
+                    if name != effective_name { format!(" (-> {})", effective_name) } else { "".to_string() }
+                ),
                 TypeVariant::AnonymousModel => format!("TypeAtom(anonymous_model{})", if ty.is_array { "[]" } else { "" }),
             },
             _ => format!("{:?}", self.kind),

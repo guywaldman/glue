@@ -1,0 +1,10 @@
+/// A user in the system
+model User {
+	/// The unique identifier for the user (UUID)
+	id: string
+	/// The user's registration status
+	@alias("registrationStatus")
+	registration_status: RegistrationStatus
+
+	enum RegistrationStatus = "pending" | "active" | "inactive"
+}

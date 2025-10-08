@@ -8,5 +8,4 @@ mod utils;
 pub use config_schema_generated::*;
 pub use jsonschema::JsonSchemaCodeGenerator;
 pub use python_pydantic::PythonPydanticCodeGenerator;
-pub use rust_serde::RustSerdeCodeGenerator;
 pub use types::{CodeGenError, CodeGenerator};

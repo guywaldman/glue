@@ -128,7 +128,7 @@ impl LanguageServer for Lsp {
 
         // If the node is a ref, find its definition.
         if let AstNodePayload::TypeAtom { ty } = node.payload() {
-            let TypeVariant::Ref(ref_name) = &ty.variant else {
+            let TypeVariant::Ref { effective_name: ref_name, .. } = &ty.variant else {
                 info!("Type at position is not a reference");
                 return Ok(None);
             };

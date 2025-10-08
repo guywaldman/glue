@@ -1,105 +1,57 @@
-use std::path::PathBuf;
-
 use anyhow::{Context, Result};
-use clap::Subcommand;
 
 use crate::{
-    cli::{GlueCli, args::CliError},
-    codegen::{CodeGenerator, JsonSchemaCodeGenerator, PythonPydanticCodeGenerator, RustSerdeCodeGenerator},
+    cli::{
+        GlueCli,
+        args::{CliError, CliGenArgs, CodeGenMode},
+        utils::read_config,
+    },
+    codegen::{CodeGenerator, JsonSchemaCodeGenerator, PythonPydanticCodeGenerator},
 };
 
 pub struct GenSubcommand;
-
-#[derive(clap::Args)]
-// Shared arguments for code generation commands
-pub struct GenArgs {
-    /// Path to the input .glue file (defaults to stdin if not provided)
-    #[arg(short = 'i', long)]
-    pub input: Option<PathBuf>,
-
-    /// Output directory for generated code
-    #[arg(short = 'o', long)]
-    pub output: Option<PathBuf>,
-
-    /// Optional config file for the code generator
-    #[arg(short = 'c', long)]
-    pub config: Option<PathBuf>,
-}
-
-#[derive(Subcommand)]
-pub enum CliGenSubcommand {
-    #[command(name = "jsonschema")]
-    JsonSchema {
-        #[command(flatten)]
-        args: GenArgs,
-    },
-    #[command(name = "rust-serde")]
-    RustSerde {
-        #[command(flatten)]
-        args: GenArgs,
-    },
-    /// Generate Python Pydantic models from a .glue file
-    #[command(name = "py-pydantic")]
-    PythonPydantic {
-        #[command(flatten)]
-        args: GenArgs,
-    },
-}
 
 impl GenSubcommand {
     pub fn new() -> Self {
         Self {}
     }
-    pub fn run(&self, cmd: &CliGenSubcommand) -> Result<()> {
-        match cmd {
-            CliGenSubcommand::JsonSchema {
-                args: GenArgs { input, output, config: _, .. },
-                ..
-            } => {
-                let (file_name, file_contents) = GlueCli::handle_file(input.clone())?;
-
-                let artifacts = GlueCli::analyze(&file_name, file_contents)?;
-                let generated_code = JsonSchemaCodeGenerator::new(artifacts).generate().map_err(CliError::CodeGen)?;
-                if let Some(output) = output {
-                    std::fs::write(output, generated_code).with_context(|| format!("failed to write to {}", output.display()))?;
-                } else {
-                    println!("{generated_code}");
+    pub fn run(&self, args: &CliGenArgs) -> Result<()> {
+        let CliGenArgs { mode, .. } = args;
+        let effective_mode = match mode {
+            Some(m) => *m,
+            None => {
+                let extension = args.output.as_ref().and_then(|p| p.extension()).and_then(|s| s.to_str()).unwrap_or("");
+                match extension {
+                    "glue" => CodeGenMode::JsonSchema,
+                    "json" | "yaml" | "yml" => CodeGenMode::JsonSchema,
+                    // "rs" => CodeGenMode::RustSerde,
+                    "py" => CodeGenMode::PythonPydantic,
+                    _ => {
+                        return Err(CliError::BadInput(format!("Unrecognized file extension: .{}; please specify the code generation mode explicitly", extension)).into());
+                    }
                 }
             }
-            CliGenSubcommand::RustSerde {
-                args: GenArgs { input, output, config, .. },
-                ..
-            } => {
-                let (file_name, file_contents) = GlueCli::handle_file(input.clone())?;
-                let config = GlueCli::read_config(config.as_ref())?;
+        };
+        self.generate(&args, effective_mode)?;
+        Ok(())
+    }
 
-                let artifacts = GlueCli::analyze(&file_name, file_contents)?;
-                let generated_code = RustSerdeCodeGenerator::new(config, artifacts).generate().map_err(CliError::CodeGen)?;
+    fn generate(&self, args: &CliGenArgs, effective_mode: CodeGenMode) -> Result<()> {
+        let (file_name, file_contents) = GlueCli::handle_file(args.input.clone())?;
 
-                if let Some(output) = output {
-                    std::fs::write(output, generated_code).with_context(|| format!("failed to write to {}", output.display()))?;
-                } else {
-                    println!("{generated_code}");
-                }
-            }
-            CliGenSubcommand::PythonPydantic {
-                args: GenArgs { input, output, config, .. },
-                ..
-            } => {
-                let (file_name, file_contents) = GlueCli::handle_file(input.clone())?;
-                let config = match config {
-                    Some(path) => GlueCli::read_config(Some(path))?,
-                    None => Default::default(),
-                };
+        let artifacts = GlueCli::analyze(&file_name, file_contents)?;
+        // TODO: Derive default
+        let config = read_config(args.config.as_ref())?;
+        let generated_code = match effective_mode {
+            CodeGenMode::JsonSchema => JsonSchemaCodeGenerator::new(artifacts).generate().map_err(CliError::CodeGen)?,
+            // CodeGenMode::RustSerde => RustSerdeCodeGenerator::new(config, artifacts).generate().map_err(CliError::CodeGen)?,
+            CodeGenMode::PythonPydantic => PythonPydanticCodeGenerator::new(config, artifacts).generate().map_err(CliError::CodeGen)?,
+        };
 
-                let artifacts = GlueCli::analyze(&file_name, file_contents)?;
-                let generated_code = PythonPydanticCodeGenerator::new(config, artifacts).generate().map_err(CliError::CodeGen)?;
-                if let Some(output) = output {
-                    std::fs::write(output, generated_code).with_context(|| format!("failed to write to {}", output.display()))?;
-                } else {
-                    println!("{generated_code}");
-                }
-            }
+        if let Some(output) = &args.output {
+            std::fs::write(output, generated_code).with_context(|| format!("failed to write to {}", output.display()))?;
+        } else {
+            println!("{generated_code}");
         }
         Ok(())
     }
@@ -107,9 +59,9 @@ impl GenSubcommand {
 
 #[cfg(test)]
 mod tests {
-    use indoc::indoc;
+    use std::path::PathBuf;
 
-    use crate::codegen::GlueConfigSchema;
+    use indoc::indoc;
 
     use super::*;
 
@@ -131,7 +83,7 @@ mod tests {
                 }
             }"#};
 
-        let snapshot = run_snapshot_test("jsonschema_basic", src, "jsonschema").unwrap();
+        let snapshot = run_snapshot_test("jsonschema_basic", src, CodeGenMode::JsonSchema).unwrap();
         insta::assert_snapshot!(snapshot)
     }
 
@@ -171,32 +123,32 @@ mod tests {
             }
             }
         "#};
-        let snapshot = run_snapshot_test("python_pydantic_basic", src, "py-pydantic").unwrap();
+        let snapshot = run_snapshot_test("python_pydantic_basic", src, CodeGenMode::PythonPydantic).unwrap();
         insta::assert_snapshot!(snapshot)
     }
 
-    #[test]
-    fn test_rust_serde_basic() {
-        let src = indoc! {r#"
-            /// A user of the system
-            model User {
-            /// The unique ID of the user
-            id: int
-            /// The user's name
-            name: string
-            /// The user's email address
-            email: string
-            /// The status of the user
-            status: UserStatus
+    // #[test]
+    // fn test_rust_serde_basic() {
+    //     let src = indoc! {r#"
+    //         /// A user of the system
+    //         model User {
+    //         /// The unique ID of the user
+    //         id: int
+    //         /// The user's name
+    //         name: string
+    //         /// The user's email address
+    //         email: string
+    //         /// The status of the user
+    //         status: UserStatus
 
-            enum UserStatus = "active" | "inactive" | "banned"
-            }
-        "#};
-        let snapshot = run_snapshot_test("rust_serde_basic", src, "rust-serde").unwrap();
-        insta::assert_snapshot!(snapshot)
-    }
+    //         enum UserStatus = "active" | "inactive" | "banned"
+    //         }
+    //     "#};
+    //     let snapshot = run_snapshot_test("rust_serde_basic", src, CodeGenMode::RustSerde).unwrap();
+    //     insta::assert_snapshot!(snapshot)
+    // }
 
-    fn run_snapshot_test(test_name: &str, glue: &str, gen_command: &str) -> Result<String> {
+    fn run_snapshot_test(test_name: &str, glue: &str, codegen_mode: CodeGenMode) -> Result<String> {
         let temp_dir = std::env::temp_dir();
         let test_id: u64 = rand::random();
         let test_dir_path = PathBuf::from(format!("{}/{}_{}", temp_dir.display(), test_name, test_id));
@@ -206,11 +158,16 @@ mod tests {
         let input_path = format!("{}/in.glue", test_dir_path.display());
         std::fs::write(&input_path, glue)?;
 
-        let mut cfg = GlueConfigSchema::default();
-        cfg.generation.watermark = crate::codegen::GlueConfigSchemaGenerationWatermark::None;
+        let config = read_config(None)?;
         let temp_cfg_path = test_dir_path.join("config.yaml");
-        let cfg_contents = serde_yaml::to_string(&cfg).unwrap();
+        let cfg_contents = serde_yaml::to_string(&config).unwrap();
         std::fs::write(&temp_cfg_path, cfg_contents)?;
+
+        let gen_command = match codegen_mode {
+            CodeGenMode::JsonSchema => "json-schema",
+            // CodeGenMode::RustSerde => "rust-serde",
+            CodeGenMode::PythonPydantic => "python-pydantic",
+        };
 
         GlueCli::new().run(&[
             "cli",

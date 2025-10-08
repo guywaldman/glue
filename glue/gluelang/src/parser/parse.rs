@@ -127,20 +127,13 @@ impl<'a> Parser<'a> {
             }
         }
 
-        let default = if self.peek_kind() == TokenKind::Equal {
-            self.advance()?; // consume '='
-            self.parse_constant_value()?
-        } else {
-            None
-        };
-
         let enum_node = AstNode::new_with_span(
             AstNodeKind::Enum,
             AstNodePayload::Enum {
                 name: enum_name.clone(),
+                effective_name: None,
                 doc,
                 variants,
-                default,
             },
             span,
         );
@@ -224,7 +217,15 @@ impl<'a> Parser<'a> {
         expect_tokens!(self, TokenKind::RBrace);
 
         let span = span.merge(&self.curr_span());
-        let model_ast_node = AstNode::new_with_span(AstNodeKind::Model, AstNodePayload::Model { name: model_name.clone(), doc }, span);
+        let model_ast_node = AstNode::new_with_span(
+            AstNodeKind::Model,
+            AstNodePayload::Model {
+                name: model_name.clone(),
+                doc,
+                effective_name: None,
+            },
+            span,
+        );
         let model_node_id = self.ast.add_node(model_ast_node);
 
         if let Some(identifier_node_id) = identifier_node_id {
@@ -290,7 +291,10 @@ impl<'a> Parser<'a> {
                 "string" => TypeVariant::Primitive(PrimitiveType::String),
                 "int" => TypeVariant::Primitive(PrimitiveType::Int),
                 "bool" => TypeVariant::Primitive(PrimitiveType::Bool),
-                other_type_name => TypeVariant::Ref(other_type_name.to_string()),
+                other_type_name => TypeVariant::Ref {
+                    name: other_type_name.to_string(),
+                    effective_name: other_type_name.to_string(),
+                },
             };
 
             let mut is_optional = false;

@@ -47,8 +47,8 @@ impl GlueCli {
                 };
                 Self::analyze(&file_name, file_contents).map(|_| {})?;
             }
-            CliSubcommand::Gen { command } => {
-                GenSubcommand::new().run(command)?;
+            CliSubcommand::Gen { args } => {
+                GenSubcommand::new().run(args)?;
             }
         }
         Ok(())
@@ -84,7 +84,8 @@ impl GlueCli {
 
     pub fn read_config(path: Option<&PathBuf>) -> Result<GlueConfigSchema> {
         let Some(path) = path else {
-            return Ok(GlueConfigSchema::default());
+            // TODO: Derive Default
+            return Err(anyhow::anyhow!("no config file path provided"));
         };
         let config_contents = std::fs::read_to_string(path).with_context(|| format!("failed to read config file '{}'", path.display()))?;
         let config = serde_yaml::from_str(&config_contents).with_context(|| format!("failed to parse config file '{}'", path.display()))?;

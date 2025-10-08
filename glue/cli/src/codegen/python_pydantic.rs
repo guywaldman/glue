@@ -1,12 +1,16 @@
 use gluelang::{Ast, AstNode, AstNodeKind, AstNodePayload, PrimitiveType, SemanticAnalysisArtifacts, TreeNode, Type, TypeVariant};
 
-use crate::codegen::{CodeGenError, CodeGenerator, GlueConfigSchema, types::EmitResult, utils::generate_watermark};
+use crate::{
+    cli::CodeGenMode,
+    codegen::{CodeGenError, CodeGenerator, GlueConfigSchema, types::EmitResult, utils::generate_watermark},
+};
 
 pub struct PythonPydanticCodeGenerator {
     config: GlueConfigSchema,
     source_file: String,
     ast: Ast,
 }
+const CODEGEN_MODE: CodeGenMode = CodeGenMode::PythonPydantic;
 
 impl CodeGenerator for PythonPydanticCodeGenerator {
     fn generate(mut self) -> EmitResult {
@@ -174,7 +178,7 @@ impl PythonPydanticCodeGenerator {
                     PrimitiveType::Int => atom_str.push_str("int"),
                     PrimitiveType::Bool => atom_str.push_str("bool"),
                 },
-                TypeVariant::Ref(name) => atom_str.push_str(name),
+                TypeVariant::Ref { effective_name, .. } => atom_str.push_str(effective_name),
                 TypeVariant::AnonymousModel => {
                     return Err(CodeGenError::Other("Anonymous models are not supported in this context".to_string()));
                 }
