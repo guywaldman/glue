@@ -286,6 +286,9 @@ impl<'a> Lexer<'a> {
                         return self.make(TokenKind::StringLit, TokenPayload::String(s.to_string()), sp);
                     }
                 }
+                b'1'..=b'9' if c2.is_ascii_alphabetic() => {
+                    return self.scan_ident_or_kw(sp);
+                }
                 b'1'..=b'9' => {
                     return self.scan_number(sp);
                 }
@@ -631,6 +634,43 @@ mod tests {
                 &TokenKind::Ident,
                 &TokenKind::Colon,
                 &TokenKind::Ident,
+                &TokenKind::RBrace,
+                &TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_lexer_ident_with_starting_number() {
+        let src = r#"
+        model Post {
+            2a: string
+            anon: {
+                3a: string
+            }
+        }
+        "#
+        .trim();
+
+        let tokens = super::Lexer::new(src).lex();
+
+        let token_kinds = tokens.iter().map(|t| &t.kind).collect::<Vec<_>>();
+        assert_eq!(
+            token_kinds,
+            vec![
+                &TokenKind::KeywordModel,
+                &TokenKind::Ident,
+                &TokenKind::LBrace,
+                &TokenKind::Ident,
+                &TokenKind::Colon,
+                &TokenKind::Ident,
+                &TokenKind::Ident,
+                &TokenKind::Colon,
+                &TokenKind::LBrace,
+                &TokenKind::Ident,
+                &TokenKind::Colon,
+                &TokenKind::Ident,
+                &TokenKind::RBrace,
                 &TokenKind::RBrace,
                 &TokenKind::Eof,
             ]

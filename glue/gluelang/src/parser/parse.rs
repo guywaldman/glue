@@ -606,14 +606,13 @@ impl<'a> Parser<'a> {
             decorator_node_id = Some(self.parse_decorator()?);
         }
 
-        // Field identifiers can be normal identifiers or string literals.
-        // e.g., `foo: string` or `"foo-bar": string`
-        let (identifier_token, ident) = match self.peek_kind() {
+        // Field identifiers can be normal identifiers, string literals, or numeric literals (e.g., HTTP status codes).
+        let (identifier_token, ident_string) = match self.peek_kind() {
             TokenKind::Ident => {
                 let token = self.peek().unwrap().clone();
                 let TokenPayload::String(ident) = self.expect(TokenKind::Ident)?.payload else {
                     let span = token.span;
-                    return Err(self.err(span, "Expected field name identifier", None, Some("EExpectedFieldName")));
+                    return Err(self.err(span, format!("Expected field name identifier, received {}", token.kind), None, Some("EExpectedFieldName")));
                 };
                 (token, ident)
             }
@@ -621,16 +620,28 @@ impl<'a> Parser<'a> {
                 let token = self.peek().unwrap().clone();
                 let TokenPayload::String(ident) = self.expect(TokenKind::StringLit)?.payload else {
                     let span = token.span;
-                    return Err(self.err(span, "Expected field name identifier", None, Some("EExpectedFieldName")));
+                    return Err(self.err(span, format!("Expected field name identifier, received {}", token.kind), None, Some("EExpectedFieldName")));
                 };
                 (token, ident)
             }
-            _ => {
-                return Err(self.err(self.curr_span(), "Expected field name identifier", None, Some("EExpectedFieldName")));
+            TokenKind::IntLit => {
+                let token = self.peek().unwrap().clone();
+                let TokenPayload::Number(value) = self.expect(TokenKind::IntLit)?.payload else {
+                    let span = token.span;
+                    return Err(self.err(span, format!("Expected field name identifier, received {}", token.kind), None, Some("EExpectedFieldName")));
+                };
+                (token, value.to_string())
+            }
+            tk => {
+                return Err(self.err(
+                    self.curr_span(),
+                    format!("Expected field name identifier, received {}", tk),
+                    None,
+                    Some("EExpectedFieldName"),
+                ));
             }
         };
         let ident_span = identifier_token.span;
-        let ident_string = ident.to_string();
 
         self.expect(TokenKind::Colon)?;
         let (ty_node_id, ty) = self.parse_type()?;
@@ -779,6 +790,24 @@ mod tests {
         assert_matches!(root_children[0].payload(), AstNodePayload::Enum { name, .. } if name == "Status");
         assert_eq!(root_children[1].kind(), AstNodeKind::Model);
         assert_matches!(root_children[1].payload(), AstNodePayload::Model { name, .. } if name == "User");
+    }
+
+    #[test]
+    fn test_parse_field_with_numeric_name() {
+        let input = indoc! {r#"
+            model Responses {
+                200: Response200
+            }
+        "#};
+        let ast = parse(input).unwrap().ast;
+        let root_children = ast.get_children(ast.get_root()).unwrap();
+        assert_eq!(root_children.len(), 1);
+        let model_children = ast.get_children(root_children[0].id()).unwrap();
+        let field = model_children
+            .iter()
+            .find(|n| matches!(n.payload(), AstNodePayload::Field { name, .. } if name == "200"))
+            .expect("Expected field named 200");
+        assert_matches!(field.payload(), AstNodePayload::Field { name, .. } if name == "200");
     }
 
     #[test]

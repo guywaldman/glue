@@ -8,14 +8,13 @@ endpoint GetUserById {
 		"X-Request-ID": string
 	}
 
-	@response(200)
-	model Response200 {
-		user: User
-	}
-
-	@response(300..599)
-	model ResponseError {
-		error: string
+	responses: {
+		/// A successful response containing the user details.
+		200: Response200
+		/// Client error response.
+		4XX: ResponseError
+		/// Server error response.
+		5XX: ResponseError
 	}
 }
 

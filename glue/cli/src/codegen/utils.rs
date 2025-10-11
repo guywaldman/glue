@@ -1,4 +1,3 @@
-
 use crate::codegen::GlueConfigSchemaGenerationWatermark;
 
 /// Generate watermark comments based on the specified mode.

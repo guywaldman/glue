@@ -2,4 +2,7 @@
 
 set -e
 
-glue gen rust-serde -c .gluerc.yaml -i models.glue -o src/generated_models.rs
+SCRIPT_PATH=$(dirname "$0")
+cd "$SCRIPT_PATH/../../.."
+
+cargo run --bin glue -- gen -c .gluerc.yaml -i $SCRIPT_PATH/models.glue -o $SCRIPT_PATH/src/generated_models.rs

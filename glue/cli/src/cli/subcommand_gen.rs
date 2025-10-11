@@ -6,7 +6,7 @@ use crate::{
         args::{CliError, CliGenArgs, CodeGenMode},
         utils::read_config,
     },
-    codegen::{CodeGenerator, JsonSchemaCodeGenerator, PythonPydanticCodeGenerator},
+    codegen::{CodeGenerator, JsonSchemaCodeGenerator, OpenApiCodeGenerator, PythonPydanticCodeGenerator},
 };
 
 pub struct GenSubcommand;
@@ -20,12 +20,13 @@ impl GenSubcommand {
         let effective_mode = match mode {
             Some(m) => *m,
             None => {
+                let name = args.output.as_ref().and_then(|p| p.file_stem()).and_then(|s| s.to_str()).unwrap_or("");
                 let extension = args.output.as_ref().and_then(|p| p.extension()).and_then(|s| s.to_str()).unwrap_or("");
-                match extension {
-                    "glue" => CodeGenMode::JsonSchema,
-                    "json" | "yaml" | "yml" => CodeGenMode::JsonSchema,
-                    // "rs" => CodeGenMode::RustSerde,
-                    "py" => CodeGenMode::PythonPydantic,
+                match (name, extension) {
+                    (_, "glue") => CodeGenMode::JsonSchema,
+                    ("openapi", "json") => CodeGenMode::OpenApi,
+                    (_, "json" | "yaml" | "yml") => CodeGenMode::JsonSchema,
+                    (_, "py") => CodeGenMode::PythonPydantic,
                     _ => {
                         return Err(CliError::BadInput(format!("Unrecognized file extension: .{}; please specify the code generation mode explicitly", extension)).into());
                     }
@@ -44,7 +45,7 @@ impl GenSubcommand {
         let config = read_config(args.config.as_ref())?;
         let generated_code = match effective_mode {
             CodeGenMode::JsonSchema => JsonSchemaCodeGenerator::new(artifacts).generate().map_err(CliError::CodeGen)?,
-            // CodeGenMode::RustSerde => RustSerdeCodeGenerator::new(config, artifacts).generate().map_err(CliError::CodeGen)?,
+            CodeGenMode::OpenApi => OpenApiCodeGenerator::new(artifacts).generate().map_err(CliError::CodeGen)?,
             CodeGenMode::PythonPydantic => PythonPydanticCodeGenerator::new(config, artifacts).generate().map_err(CliError::CodeGen)?,
         };
 
@@ -127,6 +128,45 @@ mod tests {
         insta::assert_snapshot!(snapshot)
     }
 
+    #[test]
+    fn test_openapi_basic() {
+        let src = indoc! {r#"
+            @endpoint("GET /users/{id}")
+            endpoint GetUserById {
+                request: {
+                    id: int | string
+                }
+
+                headers: {
+                    "X-Request-ID": string
+                }
+
+                @response(mime="application/json")
+                responses: {
+                    /// Successful response containing user data.
+                    200: User
+                    /// Client error response.
+                    4XX: ErrorResponse
+                    /// Server error response.
+                    @response(mime="application/xml")
+                    5XX: ErrorResponse
+                }
+            }
+
+            model User {
+                id: int | string
+                name: string
+            }
+
+            model ErrorResponse {
+                message: string
+            }
+        "#};
+
+        let snapshot = run_snapshot_test("openapi_basic", src, CodeGenMode::OpenApi).unwrap();
+        insta::assert_snapshot!(snapshot)
+    }
+
     // #[test]
     // fn test_rust_serde_basic() {
     //     let src = indoc! {r#"
@@ -165,7 +205,7 @@ mod tests {
 
         let gen_command = match codegen_mode {
             CodeGenMode::JsonSchema => "json-schema",
-            // CodeGenMode::RustSerde => "rust-serde",
+            CodeGenMode::OpenApi => "openapi",
             CodeGenMode::PythonPydantic => "python-pydantic",
         };
 

@@ -17,8 +17,8 @@ pub struct Cli {
 pub enum CodeGenMode {
     #[value(alias("json-schema"))]
     JsonSchema,
-    // #[value(alias("rust-serde"))]
-    // RustSerde,
+    #[value(alias("openapi"))]
+    OpenApi,
     #[value(alias("python-pydantic"))]
     PythonPydantic,
 }
