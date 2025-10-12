@@ -12,6 +12,10 @@ fn glue_config_schema_generation_python_pydantic_base_model_default() -> String 
     "pydantic.BaseModel".to_string()
 }
 
+fn glue_config_schema_generation_watermark_default() -> GlueConfigSchemaGenerationWatermark {
+    GlueConfigSchemaGenerationWatermark::None
+}
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,6 +44,7 @@ pub struct GlueConfigSchemaGenerationPythonPydantic {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GlueConfigSchemaGeneration {
     /// Mode for the watermark at the top of the generated files
+    #[serde(default = "glue_config_schema_generation_watermark_default")]
     pub watermark: GlueConfigSchemaGenerationWatermark,
     // /// Configurations for Rust code generation using Serde (`glue gen rust-serde [...]`)
     // pub rust_serde: GlueConfigSchemaGenerationRustSerde,
