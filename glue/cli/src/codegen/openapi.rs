@@ -195,6 +195,14 @@ impl OpenApiCodeGenerator {
         Ok(())
     }
 
+    fn find_endpoint_field(&self, endpoint: &AstNode, field_name: &str) -> Option<AstNode> {
+        self.ast
+            .get_children(endpoint.id())
+            .unwrap_or_default()
+            .into_iter()
+            .find(|child| matches!(child.payload(), AstNodePayload::Field { name, .. } if name == field_name))
+    }
+
     fn emit_endpoint(&mut self, endpoint: &AstNode) -> Result<EndpointOperation, CodeGenError> {
         let AstNodePayload::Endpoint {
             name,
@@ -202,6 +210,10 @@ impl OpenApiCodeGenerator {
             method,
             path,
             path_params,
+            request,
+            headers,
+            responses,
+            ..
         } = endpoint.payload()
         else {
             return Err(CodeGenError::Other("Expected endpoint payload".to_string()));
@@ -217,35 +229,30 @@ impl OpenApiCodeGenerator {
         let mut parameters: Vec<json::JsonValue> = Vec::new();
         let mut consumed_path_params: Vec<String> = Vec::new();
         let mut request_body: Option<json::JsonValue> = None;
-        let mut responses_field: Option<AstNode> = None;
 
-        if let Some(children) = self.ast.get_children(endpoint.id()) {
-            for child in children {
-                if let AstNodePayload::Field { name: field_name, .. } = child.payload() {
-                    match field_name.as_str() {
-                        "request" => {
-                            let artifacts = self.collect_request_artifacts(endpoint, &child, path_params)?;
-                            if let Some(body) = artifacts.body {
-                                request_body = Some(body);
-                            }
-                            parameters.extend(artifacts.parameters);
-                            consumed_path_params.extend(artifacts.consumed_path_params);
-                        }
-                        "headers" => {
-                            let header_params = self.emit_header_parameters(endpoint, &child)?;
-                            parameters.extend(header_params);
-                        }
-                        "responses" => {
-                            responses_field = Some(child);
-                        }
-                        _ => {}
-                    }
-                }
+        if let Some(request_field_id) = request {
+            let request_field = self
+                .ast
+                .get_node(*request_field_id)
+                .ok_or_else(|| CodeGenError::Other("Request field node missing".to_string()))?;
+            let artifacts = self.collect_request_artifacts(endpoint, &request_field, path_params)?;
+            if let Some(body) = artifacts.body {
+                request_body = Some(body);
             }
+            parameters.extend(artifacts.parameters);
+            consumed_path_params.extend(artifacts.consumed_path_params);
         }
 
-        for path_param in path_params {
-            if !consumed_path_params.iter().any(|p| p == path_param) {
+        if !headers.is_empty() {
+            let headers_field = self
+                .find_endpoint_field(endpoint, "headers")
+                .ok_or_else(|| CodeGenError::Other("Headers field node missing".to_string()))?;
+            let mut header_parameters = self.emit_header_parameters(endpoint, &headers_field)?;
+            parameters.append(&mut header_parameters);
+        }
+
+        for path_param in path_params.iter() {
+            if !consumed_path_params.iter().any(|consumed| consumed == path_param) {
                 let mut parameter = json::JsonValue::new_object();
                 parameter["name"] = path_param.clone().into();
                 parameter["in"] = "path".into();
@@ -271,7 +278,9 @@ impl OpenApiCodeGenerator {
             operation["requestBody"] = body;
         }
 
-        let responses = if let Some(responses_field) = responses_field {
+        let responses_field = self.find_endpoint_field(endpoint, "responses");
+        let responses_json = if !responses.is_empty() || responses_field.is_some() {
+            let responses_field = responses_field.ok_or_else(|| CodeGenError::Other("Responses field node missing".to_string()))?;
             self.emit_responses(endpoint, &responses_field)?
         } else {
             let mut responses_obj = json::JsonValue::new_object();
@@ -280,7 +289,7 @@ impl OpenApiCodeGenerator {
             responses_obj["default"] = default_resp;
             responses_obj
         };
-        operation["responses"] = responses;
+        operation["responses"] = responses_json;
 
         Ok(EndpointOperation {
             path: path.clone(),
@@ -381,7 +390,9 @@ impl OpenApiCodeGenerator {
 
         let mut responses_obj = json::JsonValue::new_object();
 
-        for response_field in model_info.fields {
+        let response_fields = model_info.fields;
+
+        for response_field in response_fields {
             let AstNodePayload::Field { name: status_code, doc, ty, .. } = response_field.payload() else {
                 continue;
             };

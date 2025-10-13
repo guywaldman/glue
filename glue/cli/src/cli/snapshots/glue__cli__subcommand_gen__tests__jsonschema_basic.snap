@@ -7,19 +7,13 @@ expression: snapshot
     "title": "Config",
     "type": "object",
     "properties": {
-        "title": {
-            "type": "string"
-        },
-        "version": {
-            "type": "string"
-        },
-        "debug": {
-            "type": "boolean"
-        },
         "database": {
             "type": "object",
             "properties": {
                 "host": {
+                    "type": "string"
+                },
+                "password": {
                     "type": "string"
                 },
                 "port": {
@@ -27,11 +21,17 @@ expression: snapshot
                 },
                 "username": {
                     "type": "string"
-                },
-                "password": {
-                    "type": "string"
                 }
             }
+        },
+        "debug": {
+            "type": "boolean"
+        },
+        "title": {
+            "type": "string"
+        },
+        "version": {
+            "type": "string"
         }
     }
 }

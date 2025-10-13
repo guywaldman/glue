@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use regex::Regex;
 
@@ -9,6 +9,7 @@ use crate::{
     parser::{
         Ast, AstSymbol, SymbolTable,
         ast::{AstNode, AstNodeId, AstNodeKind, AstNodePayload, ConstantValue, PrimitiveType, Type, TypeAtom, TypeVariant},
+        tree::TreeNode,
     },
 };
 
@@ -184,7 +185,7 @@ impl<'a> Parser<'a> {
         expect_tokens!(self, TokenKind::LBrace);
 
         let mut symbols = Vec::new();
-        let mut fields = Vec::new();
+        let mut fields = BTreeMap::new();
         let mut nested_models: Vec<AstNodeId> = Vec::new();
         while {
             let k = self.peek_kind();
@@ -208,7 +209,7 @@ impl<'a> Parser<'a> {
                 _ => {
                     // Field (possibly with leading docblocks)
                     let (field_node_id, field_name) = self.parse_field()?;
-                    fields.push(field_node_id);
+                    fields.insert(field_name.clone(), field_node_id);
                     symbols.push((AstSymbol::Field(field_name.clone()), field_node_id));
                 }
             }
@@ -223,6 +224,7 @@ impl<'a> Parser<'a> {
                 name: model_name.clone(),
                 doc,
                 effective_name: None,
+                fields: fields.clone(),
             },
             span,
         );
@@ -240,7 +242,7 @@ impl<'a> Parser<'a> {
             self.ast.append_child(model_node_id, nested_id);
         }
 
-        for field_node_id in fields.into_iter() {
+        for (_, field_node_id) in fields.into_iter() {
             self.ast.append_child(model_node_id, field_node_id);
         }
 
@@ -401,6 +403,10 @@ impl<'a> Parser<'a> {
         let endpoint_name = endpoint_name.to_string();
         expect_tokens!(self, TokenKind::LBrace);
 
+        let mut request: Option<AstNodeId> = None;
+        let mut headers = HashMap::new();
+        let mut responses = HashMap::new();
+
         let mut fields = Vec::new();
         while {
             let k = self.peek_kind();
@@ -432,6 +438,37 @@ impl<'a> Parser<'a> {
                 TokenKind::Ident | TokenKind::StringLit => {
                     // Field (possibly with leading docblocks)
                     let (field_node_id, field_name) = self.parse_field()?;
+                    match field_name.as_str() {
+                        "request" => {
+                            request = Some(field_node_id);
+                        }
+                        "headers" => {
+                            let Some(fields) = self.extract_model_fields_from_endpoint_field(field_node_id) else {
+                                let span = *self.ast.get_node(field_node_id).unwrap().span();
+                                return Err(self.err(span, "Expected headers to be a model", None, Some("EExpectedHeadersModel")));
+                            };
+                            for (header_name, header_node_id) in fields.into_iter() {
+                                headers.insert(header_name, header_node_id);
+                            }
+                        }
+                        "responses" => {
+                            let Some(fields) = self.extract_model_fields_from_endpoint_field(field_node_id) else {
+                                let span = *self.ast.get_node(field_node_id).unwrap().span();
+                                return Err(self.err(span, "Expected responses to be a model", None, Some("EExpectedResponsesModel")));
+                            };
+                            for (status_code, response_node_id) in fields.into_iter() {
+                                responses.insert(status_code, response_node_id);
+                            }
+                        }
+                        _ => {
+                            return Err(self.err(
+                                *self.ast.get_node(field_node_id).unwrap().span(),
+                                "Unexpected field in endpoint body (possible fields: request, headers, responses)",
+                                None,
+                                Some("EUnexpectedFieldInEndpoint"),
+                            ));
+                        }
+                    }
                     fields.push(field_node_id);
                     self.symbols.insert(identifier_node_id, AstSymbol::Field(field_name.clone()), field_node_id);
                 }
@@ -450,6 +487,9 @@ impl<'a> Parser<'a> {
             method: method.to_string(),
             path: path.to_string(),
             path_params,
+            request,
+            headers,
+            responses,
         };
         let endpoint_node = AstNode::new_with_span(AstNodeKind::Endpoint, endpoint_payload, span);
         let endpoint_node_id = self.ast.add_node(endpoint_node);
@@ -464,6 +504,17 @@ impl<'a> Parser<'a> {
         }
 
         Ok((endpoint_node_id, endpoint_name))
+    }
+
+    fn extract_model_fields_from_endpoint_field(&self, field_node_id: AstNodeId) -> Option<BTreeMap<String, AstNodeId>> {
+        let type_nodes = self.ast.get_children(field_node_id)?;
+        let type_node = type_nodes.into_iter().find(|child| matches!(child.kind(), AstNodeKind::Type))?;
+        let model_nodes = self.ast.get_children(type_node.id())?;
+        let model_node = model_nodes.into_iter().find(|child| matches!(child.payload(), AstNodePayload::Model { .. }))?;
+        match model_node.payload() {
+            AstNodePayload::Model { fields, .. } => Some(fields.clone()),
+            _ => None,
+        }
     }
 
     /// Parses a constant value (string, int, or bool).

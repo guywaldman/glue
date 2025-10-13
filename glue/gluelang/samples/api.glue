@@ -1,3 +1,5 @@
+endpoint "GET /users" -> User[] or Response
+
 @endpoint("GET /users/{id}")
 endpoint GetUserById {
 	request: {
@@ -8,6 +10,7 @@ endpoint GetUserById {
 		"X-Request-ID": string
 	}
 
+	@response(mime="application/json")
 	responses: {
 		/// A successful response containing the user details.
 		200: Response200
@@ -16,6 +19,11 @@ endpoint GetUserById {
 		/// Server error response.
 		5XX: ResponseError
 	}
+}
+
+model ResponseError {
+	code?: string
+	message: string
 }
 
 model User {

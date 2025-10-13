@@ -1,4 +1,7 @@
-use std::{collections::HashMap, default};
+use std::{
+    collections::{BTreeMap, HashMap},
+    default,
+};
 
 use crate::{
     Span,
@@ -160,6 +163,7 @@ pub enum AstNodePayload {
         /// The effective name is the name used in the generated code, which may differ from the original name.
         effective_name: Option<String>,
         doc: Option<String>,
+        fields: BTreeMap<String, AstNodeId>,
     },
     Endpoint {
         name: String,
@@ -167,6 +171,12 @@ pub enum AstNodePayload {
         method: String,
         path: String,
         path_params: Vec<String>,
+        /// Model node that represents the request body.
+        request: Option<AstNodeId>,
+        /// List of fields that represent the request header fields
+        headers: HashMap<String, AstNodeId>,
+        /// List of response status codes (e.g. "200", "404", "5XX").
+        responses: HashMap<String, AstNodeId>,
     },
     Field {
         name: String,

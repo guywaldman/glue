@@ -16,6 +16,7 @@ pub enum TokenKind {
     Pipe,
     AtSign,
     DoubleDot,
+    ArrowRight,
     Ident,
     StringLit,
     IntLit,
@@ -60,6 +61,7 @@ impl fmt::Display for TokenKind {
             TokenKind::Pipe => write!(f, "|"),
             TokenKind::AtSign => write!(f, "@"),
             TokenKind::DoubleDot => write!(f, ".."),
+            TokenKind::ArrowRight => write!(f, "->"),
             TokenKind::IntLit => write!(f, "number"),
             TokenKind::Ident => write!(f, "identifier"),
             TokenKind::StringLit => write!(f, "string"),
@@ -268,6 +270,10 @@ impl<'a> Lexer<'a> {
                 b'.' if c2 == b'.' => {
                     self.advance_n(2);
                     return self.make(TokenKind::DoubleDot, TokenPayload::None, sp);
+                }
+                b'-' if c2 == b'>' => {
+                    self.advance_n(2);
+                    return self.make(TokenKind::ArrowRight, TokenPayload::None, sp);
                 }
                 b'"' => {
                     self.advance(); // consume opening quote
