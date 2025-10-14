@@ -1,5 +1,6 @@
 use gluelang::{
-    Ast, AstNode, AstNodeKind, AstNodePayload, AstSymbol, Enum, Field, Model, PrimitiveType, SemanticAnalysisArtifacts, SymbolTable, TreeNode, Type, TypeAtom, TypeVariant,
+    Ast, AstNode, AstNodeKind, AstNodePayload, AstSymbol, Decorator, Enum, Field, Model, PrimitiveType, SemanticAnalysisArtifacts, SymbolTable, TreeNode, Type, TypeAtom,
+    TypeVariant,
 };
 
 use crate::codegen::{CodeGenError, CodeGenerator, types::EmitResult};
@@ -23,7 +24,7 @@ impl CodeGenerator for JsonSchemaCodeGenerator {
             if let AstNodeKind::Model = node.kind() {
                 let Some(root_decorators) = self
                     .ast
-                    .get_children_fn(node.id(), |n| matches!(n.payload(), AstNodePayload::Decorator { name, .. } if name == "root"))
+                    .get_children_fn(node.id(), |n| matches!(n.payload(), AstNodePayload::Decorator(Decorator { name, .. }) if name == "root"))
                 else {
                     return false;
                 };

@@ -1,15 +1,21 @@
 mod ast;
+mod ast_decorator;
+mod ast_endpoint;
 mod ast_enum;
 mod ast_field;
 mod ast_model;
+mod ast_type_atom;
 mod parse;
 mod symbols;
 mod tree;
 
-pub use ast::{Ast, AstNode, AstNodeId, AstNodeKind, AstNodePayload, ConstantValue, PrimitiveType, Type, TypeAtom, TypeVariant};
+pub use ast::{Ast, AstNode, AstNodeId, AstNodeKind, AstNodePayload, ConstantValue, PrimitiveType, Type, TypeVariant};
+pub use ast_decorator::Decorator;
+pub use ast_endpoint::Endpoint;
 pub use ast_enum::Enum;
 pub use ast_field::Field;
 pub use ast_model::Model;
+pub use ast_type_atom::TypeAtom;
 pub use parse::{Parser, ParserArtifacts};
 pub use symbols::{AstSymbol, SymbolTable, SymbolsMapPerScope};
 pub use tree::TreeNode;

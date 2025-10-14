@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use gluelang::{
-    Ast, AstNode, AstNodeKind, AstNodePayload, ConstantValue, Enum, Field, Model, PrimitiveType, SemanticAnalysisArtifacts, SymbolTable, TreeNode, Type, TypeAtom, TypeVariant,
+    Ast, AstNode, AstNodeKind, AstNodePayload, ConstantValue, Decorator, Endpoint, Enum, Field, Model, PrimitiveType, SemanticAnalysisArtifacts, SymbolTable, TreeNode, Type,
+    TypeAtom, TypeVariant,
 };
 
 use crate::codegen::{CodeGenError, CodeGenerator, types::EmitResult};
@@ -206,7 +207,7 @@ impl OpenApiCodeGenerator {
     }
 
     fn emit_endpoint(&mut self, endpoint: &AstNode) -> Result<EndpointOperation, CodeGenError> {
-        let AstNodePayload::Endpoint {
+        let AstNodePayload::Endpoint(Endpoint {
             name,
             doc,
             method,
@@ -216,7 +217,7 @@ impl OpenApiCodeGenerator {
             headers,
             responses,
             ..
-        } = endpoint.payload()
+        }) = endpoint.payload()
         else {
             return Err(CodeGenError::Other("Expected endpoint payload".to_string()));
         };
@@ -480,11 +481,11 @@ impl OpenApiCodeGenerator {
         let decorators = self.ast.get_children_fn(node.id(), |n| matches!(n.kind(), AstNodeKind::Decorator)).unwrap_or_default();
 
         for decorator in decorators {
-            let AstNodePayload::Decorator {
+            let Some(Decorator {
                 name,
                 named_args,
                 positional_args,
-            } = decorator.payload()
+            }) = decorator.as_decorator()
             else {
                 continue;
             };

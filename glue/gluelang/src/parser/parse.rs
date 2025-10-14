@@ -3,12 +3,12 @@ use std::collections::{BTreeMap, HashMap};
 use regex::Regex;
 
 use crate::{
-    Field, Span,
+    Field, Span, TypeAtom,
     diagnostics::{LangError, LangResult},
     lexer::{Token, TokenKind, TokenPayload},
     parser::{
-        Ast, AstSymbol, Enum, SymbolTable,
-        ast::{AstNode, AstNodeId, AstNodeKind, AstNodePayload, ConstantValue, PrimitiveType, Type, TypeAtom, TypeVariant},
+        Ast, AstSymbol, Decorator, Endpoint, Enum, SymbolTable,
+        ast::{AstNode, AstNodeId, AstNodeKind, AstNodePayload, ConstantValue, PrimitiveType, Type, TypeVariant},
         ast_model::Model,
         tree::TreeNode,
     },
@@ -314,13 +314,7 @@ impl<'a> Parser<'a> {
             }
 
             types.push(TypeAtom { variant, is_optional, is_array });
-            let type_atom_node = AstNode::new_with_span(
-                AstNodeKind::TypeAtom,
-                AstNodePayload::TypeAtom {
-                    ty: types.last().unwrap().clone(),
-                },
-                type_token.span,
-            );
+            let type_atom_node = AstNode::new_with_span(AstNodeKind::TypeAtom, AstNodePayload::TypeAtom(types.last().unwrap().clone()), type_token.span);
             let type_atom_node_id = self.ast.add_node(type_atom_node);
             type_atom_nodes.push(type_atom_node_id);
 
@@ -356,7 +350,7 @@ impl<'a> Parser<'a> {
         // Should look like: @endpoint("GET "/users/{id}")
         let decorator_node_id = self.parse_decorator()?;
         let decorator_node = self.ast.get_node(decorator_node_id).unwrap();
-        let AstNodePayload::Decorator { name, positional_args, .. } = &decorator_node.payload() else {
+        let AstNodePayload::Decorator(Decorator { name, positional_args, .. }) = &decorator_node.payload() else {
             return Err(self.err(*decorator_node.span(), "Expected decorator node", None, Some("EExpectedDecoratorNode")));
         };
         if name != "endpoint" {
@@ -483,7 +477,7 @@ impl<'a> Parser<'a> {
         expect_tokens!(self, TokenKind::RBrace);
 
         let span = span.merge(&self.prev_span());
-        let endpoint_payload = AstNodePayload::Endpoint {
+        let endpoint_payload = AstNodePayload::Endpoint(Endpoint {
             name: endpoint_name.clone(),
             doc,
             method: method.to_string(),
@@ -492,7 +486,7 @@ impl<'a> Parser<'a> {
             request,
             headers,
             responses,
-        };
+        });
         let endpoint_node = AstNode::new_with_span(AstNodeKind::Endpoint, endpoint_payload, span);
         let endpoint_node_id = self.ast.add_node(endpoint_node);
 
@@ -623,11 +617,11 @@ impl<'a> Parser<'a> {
 
         let decorator_node = AstNode::new_with_span(
             AstNodeKind::Decorator,
-            AstNodePayload::Decorator {
+            AstNodePayload::Decorator(Decorator {
                 name: decorator_name,
                 named_args,
                 positional_args,
-            },
+            }),
             self.curr_span(),
         );
         let decorator_node_id = self.ast.add_node(decorator_node);
@@ -881,7 +875,7 @@ mod tests {
         let model_children = ast.get_children(model_node.id()).unwrap();
         let decorator = model_children.iter().find(|n| n.kind() == AstNodeKind::Decorator);
         assert!(decorator.is_some());
-        assert_matches!(decorator.unwrap().payload(), AstNodePayload::Decorator { name, named_args, .. } if name == "foo" && named_args.len() == 2);
+        assert_matches!(decorator.unwrap().payload(), AstNodePayload::Decorator(Decorator { name, named_args, .. }) if name == "foo" && named_args.len() == 2);
     }
 
     #[test]

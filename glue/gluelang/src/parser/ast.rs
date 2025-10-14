@@ -1,10 +1,10 @@
-use std::{collections::HashMap, default};
+use std::default;
 
 use crate::{
-    Field, Span,
+    Field, Span, TypeAtom,
     lexer::Token,
     parser::{
-        Enum,
+        Decorator, Endpoint, Enum,
         ast_model::Model,
         tree::{Tree, TreeNode, TreeNodeId},
     },
@@ -50,7 +50,7 @@ impl Ast {
         let mut result = vec![];
         for type_node in self.get_children_fn(node.id(), |n| n.kind() == AstNodeKind::Type)? {
             for type_atom_node in self.get_children_fn(type_node.id(), |n| n.kind() == AstNodeKind::TypeAtom)? {
-                if let AstNodePayload::TypeAtom { ty } = type_atom_node.payload().clone() {
+                if let AstNodePayload::TypeAtom(ty) = type_atom_node.payload().clone() {
                     result.push(ty);
                 }
             }
@@ -93,30 +93,6 @@ impl std::fmt::Display for ConstantValue {
 }
 
 #[derive(Debug, Clone)]
-pub struct TypeAtom {
-    pub variant: TypeVariant,
-    pub is_optional: bool,
-    pub is_array: bool,
-}
-
-impl std::fmt::Display for TypeAtom {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let base = match &self.variant {
-            TypeVariant::Primitive(p) => match p {
-                PrimitiveType::String => "string".to_string(),
-                PrimitiveType::Int => "int".to_string(),
-                PrimitiveType::Bool => "bool".to_string(),
-            },
-            TypeVariant::Ref { name, effective_name, .. } => format!("#{}{}", name, if name != effective_name { format!(" (-> {})", effective_name) } else { "".to_string() }),
-            TypeVariant::AnonymousModel => "anonymous_model".to_string(),
-        };
-        let array_suffix = if self.is_array { "[]" } else { "" };
-        let optional_suffix = if self.is_optional { "?" } else { "" };
-        write!(f, "{base}{array_suffix}{optional_suffix}")
-    }
-}
-
-#[derive(Debug, Clone)]
 pub enum Type {
     Single(TypeAtom),
     Union(Vec<TypeAtom>),
@@ -154,28 +130,10 @@ pub enum AstNodePayload {
     String(String),
     Enum(Enum),
     Model(Model),
-    Endpoint {
-        name: String,
-        doc: Option<String>,
-        method: String,
-        path: String,
-        path_params: Vec<String>,
-        /// Model node that represents the request body.
-        request: Option<AstNodeId>,
-        /// List of fields that represent the request header fields
-        headers: HashMap<String, AstNodeId>,
-        /// List of response status codes (e.g. "200", "404", "5XX").
-        responses: HashMap<String, AstNodeId>,
-    },
+    Endpoint(Endpoint),
     Field(Field),
-    TypeAtom {
-        ty: TypeAtom,
-    },
-    Decorator {
-        name: String,
-        named_args: HashMap<String, ConstantValue>,
-        positional_args: Vec<ConstantValue>,
-    },
+    TypeAtom(TypeAtom),
+    Decorator(Decorator),
     Type(Type),
 }
 
@@ -228,11 +186,11 @@ impl std::fmt::Debug for AstNode {
             }
             (
                 AstNodeKind::Decorator,
-                AstNodePayload::Decorator {
+                AstNodePayload::Decorator(Decorator {
                     name,
                     named_args,
                     positional_args,
-                },
+                }),
             ) => {
                 let mut output = format!("@{name}(");
                 output.push_str(positional_args.iter().map(|a| format!("{a}")).collect::<Vec<_>>().join(", ").as_str());
@@ -251,7 +209,7 @@ impl std::fmt::Debug for AstNode {
             }
             (AstNodeKind::Identifier, AstNodePayload::String(name)) => format!("Identifier({name})"),
             (AstNodeKind::Type, AstNodePayload::Type(ty)) => format!("Type({ty})"),
-            (AstNodeKind::TypeAtom, AstNodePayload::TypeAtom { ty }) => match &ty.variant {
+            (AstNodeKind::TypeAtom, AstNodePayload::TypeAtom(ty)) => match &ty.variant {
                 TypeVariant::Primitive(p) => format!("TypeAtom({p:?}{})", if ty.is_array { "[]" } else { "" }),
                 TypeVariant::Ref { name, effective_name } => format!(
                     "TypeAtom(#{}{})",
@@ -350,6 +308,27 @@ impl AstNode {
     pub fn as_field(&self) -> Option<&Field> {
         match &self.payload {
             AstNodePayload::Field(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    pub fn as_decorator(&self) -> Option<&Decorator> {
+        match &self.payload {
+            AstNodePayload::Decorator(d) => Some(d),
+            _ => None,
+        }
+    }
+
+    pub fn as_endpoint(&self) -> Option<&Endpoint> {
+        match &self.payload {
+            AstNodePayload::Endpoint(e) => Some(e),
+            _ => None,
+        }
+    }
+
+    pub fn as_type_atom(&self) -> Option<&TypeAtom> {
+        match &self.payload {
+            AstNodePayload::TypeAtom(t) => Some(t),
             _ => None,
         }
     }

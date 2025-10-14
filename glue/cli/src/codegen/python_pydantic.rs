@@ -1,4 +1,4 @@
-use gluelang::{Ast, AstNode, AstNodeKind, AstNodePayload, Enum, Field, Model, PrimitiveType, SemanticAnalysisArtifacts, TreeNode, Type, TypeVariant};
+use gluelang::{Ast, AstNode, AstNodeKind, AstNodePayload, Decorator, Enum, Field, Model, PrimitiveType, SemanticAnalysisArtifacts, TreeNode, Type, TypeVariant};
 
 use crate::codegen::{CodeGenError, CodeGenerator, GlueConfigSchema, types::EmitResult, utils::generate_watermark};
 
@@ -118,7 +118,7 @@ impl PythonPydanticCodeGenerator {
             .and_then(|children| children.iter().find(|c| c.kind() == AstNodeKind::Decorator).cloned());
 
         let mut field_str = "Field(".to_string();
-        if let Some(AstNodePayload::Decorator { name, positional_args, .. }) = decorator.map(|d| d.payload().clone())
+        if let Some(AstNodePayload::Decorator(Decorator { name, positional_args, .. })) = decorator.map(|d| d.payload().clone())
             && name == "alias"
             && let Some(arg) = positional_args.first()
         {
