@@ -1,4 +1,6 @@
-use gluelang::{Ast, AstNode, AstNodeKind, AstNodePayload, AstSymbol, PrimitiveType, SemanticAnalysisArtifacts, SymbolTable, TreeNode, Type, TypeAtom, TypeVariant};
+use gluelang::{
+    Ast, AstNode, AstNodeKind, AstNodePayload, AstSymbol, Enum, Field, Model, PrimitiveType, SemanticAnalysisArtifacts, SymbolTable, TreeNode, Type, TypeAtom, TypeVariant,
+};
 
 use crate::codegen::{CodeGenError, CodeGenerator, types::EmitResult};
 
@@ -36,7 +38,7 @@ impl CodeGenerator for JsonSchemaCodeGenerator {
             ));
         };
         let root_model_node_name = match root_model_node.payload() {
-            AstNodePayload::Model { name, .. } => name,
+            AstNodePayload::Model(Model { name, .. }) => name,
             _ => return Err(CodeGenError::Other("Expected a model node".to_string())),
         };
         let root_model = self.emit_model(root_model_node)?;
@@ -71,7 +73,7 @@ impl JsonSchemaCodeGenerator {
         let children = self.ast.get_children(model.id()).unwrap_or_default();
         for child in children {
             match child.payload() {
-                AstNodePayload::Field { name: field_name, ty, doc, .. } => {
+                AstNodePayload::Field(Field { name: field_name, ty, doc, .. }) => {
                     let types = match ty {
                         Type::Single(t) => vec![t.clone()],
                         Type::Union(variants) => variants.clone(),
@@ -104,7 +106,7 @@ impl JsonSchemaCodeGenerator {
                     result[field_name] = json::JsonValue::Object(field_obj);
                 }
                 AstNodePayload::Model { .. } => {
-                    let AstNodePayload::Model { name: _nested_name, .. } = child.payload() else {
+                    let Some(Model { name: _nested_name, .. }) = child.as_model() else {
                         continue;
                     };
                     // Nested models are handled when referenced by fields
@@ -157,7 +159,7 @@ impl JsonSchemaCodeGenerator {
                             .get_node(entry.id)
                             .ok_or_else(|| CodeGenError::Other(format!("Referenced enum node with ID {} not found", entry.id)))?;
 
-                        let AstNodePayload::Enum { variants, doc, .. } = enum_node.payload() else {
+                        let Some(Enum { variants, doc, .. }) = enum_node.as_enum() else {
                             return Err(CodeGenError::Other("Expected an enum node".to_string()));
                         };
 

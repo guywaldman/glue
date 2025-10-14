@@ -6,5 +6,5 @@ model User {
 	@alias("registrationStatus")
 	registration_status: RegistrationStatus
 
-	enum RegistrationStatus = "pending" | "active" | "inactive"
+	enum RegistrationStatus: "pending" | "active" | "inactive"
 }

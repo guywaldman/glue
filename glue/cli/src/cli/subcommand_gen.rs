@@ -6,7 +6,7 @@ use crate::{
         args::{CliError, CliGenArgs, CodeGenMode},
         utils::read_config,
     },
-    codegen::{CodeGenerator, JsonSchemaCodeGenerator, OpenApiCodeGenerator, PythonPydanticCodeGenerator},
+    codegen::{CodeGenerator, JsonSchemaCodeGenerator, OpenApiCodeGenerator, PythonPydanticCodeGenerator, RustSerdeCodeGenerator},
 };
 
 pub struct GenSubcommand;
@@ -25,6 +25,7 @@ impl GenSubcommand {
                 match (name, extension) {
                     (_, "glue") => CodeGenMode::JsonSchema,
                     ("openapi", "json") => CodeGenMode::OpenApi,
+                    (_, "rs") => CodeGenMode::RustSerde,
                     (_, "json" | "yaml" | "yml") => CodeGenMode::JsonSchema,
                     (_, "py") => CodeGenMode::PythonPydantic,
                     _ => {
@@ -46,6 +47,7 @@ impl GenSubcommand {
         let generated_code = match effective_mode {
             CodeGenMode::JsonSchema => JsonSchemaCodeGenerator::new(artifacts).generate().map_err(CliError::CodeGen)?,
             CodeGenMode::OpenApi => OpenApiCodeGenerator::new(artifacts).generate().map_err(CliError::CodeGen)?,
+            CodeGenMode::RustSerde => RustSerdeCodeGenerator::new(config, artifacts).generate().map_err(CliError::CodeGen)?,
             CodeGenMode::PythonPydantic => PythonPydanticCodeGenerator::new(config, artifacts).generate().map_err(CliError::CodeGen)?,
         };
 
@@ -206,6 +208,7 @@ mod tests {
         let gen_command = match codegen_mode {
             CodeGenMode::JsonSchema => "json-schema",
             CodeGenMode::OpenApi => "openapi",
+            CodeGenMode::RustSerde => "rust-serde",
             CodeGenMode::PythonPydantic => "python-pydantic",
         };
 

@@ -3,12 +3,13 @@ use std::collections::{BTreeMap, HashMap};
 use regex::Regex;
 
 use crate::{
-    Span,
+    Field, Span,
     diagnostics::{LangError, LangResult},
     lexer::{Token, TokenKind, TokenPayload},
     parser::{
-        Ast, AstSymbol, SymbolTable,
+        Ast, AstSymbol, Enum, SymbolTable,
         ast::{AstNode, AstNodeId, AstNodeKind, AstNodePayload, ConstantValue, PrimitiveType, Type, TypeAtom, TypeVariant},
+        ast_model::Model,
         tree::TreeNode,
     },
 };
@@ -111,7 +112,7 @@ impl<'a> Parser<'a> {
             self.prev_span(),
         ));
         let enum_name = enum_name.to_string();
-        expect_tokens!(self, TokenKind::Equal);
+        expect_tokens!(self, TokenKind::Colon);
 
         let mut variants = Vec::new();
         loop {
@@ -130,12 +131,12 @@ impl<'a> Parser<'a> {
 
         let enum_node = AstNode::new_with_span(
             AstNodeKind::Enum,
-            AstNodePayload::Enum {
+            AstNodePayload::Enum(Enum {
                 name: enum_name.clone(),
                 effective_name: None,
                 doc,
                 variants,
-            },
+            }),
             span,
         );
         let enum_node_id = self.ast.add_node(enum_node);
@@ -220,12 +221,13 @@ impl<'a> Parser<'a> {
         let span = span.merge(&self.curr_span());
         let model_ast_node = AstNode::new_with_span(
             AstNodeKind::Model,
-            AstNodePayload::Model {
+            AstNodePayload::Model(Model {
                 name: model_name.clone(),
+                decorator: decorator_node_id,
                 doc,
                 effective_name: None,
                 fields: fields.clone(),
-            },
+            }),
             span,
         );
         let model_node_id = self.ast.add_node(model_ast_node);
@@ -510,9 +512,9 @@ impl<'a> Parser<'a> {
         let type_nodes = self.ast.get_children(field_node_id)?;
         let type_node = type_nodes.into_iter().find(|child| matches!(child.kind(), AstNodeKind::Type))?;
         let model_nodes = self.ast.get_children(type_node.id())?;
-        let model_node = model_nodes.into_iter().find(|child| matches!(child.payload(), AstNodePayload::Model { .. }))?;
+        let model_node = model_nodes.into_iter().find(|child| matches!(child.payload(), AstNodePayload::Model(Model { .. })))?;
         match model_node.payload() {
-            AstNodePayload::Model { fields, .. } => Some(fields.clone()),
+            AstNodePayload::Model(Model { fields, .. }) => Some(fields.clone()),
             _ => None,
         }
     }
@@ -706,12 +708,12 @@ impl<'a> Parser<'a> {
 
         let field_node_id = self.ast.add_node(AstNode::new_with_span(
             AstNodeKind::Field,
-            AstNodePayload::Field {
+            AstNodePayload::Field(Field {
                 name: ident_string.clone(),
                 doc,
                 default: default_value,
                 ty: ty.clone(),
-            },
+            }),
             ident_span,
         ));
 
@@ -799,7 +801,7 @@ mod tests {
     use crate::lexer::{Lexer, Token};
     // Bring trait into scope so we can call id() on AstNode in tests.
     use crate::parser::tree::TreeNode;
-    use crate::span_of;
+    use crate::{Field, span_of};
     use indoc::indoc;
     use pretty_assertions::{assert_eq, assert_matches};
 
@@ -819,7 +821,7 @@ mod tests {
     fn test_parse_model_with_enum() {
         let input = indoc! {r#"
             /// Status of a user
-            enum Status = "active" | "inactive"
+            enum Status: "active" | "inactive"
 
             /// This is a user model
             model User {
@@ -838,9 +840,9 @@ mod tests {
         let root_children = ast.get_children(root_node_id).unwrap();
         assert_eq!(root_children.len(), 2);
         assert_eq!(root_children[0].kind(), AstNodeKind::Enum);
-        assert_matches!(root_children[0].payload(), AstNodePayload::Enum { name, .. } if name == "Status");
+        assert_matches!(root_children[0].payload(), AstNodePayload::Enum(Enum{ name, .. }) if name == "Status");
         assert_eq!(root_children[1].kind(), AstNodeKind::Model);
-        assert_matches!(root_children[1].payload(), AstNodePayload::Model { name, .. } if name == "User");
+        assert_matches!(root_children[1].payload(), AstNodePayload::Model(Model{ name, .. }) if name == "User");
     }
 
     #[test]
@@ -856,9 +858,9 @@ mod tests {
         let model_children = ast.get_children(root_children[0].id()).unwrap();
         let field = model_children
             .iter()
-            .find(|n| matches!(n.payload(), AstNodePayload::Field { name, .. } if name == "200"))
+            .find(|n| matches!(n.payload(), AstNodePayload::Field(Field{ name, .. }) if name == "200"))
             .expect("Expected field named 200");
-        assert_matches!(field.payload(), AstNodePayload::Field { name, .. } if name == "200");
+        assert_matches!(field.payload(), AstNodePayload::Field(Field{ name, .. }) if name == "200");
     }
 
     #[test]
@@ -899,15 +901,15 @@ mod tests {
         let fields: Vec<_> = model_children.iter().filter(|n| n.kind() == AstNodeKind::Field).collect();
         assert_eq!(fields.len(), 1);
         let field = fields[0];
-        assert_matches!(field.payload(), AstNodePayload::Field { name, .. } if name == "author");
-        assert_matches!(field.payload(), AstNodePayload::Field { name, doc, .. } if name == "author" && doc.is_some());
+        assert_matches!(field.payload(), AstNodePayload::Field(Field {name, .. }) if name == "author");
+        assert_matches!(field.payload(), AstNodePayload::Field(Field {name, doc, .. }) if name == "author" && doc.is_some());
     }
 
     #[test]
     fn test_parse_complex_multiline_field_docs_and_nested_model() {
         let input = indoc! {r#"
             /// Status of a user
-            enum Status = "active" | "inactive"
+            enum Status: "active" | "inactive"
 
             /// A user of the system
             model User {
@@ -949,7 +951,7 @@ mod tests {
         // Find Post model id
         let post_node = root_children
             .iter()
-            .find(|n| matches!(n.payload(), AstNodePayload::Model { name, .. } if name == "Post"))
+            .find(|n| matches!(n.payload(), AstNodePayload::Model(Model{ name, .. }) if name == "Post"))
             .expect("Post model not found");
         let post_id = post_node.id();
         let post_children = ast.get_children(post_id).unwrap();
@@ -957,15 +959,15 @@ mod tests {
         // Check for nested AdditionalPostDetails model
         let has_nested_model = post_children
             .iter()
-            .any(|n| matches!(n.payload(), AstNodePayload::Model { name, .. } if name == "AdditionalPostDetails"));
+            .any(|n| matches!(n.payload(), AstNodePayload::Model(Model{ name, .. }) if name == "AdditionalPostDetails"));
         assert!(has_nested_model, "Expected nested AdditionalPostDetails model");
 
         // Find author field
         let author_field = post_children
             .iter()
-            .find(|n| matches!(n.payload(), AstNodePayload::Field { name, .. } if name == "author"))
+            .find(|n| matches!(n.payload(), AstNodePayload::Field(Field{ name, .. }) if name == "author"))
             .expect("author field not found");
-        let AstNodePayload::Field { doc, .. } = &author_field.payload() else {
+        let AstNodePayload::Field(Field { doc, .. }) = &author_field.payload() else {
             panic!("author field should have Field payload");
         };
         let author_doc = doc.clone().expect("author field should have documentation");
@@ -1018,7 +1020,7 @@ mod tests {
 
         // Post should be in the root scope
         let post_model_id = ast
-            .find(|n| matches!(n.payload(), AstNodePayload::Model { name, .. } if name == "Post"))
+            .find(|n| matches!(n.payload(), AstNodePayload::Model(Model{ name, .. }) if name == "Post"))
             .first()
             .unwrap()
             .id();
@@ -1028,7 +1030,7 @@ mod tests {
 
         // User should be in the root scope
         let user_model_id = ast
-            .find(|n| matches!(n.payload(), AstNodePayload::Model { name, .. } if name == "User"))
+            .find(|n| matches!(n.payload(), AstNodePayload::Model(Model{ name, .. }) if name == "User"))
             .first()
             .unwrap()
             .id();
@@ -1037,7 +1039,7 @@ mod tests {
 
         // AdditionalPostDetails should be in Post's scope
         let additional_details_id = ast
-            .find(|n| matches!(n.payload(), AstNodePayload::Model { name, .. } if name == "AdditionalPostDetails"))
+            .find(|n| matches!(n.payload(), AstNodePayload::Model(Model{ name, .. }) if name == "AdditionalPostDetails"))
             .first()
             .unwrap()
             .id();
@@ -1071,7 +1073,7 @@ mod tests {
 
         let root_id = ast.get_root();
         let baz_field_id = ast
-            .find(|n| matches!(n.payload(), AstNodePayload::Field { name, .. } if name == "baz"))
+            .find(|n| matches!(n.payload(), AstNodePayload::Field(Field{ name, .. }) if name == "baz"))
             .first()
             .unwrap()
             .id();

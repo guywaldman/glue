@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use gluelang::{Ast, AstNode, AstNodeKind, AstNodePayload, AstSymbol, ConstantValue, PrimitiveType, SemanticAnalysisArtifacts, SymbolTable, TreeNode, Type, TypeAtom, TypeVariant};
+use gluelang::{
+    Ast, AstNode, AstNodeKind, AstNodePayload, ConstantValue, Enum, Field, Model, PrimitiveType, SemanticAnalysisArtifacts, SymbolTable, TreeNode, Type, TypeAtom, TypeVariant,
+};
 
 use crate::codegen::{CodeGenError, CodeGenerator, types::EmitResult};
 
@@ -171,13 +173,13 @@ impl OpenApiCodeGenerator {
 
     fn collect_components_recursively(&mut self, node: &AstNode, acc: &mut Components) -> Result<(), CodeGenError> {
         match node.payload() {
-            AstNodePayload::Model { name, .. } if name != "<anonymous>" => {
+            AstNodePayload::Model(Model { name, .. }) if name != "<anonymous>" => {
                 if !acc.schemas.contains_key(name) {
                     let schema = self.emit_model_schema(node)?;
                     acc.insert(name.clone(), schema);
                 }
             }
-            AstNodePayload::Enum { name, .. } => {
+            AstNodePayload::Enum(Enum { name, .. }) => {
                 if !acc.schemas.contains_key(name) {
                     let schema = self.emit_enum_schema(node);
                     acc.insert(name.clone(), schema);
@@ -200,7 +202,7 @@ impl OpenApiCodeGenerator {
             .get_children(endpoint.id())
             .unwrap_or_default()
             .into_iter()
-            .find(|child| matches!(child.payload(), AstNodePayload::Field { name, .. } if name == field_name))
+            .find(|child| matches!(child.payload(), AstNodePayload::Field(Field{ name, .. }) if name == field_name))
     }
 
     fn emit_endpoint(&mut self, endpoint: &AstNode) -> Result<EndpointOperation, CodeGenError> {
@@ -299,7 +301,7 @@ impl OpenApiCodeGenerator {
     }
 
     fn collect_request_artifacts(&mut self, endpoint: &AstNode, field: &AstNode, path_params: &[String]) -> Result<RequestArtifacts, CodeGenError> {
-        let AstNodePayload::Field { ty, doc, .. } = field.payload() else {
+        let AstNodePayload::Field(Field { ty, doc, .. }) = field.payload() else {
             return Err(CodeGenError::Other("Expected request field payload".to_string()));
         };
 
@@ -322,7 +324,7 @@ impl OpenApiCodeGenerator {
         if let Some(model_info) = self.resolve_model_fields(endpoint, field, ty)? {
             for path_param in path_params {
                 if let Some(field_node) = model_info.fields.iter().find(|f| {
-                    if let AstNodePayload::Field { name, .. } = f.payload() {
+                    if let AstNodePayload::Field(Field { name, .. }) = f.payload() {
                         name.as_str() == path_param.as_str()
                     } else {
                         false
@@ -333,7 +335,7 @@ impl OpenApiCodeGenerator {
                     parameter["name"] = path_param.clone().into();
                     parameter["in"] = "path".into();
                     parameter["required"] = true.into();
-                    if let AstNodePayload::Field { doc: Some(field_doc), .. } = field_node.payload() {
+                    if let AstNodePayload::Field(Field { doc: Some(field_doc), .. }) = field_node.payload() {
                         parameter["description"] = field_doc.clone().into();
                     }
                     parameter["schema"] = param_schema;
@@ -351,7 +353,7 @@ impl OpenApiCodeGenerator {
     }
 
     fn emit_header_parameters(&mut self, endpoint: &AstNode, field: &AstNode) -> Result<Vec<json::JsonValue>, CodeGenError> {
-        let AstNodePayload::Field { ty, .. } = field.payload() else {
+        let Some(Field { ty, .. }) = field.as_field() else {
             return Err(CodeGenError::Other("Expected headers field payload".to_string()));
         };
 
@@ -359,7 +361,7 @@ impl OpenApiCodeGenerator {
 
         if let Some(model_info) = self.resolve_model_fields(endpoint, field, ty)? {
             for header_field in model_info.fields {
-                if let AstNodePayload::Field { name, doc, .. } = header_field.payload() {
+                if let Some(Field { name, doc, .. }) = header_field.as_field() {
                     let (schema, is_required) = self.emit_field_schema(&header_field)?;
                     let mut parameter = json::JsonValue::new_object();
                     parameter["name"] = name.clone().into();
@@ -378,7 +380,7 @@ impl OpenApiCodeGenerator {
     }
 
     fn emit_responses(&mut self, endpoint: &AstNode, responses_field: &AstNode) -> Result<json::JsonValue, CodeGenError> {
-        let AstNodePayload::Field { ty, .. } = responses_field.payload() else {
+        let Some(Field { ty, .. }) = responses_field.as_field() else {
             return Err(CodeGenError::Other("Expected responses field payload".to_string()));
         };
 
@@ -393,7 +395,7 @@ impl OpenApiCodeGenerator {
         let response_fields = model_info.fields;
 
         for response_field in response_fields {
-            let AstNodePayload::Field { name: status_code, doc, ty, .. } = response_field.payload() else {
+            let Some(Field { name: status_code, doc, ty, .. }) = response_field.as_field() else {
                 continue;
             };
 
@@ -457,10 +459,10 @@ impl OpenApiCodeGenerator {
                 Ok(Some(ModelInfo { fields }))
             }
             TypeVariant::Ref { name, .. } => {
-                if let Some(model_node) = self.lookup_model_node(scope, name) {
+                if let Some(model_node) = self.symbols.lookup(&self.ast, scope.id, name) {
                     let fields = self
                         .ast
-                        .get_children(model_node.id())
+                        .get_children(model_node.id)
                         .unwrap_or_default()
                         .into_iter()
                         .filter(|n| matches!(n.payload(), AstNodePayload::Field { .. }))
@@ -510,8 +512,8 @@ impl OpenApiCodeGenerator {
             .and_then(|nodes| nodes.into_iter().next())
     }
 
-    fn emit_model_schema(&mut self, model: &AstNode) -> Result<json::JsonValue, CodeGenError> {
-        let AstNodePayload::Model { doc, .. } = model.payload() else {
+    fn emit_model_schema(&mut self, model_node: &AstNode) -> Result<json::JsonValue, CodeGenError> {
+        let Some(Model { doc, .. }) = model_node.as_model() else {
             return Err(CodeGenError::Other("Expected model payload".to_string()));
         };
 
@@ -526,9 +528,9 @@ impl OpenApiCodeGenerator {
         let mut properties = json::JsonValue::new_object();
         let mut required = json::JsonValue::new_array();
 
-        let children = self.ast.get_children(model.id()).unwrap_or_default();
+        let children = self.ast.get_children(model_node.id()).unwrap_or_default();
         for child in children {
-            if let AstNodePayload::Field { name, .. } = child.payload() {
+            if let AstNodePayload::Field(Field { name, .. }) = child.payload() {
                 let (field_schema, is_required) = self.emit_field_schema(&child)?;
                 properties[name] = field_schema;
                 if is_required {
@@ -553,7 +555,7 @@ impl OpenApiCodeGenerator {
         let mut schema = json::JsonValue::new_object();
         schema["type"] = "string".into();
 
-        if let AstNodePayload::Enum { variants, doc, .. } = enum_node.payload() {
+        if let AstNodePayload::Enum(Enum { variants, doc, .. }) = enum_node.payload() {
             let mut values = json::JsonValue::new_array();
             for variant in variants {
                 // json::JsonValue::push only fails for non-arrays; this is an array by construction.
@@ -569,7 +571,7 @@ impl OpenApiCodeGenerator {
     }
 
     fn emit_field_schema(&mut self, field: &AstNode) -> Result<(json::JsonValue, bool), CodeGenError> {
-        let AstNodePayload::Field { ty, doc, default, .. } = field.payload() else {
+        let AstNodePayload::Field(Field { ty, doc, default, .. }) = field.payload() else {
             return Err(CodeGenError::Other("Expected field payload".to_string()));
         };
 
@@ -616,9 +618,14 @@ impl OpenApiCodeGenerator {
             TypeVariant::Primitive(primitive) => Schema::from_primitive(*primitive).into_json(),
             TypeVariant::Ref { name, effective_name } => {
                 // Ensure referenced schema is collected
-                if self.lookup_model_node(field, name).is_none() && self.lookup_enum_node(field, name).is_none() {
+                let Some(ref_node) = self.symbols.lookup(&self.ast, field.id(), name) else {
                     return Err(CodeGenError::Other(format!("Referenced type '{name}' not found in scope")));
-                }
+                };
+                let ref_node_id = ref_node.id;
+                let Some(ref_node) = self.ast.get_node(ref_node_id) else {
+                    return Err(CodeGenError::Other(format!("Referenced type node with id '{ref_node_id}' not found")));
+                };
+                let _ = self.contribute_components_from_node(&ref_node);
                 let mut ref_schema = json::JsonValue::new_object();
                 ref_schema["$ref"] = format!("#/components/schemas/{effective_name}").into();
                 ref_schema
@@ -650,18 +657,6 @@ impl OpenApiCodeGenerator {
         }
 
         Ok(schema)
-    }
-
-    fn lookup_model_node(&self, scope: &AstNode, model_name: &str) -> Option<AstNode> {
-        self.symbols
-            .lookup(&self.ast, scope.id(), &AstSymbol::Model(model_name.to_string()))
-            .and_then(|id| self.ast.get_node(id))
-    }
-
-    fn lookup_enum_node(&self, scope: &AstNode, enum_name: &str) -> Option<AstNode> {
-        self.symbols
-            .lookup(&self.ast, scope.id(), &AstSymbol::Enum(enum_name.to_string()))
-            .and_then(|id| self.ast.get_node(id))
     }
 
     fn is_type_optional(ty: &Type) -> bool {

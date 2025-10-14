@@ -2,9 +2,9 @@ use colored::Colorize;
 use rayon::prelude::*;
 
 use crate::{
-    AstNodePayload, LangError, Span,
+    AstNodePayload, Field, LangError, Span,
     diagnostics::LangResult,
-    parser::{Ast, AstNode, AstNodeId, AstNodeKind, AstSymbol, ParserArtifacts, SymbolTable, SymbolsMapPerScope, TreeNode, Type, TypeVariant},
+    parser::{Ast, AstNode, AstNodeId, AstNodeKind, AstSymbol, Model, ParserArtifacts, SymbolTable, SymbolsMapPerScope, TreeNode, Type, TypeVariant},
     utils::fuzzy::fuzzy_match,
 };
 
@@ -83,7 +83,7 @@ impl<'a> SemanticAnalyzer<'a> {
         if model.kind() != AstNodeKind::Model {
             return Err(self.err(*model.span(), "Expected a model node".to_string(), None, Some("EInternal")));
         }
-        let AstNodePayload::Model { name, .. } = &model.payload() else {
+        let AstNodePayload::Model(Model { name, .. }) = &model.payload() else {
             return Err(self.err(*model.span(), "Expected a model node with payload".to_string(), None, Some("EInternal")));
         };
 
@@ -118,7 +118,7 @@ impl<'a> SemanticAnalyzer<'a> {
         if node.kind() != AstNodeKind::Field {
             return Err(self.err(*node.span(), "Expected a field node".to_string(), None, Some("EInternal")));
         }
-        let AstNodePayload::Field { ty, .. } = &node.payload() else {
+        let Some(Field { ty, .. }) = &node.as_field() else {
             return Err(self.err(*node.span(), "Expected a field node with payload".to_string(), None, Some("EInternal")));
         };
         let type_refs = match ty {
@@ -278,7 +278,7 @@ mod tests {
                 title: string
                 status: PostStatus
 
-                enum PostStatus = "draft" | "published" | "archived"
+                enum PostStatus: "draft" | "published" | "archived"
             }
         "#};
         let result = analyze(src);
@@ -288,7 +288,7 @@ mod tests {
     #[test]
     fn test_defined_enum_type_top_level() {
         let src = indoc! {r#"
-            enum Tier = "free" | "pro" | "enterprise"
+            enum Tier: "free" | "pro" | "enterprise"
             model Post {
                 title: string
                 // One variation where the enum is at the bottom
@@ -297,7 +297,7 @@ mod tests {
                 // Another variation where the enum is at the top
                 tier: Tier?
             }
-            enum PostStatus = "draft" | "published" | "archived"
+            enum PostStatus: "draft" | "published" | "archived"
 
         "#};
         let result = analyze(src);

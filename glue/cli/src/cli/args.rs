@@ -19,6 +19,8 @@ pub enum CodeGenMode {
     JsonSchema,
     #[value(alias("openapi"))]
     OpenApi,
+    #[value(alias("rust-serde"))]
+    RustSerde,
     #[value(alias("python-pydantic"))]
     PythonPydantic,
 }

@@ -1,12 +1,13 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    default,
-};
+use std::{collections::HashMap, default};
 
 use crate::{
-    Span,
+    Field, Span,
     lexer::Token,
-    parser::tree::{Tree, TreeNode, TreeNodeId},
+    parser::{
+        Enum,
+        ast_model::Model,
+        tree::{Tree, TreeNode, TreeNodeId},
+    },
 };
 
 pub type Ast = Tree<AstNode>;
@@ -151,20 +152,8 @@ pub enum AstNodeKind {
 pub enum AstNodePayload {
     None,
     String(String),
-    Enum {
-        name: String,
-        /// The effective name is the name used in the generated code, which may differ from the original name.
-        effective_name: Option<String>,
-        doc: Option<String>,
-        variants: Vec<String>,
-    },
-    Model {
-        name: String,
-        /// The effective name is the name used in the generated code, which may differ from the original name.
-        effective_name: Option<String>,
-        doc: Option<String>,
-        fields: BTreeMap<String, AstNodeId>,
-    },
+    Enum(Enum),
+    Model(Model),
     Endpoint {
         name: String,
         doc: Option<String>,
@@ -178,12 +167,7 @@ pub enum AstNodePayload {
         /// List of response status codes (e.g. "200", "404", "5XX").
         responses: HashMap<String, AstNodeId>,
     },
-    Field {
-        name: String,
-        doc: Option<String>,
-        ty: Type,
-        default: Option<ConstantValue>,
-    },
+    Field(Field),
     TypeAtom {
         ty: TypeAtom,
     },
@@ -227,8 +211,8 @@ impl std::fmt::Debug for AstNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let label = match (&self.kind, &self.payload) {
             (AstNodeKind::Root, _) => "Root".to_string(),
-            (AstNodeKind::Model, AstNodePayload::Model { name, .. }) => format!("Model(model {name})"),
-            (AstNodeKind::Field, AstNodePayload::Field { name, ty, default, .. }) => {
+            (AstNodeKind::Model, AstNodePayload::Model(Model { name, .. })) => format!("Model(model {name})"),
+            (AstNodeKind::Field, AstNodePayload::Field(Field { name, ty, default, .. })) => {
                 format!(
                     "Field({name}: {ty}{})",
                     if let Some(def) = default {
@@ -238,7 +222,7 @@ impl std::fmt::Debug for AstNode {
                     }
                 )
             }
-            (AstNodeKind::Enum, AstNodePayload::Enum { name, variants, .. }) => {
+            (AstNodeKind::Enum, AstNodePayload::Enum(Enum { name, variants, .. })) => {
                 let variants_str = variants.join(" | ");
                 format!("Enum({name}: {variants_str})")
             }
@@ -340,10 +324,32 @@ impl AstNode {
     pub fn set_tokens(&mut self, tokens: Vec<Token>) {
         self.tokens = tokens;
     }
+
     // Convenience methods to extract common payload data
     pub fn as_string(&self) -> Option<&str> {
         match &self.payload {
             AstNodePayload::String(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    pub fn as_model(&self) -> Option<&Model> {
+        match &self.payload {
+            AstNodePayload::Model(m) => Some(m),
+            _ => None,
+        }
+    }
+
+    pub fn as_enum(&self) -> Option<&Enum> {
+        match &self.payload {
+            AstNodePayload::Enum(e) => Some(e),
+            _ => None,
+        }
+    }
+
+    pub fn as_field(&self) -> Option<&Field> {
+        match &self.payload {
+            AstNodePayload::Field(f) => Some(f),
             _ => None,
         }
     }

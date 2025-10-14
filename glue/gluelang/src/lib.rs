@@ -6,5 +6,7 @@ mod utils;
 
 pub use diagnostics::{LangError, LangResult};
 pub use lexer::{Lexer, Span, span_of};
-pub use parser::{Ast, AstNode, AstNodeId, AstNodeKind, AstNodePayload, AstSymbol, ConstantValue, Parser, PrimitiveType, SymbolTable, TreeNode, Type, TypeAtom, TypeVariant};
+pub use parser::{
+    Ast, AstNode, AstNodeId, AstNodeKind, AstNodePayload, AstSymbol, ConstantValue, Enum, Field, Model, Parser, PrimitiveType, SymbolTable, TreeNode, Type, TypeAtom, TypeVariant,
+};
 pub use semantic_analysis::{SemanticAnalysisArtifacts, SemanticAnalyzer};
