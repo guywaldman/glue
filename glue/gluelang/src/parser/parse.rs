@@ -8,7 +8,7 @@ use crate::{
     lexer::{Token, TokenKind, TokenPayload},
     parser::{
         Ast, AstSymbol, Decorator, Endpoint, Enum, SymbolTable,
-        ast::{AstNode, AstNodeId, AstNodeKind, AstNodePayload, ConstantValue, PrimitiveType, Type, TypeVariant},
+        ast::{AstNode, AstNodeId, AstNodeKind, AstNodePayload, ConstantValue, PrimitiveType, Type, TypeRef, TypeVariant},
         ast_model::Model,
         tree::TreeNode,
     },
@@ -295,10 +295,10 @@ impl<'a> Parser<'a> {
                 "string" => TypeVariant::Primitive(PrimitiveType::String),
                 "int" => TypeVariant::Primitive(PrimitiveType::Int),
                 "bool" => TypeVariant::Primitive(PrimitiveType::Bool),
-                other_type_name => TypeVariant::Ref {
+                other_type_name => TypeVariant::Ref(TypeRef {
                     name: other_type_name.to_string(),
                     effective_name: other_type_name.to_string(),
-                },
+                }),
             };
 
             let mut is_optional = false;

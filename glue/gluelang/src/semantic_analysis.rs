@@ -2,7 +2,7 @@ use colored::Colorize;
 use rayon::prelude::*;
 
 use crate::{
-    AstNodePayload, Field, LangError, Span,
+    AstNodePayload, Field, LangError, Span, TypeRef,
     diagnostics::LangResult,
     parser::{Ast, AstNode, AstNodeId, AstNodeKind, AstSymbol, Model, ParserArtifacts, SymbolTable, SymbolsMapPerScope, TreeNode, Type, TypeVariant},
     utils::fuzzy::fuzzy_match,
@@ -140,7 +140,7 @@ impl<'a> SemanticAnalyzer<'a> {
             }
         }
         for (i, ty_ref) in type_refs.iter().enumerate() {
-            if let TypeVariant::Ref { name: ref_name, .. } = &ty_ref.variant {
+            if let TypeVariant::Ref(TypeRef { name: ref_name, .. }) = &ty_ref.variant {
                 let is_defined = symbols.contains_key(&AstSymbol::Model(ref_name.clone())) || symbols.contains_key(&AstSymbol::Enum(ref_name.clone()));
                 let type_nodes = self.ast.get_children_fn(node_id, |n| n.kind() == AstNodeKind::Type).unwrap_or_default();
                 let span = type_nodes.get(i).map(|n| *n.span()).unwrap_or_else(|| *node.span());

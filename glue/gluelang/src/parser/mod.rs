@@ -9,7 +9,7 @@ mod parse;
 mod symbols;
 mod tree;
 
-pub use ast::{Ast, AstNode, AstNodeId, AstNodeKind, AstNodePayload, ConstantValue, PrimitiveType, Type, TypeVariant};
+pub use ast::{Ast, AstNode, AstNodeId, AstNodeKind, AstNodePayload, ConstantValue, PrimitiveType, Type, TypeRef, TypeVariant};
 pub use ast_decorator::Decorator;
 pub use ast_endpoint::Endpoint;
 pub use ast_enum::Enum;

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use gluelang::{
     Ast, AstNode, AstNodeKind, AstNodePayload, ConstantValue, Decorator, Endpoint, Enum, Field, Model, PrimitiveType, SemanticAnalysisArtifacts, SymbolTable, TreeNode, Type,
-    TypeAtom, TypeVariant,
+    TypeAtom, TypeRef, TypeVariant,
 };
 
 use crate::codegen::{CodeGenError, CodeGenerator, types::EmitResult};
@@ -459,8 +459,8 @@ impl OpenApiCodeGenerator {
                     .collect::<Vec<_>>();
                 Ok(Some(ModelInfo { fields }))
             }
-            TypeVariant::Ref { name, .. } => {
-                if let Some(model_node) = self.symbols.lookup(&self.ast, scope.id, name) {
+            TypeVariant::Ref(TypeRef { effective_name, .. }) => {
+                if let Some(model_node) = self.symbols.lookup(&self.ast, scope.id, effective_name) {
                     let fields = self
                         .ast
                         .get_children(model_node.id)
@@ -617,10 +617,10 @@ impl OpenApiCodeGenerator {
     fn emit_type_atom_schema(&mut self, field: &AstNode, type_node: Option<&AstNode>, atom: &TypeAtom) -> Result<json::JsonValue, CodeGenError> {
         let mut schema = match &atom.variant {
             TypeVariant::Primitive(primitive) => Schema::from_primitive(*primitive).into_json(),
-            TypeVariant::Ref { name, effective_name } => {
+            TypeVariant::Ref(TypeRef { effective_name, .. }) => {
                 // Ensure referenced schema is collected
-                let Some(ref_node) = self.symbols.lookup(&self.ast, field.id(), name) else {
-                    return Err(CodeGenError::Other(format!("Referenced type '{name}' not found in scope")));
+                let Some(ref_node) = self.symbols.lookup(&self.ast, field.id(), effective_name) else {
+                    return Err(CodeGenError::Other(format!("Referenced type '{effective_name}' not found in scope")));
                 };
                 let ref_node_id = ref_node.id;
                 let Some(ref_node) = self.ast.get_node(ref_node_id) else {

@@ -11,6 +11,7 @@ pub fn read_config(path: Option<&PathBuf>) -> Result<GlueConfigSchema> {
                 python_pydantic: GlueConfigSchemaGenerationPythonPydantic {
                     base_model: "pydantic.BaseModel".to_string(),
                 },
+                ..Default::default()
             },
         });
     };

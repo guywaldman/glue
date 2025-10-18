@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{Ast, TreeNode, parser::AstNodeId};
+use crate::{Ast, AstNode, TreeNode, parser::AstNodeId};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AstSymbol {
@@ -50,9 +50,15 @@ pub type SymbolTableEntries = HashMap<AstNodeId, SymbolTableEntry>;
 
 /// A symbol table that maps symbols to their corresponding AST node IDs within different scopes.
 /// A scope is represented by an `AstNodeId`, and each scope can have its own set of symbols.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone)]
 pub struct SymbolTable {
     entries: SymbolTableEntries,
+}
+
+impl Default for SymbolTable {
+    fn default() -> Self {
+        Self { entries: HashMap::new() }
+    }
 }
 
 impl SymbolTable {
@@ -113,5 +119,11 @@ impl SymbolTable {
         let scope_symbols = self.symbols_in_scope(ast, scope)?;
         let result = scope_symbols.iter().find(|(symbol, _)| symbol.name() == name)?.1.clone();
         Some(result.clone())
+    }
+
+    pub fn resolve_ref(&self, ast: &Ast, scope: AstNodeId, ref_name: &str) -> Option<AstNode> {
+        let ref_symbol = self.lookup(&ast, scope, ref_name)?;
+        let ast_node_for_symbol = ast.get_node(ref_symbol.id)?;
+        Some(ast_node_for_symbol.clone())
     }
 }

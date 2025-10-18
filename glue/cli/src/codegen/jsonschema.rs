@@ -1,5 +1,5 @@
 use gluelang::{
-    Ast, AstNode, AstNodeKind, AstNodePayload, AstSymbol, Decorator, Enum, Field, Model, PrimitiveType, SemanticAnalysisArtifacts, SymbolTable, TreeNode, Type, TypeAtom,
+    Ast, AstNode, AstNodeKind, AstNodePayload, AstSymbol, Decorator, Enum, Field, Model, PrimitiveType, SemanticAnalysisArtifacts, SymbolTable, TreeNode, Type, TypeAtom, TypeRef,
     TypeVariant,
 };
 
@@ -126,7 +126,7 @@ impl JsonSchemaCodeGenerator {
 
     fn emit_type_atom(&mut self, node: &AstNode, atom: &TypeAtom) -> Result<json::JsonValue, CodeGenError> {
         match &atom.variant {
-            TypeVariant::Ref { name: ref_name, .. } => {
+            TypeVariant::Ref(TypeRef { effective_name: ref_name, .. }) => {
                 let symbols = self.symbols.symbols_in_scope(&self.ast, node.id());
                 if let Some(symbols) = symbols {
                     // Try to find as a model first

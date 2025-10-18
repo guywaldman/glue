@@ -7,7 +7,7 @@ model GlueConfigSchema {
 	model Generation {
 		/// Mode for the watermark at the top of the generated files
 		watermark: Watermark = "short"
-		enum Watermark = "full" | "short" | "none"
+		enum Watermark: "full" | "short" | "none"
 
 		/// Configurations for Rust code generation using Serde (`glue gen rust-serde [...]`)
 		rust_serde: RustSerde

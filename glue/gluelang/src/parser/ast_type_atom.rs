@@ -1,4 +1,4 @@
-use crate::{PrimitiveType, TypeVariant};
+use crate::{PrimitiveType, TypeVariant, parser::ast::TypeRef};
 
 #[derive(Debug, Clone)]
 pub struct TypeAtom {
@@ -15,7 +15,9 @@ impl std::fmt::Display for TypeAtom {
                 PrimitiveType::Int => "int".to_string(),
                 PrimitiveType::Bool => "bool".to_string(),
             },
-            TypeVariant::Ref { name, effective_name, .. } => format!("#{}{}", name, if name != effective_name { format!(" (-> {})", effective_name) } else { "".to_string() }),
+            TypeVariant::Ref(TypeRef { name, effective_name, .. }) => {
+                format!("#{}{}", name, if name != effective_name { format!(" (-> {})", effective_name) } else { "".to_string() })
+            }
             TypeVariant::AnonymousModel => "anonymous_model".to_string(),
         };
         let array_suffix = if self.is_array { "[]" } else { "" };

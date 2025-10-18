@@ -1,4 +1,4 @@
-use gluelang::{Ast, AstNode, AstNodeKind, AstNodePayload, Decorator, Enum, Field, Model, PrimitiveType, SemanticAnalysisArtifacts, TreeNode, Type, TypeVariant};
+use gluelang::{Ast, AstNode, AstNodeKind, AstNodePayload, Decorator, Enum, Field, Model, PrimitiveType, SemanticAnalysisArtifacts, TreeNode, Type, TypeRef, TypeVariant};
 
 use crate::codegen::{CodeGenError, CodeGenerator, GlueConfigSchema, types::EmitResult, utils::generate_watermark};
 
@@ -171,7 +171,7 @@ impl PythonPydanticCodeGenerator {
                     PrimitiveType::Int => atom_str.push_str("int"),
                     PrimitiveType::Bool => atom_str.push_str("bool"),
                 },
-                TypeVariant::Ref { effective_name, .. } => atom_str.push_str(effective_name),
+                TypeVariant::Ref(TypeRef { effective_name, .. }) => atom_str.push_str(effective_name),
                 TypeVariant::AnonymousModel => {
                     return Err(CodeGenError::Other("Anonymous models are not supported in this context".to_string()));
                 }

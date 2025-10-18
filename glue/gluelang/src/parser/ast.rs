@@ -67,9 +67,15 @@ pub enum PrimitiveType {
 }
 
 #[derive(Debug, Clone)]
+pub struct TypeRef {
+    pub name: String,
+    pub effective_name: String,
+}
+
+#[derive(Debug, Clone)]
 pub enum TypeVariant {
     Primitive(PrimitiveType),
-    Ref { name: String, effective_name: String },
+    Ref(TypeRef),
     AnonymousModel,
 }
 
@@ -211,7 +217,7 @@ impl std::fmt::Debug for AstNode {
             (AstNodeKind::Type, AstNodePayload::Type(ty)) => format!("Type({ty})"),
             (AstNodeKind::TypeAtom, AstNodePayload::TypeAtom(ty)) => match &ty.variant {
                 TypeVariant::Primitive(p) => format!("TypeAtom({p:?}{})", if ty.is_array { "[]" } else { "" }),
-                TypeVariant::Ref { name, effective_name } => format!(
+                TypeVariant::Ref(TypeRef { name, effective_name }) => format!(
                     "TypeAtom(#{}{})",
                     name,
                     if name != effective_name { format!(" (-> {})", effective_name) } else { "".to_string() }

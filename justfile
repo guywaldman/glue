@@ -8,7 +8,7 @@ generate: build
 
 	cd glue
 	cargo run --bin glue -- gen json-schema -i assets/config_schema.glue -o assets/config_schema.json
-	# cargo run --bin glue -- gen rust-serde -i assets/config_schema.glue -o cli/src/codegen/config_schema_generated.rs
+	cargo run --bin glue -- gen rust-serde -i assets/config_schema.glue -o cli/src/codegen/config_schema_generated.rs
 	cargo fmt -- cli/src/codegen/config_schema_generated.rs
 
 check-cli:

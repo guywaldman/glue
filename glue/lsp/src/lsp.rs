@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use anyhow::Result;
-use gluelang::{AstNodeKind, AstNodePayload, TreeNode, TypeVariant};
+use gluelang::{AstNodeKind, AstNodePayload, TreeNode, TypeRef, TypeVariant};
 use log::{error, info};
 use tower_lsp::{Client, LanguageServer, jsonrpc::Error as JsonRpcLspError, jsonrpc::Result as LspResult, lsp_types as lsp};
 
@@ -128,7 +128,7 @@ impl LanguageServer for Lsp {
 
         // If the node is a ref, find its definition.
         if let AstNodePayload::TypeAtom(ty) = node.payload() {
-            let TypeVariant::Ref { effective_name: ref_name, .. } = &ty.variant else {
+            let TypeVariant::Ref(TypeRef { effective_name: ref_name, .. }) = &ty.variant else {
                 info!("Type at position is not a reference");
                 return Ok(None);
             };

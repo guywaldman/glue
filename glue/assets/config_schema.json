@@ -6,14 +6,15 @@
         "generation": {
             "type": "object",
             "properties": {
-                "watermark": {
-                    "type": "string",
-                    "enum": [
-                        "full",
-                        "short",
-                        "none"
-                    ],
-                    "description": "Mode for the watermark at the top of the generated files"
+                "python_pydantic": {
+                    "type": "object",
+                    "properties": {
+                        "base_model": {
+                            "type": "string",
+                            "description": "The full import path for the base model class to inherit from (e.g., `pydantic.BaseModel` or `my.module.CustomBaseModel`)"
+                        }
+                    },
+                    "description": "Configurations for Python code generation using Pydantic (`glue gen py-pydantic [...]`)"
                 },
                 "rust_serde": {
                     "type": "object",
@@ -24,15 +25,14 @@
                     },
                     "description": "Configurations for Rust code generation using Serde (`glue gen rust-serde [...]`)"
                 },
-                "python_pydantic": {
-                    "type": "object",
-                    "properties": {
-                        "base_model": {
-                            "type": "string",
-                            "description": "The full import path for the base model class to inherit from (e.g., `pydantic.BaseModel` or `my.module.CustomBaseModel`)"
-                        }
-                    },
-                    "description": "Configurations for Python code generation using Pydantic (`glue gen py-pydantic [...]`)"
+                "watermark": {
+                    "type": "string",
+                    "enum": [
+                        "full",
+                        "short",
+                        "none"
+                    ],
+                    "description": "Mode for the watermark at the top of the generated files"
                 }
             },
             "description": "Configuration for code generation (`glue gen [...]`)"
