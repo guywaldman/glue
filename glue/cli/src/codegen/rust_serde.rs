@@ -173,7 +173,7 @@ impl RustSerdeCodeGenerator {
 
     fn emit_model(&mut self, model_node: &AstNode, path: &[String]) -> EmitResult {
         let Some(model) = model_node.as_model() else {
-            return Err(CodeGenError::Other(format!("Node with ID {:?} is not a Model", model_node.id)));
+            return Err(Box::new(CodeGenError::Other(format!("Node with ID {:?} is not a Model", model_node.id))));
         };
         let struct_name = model.effective_name.clone().unwrap_or(model.name.clone());
         let mut current_path = path.to_vec();
@@ -222,7 +222,7 @@ impl RustSerdeCodeGenerator {
                     .get_node(*field_node_id)
                     .ok_or(CodeGenError::Other("Failed to get field node for model field".to_string()))?;
                 let AstNodePayload::Field(field) = &field_node.payload else {
-                    return Err(CodeGenError::Other(format!("Node with ID {:?} is not a Field", field_node.id)));
+                    return Err(Box::new(CodeGenError::Other(format!("Node with ID {:?} is not a Field", field_node.id))));
                 };
                 let default_expr = self.default_expr_for_field(field, &current_path)?;
                 result.push_str(&format!("            {}: {},\n", field.name, default_expr));
@@ -244,7 +244,7 @@ impl RustSerdeCodeGenerator {
             ..
         }) = &enum_node.as_enum()
         else {
-            return Err(CodeGenError::Other(format!("Node with ID {:?} is not an Enum", enum_node.id)));
+            return Err(Box::new(CodeGenError::Other(format!("Node with ID {:?} is not an Enum", enum_node.id))));
         };
 
         let name = effective_name.clone().unwrap_or(name.to_string());
@@ -272,7 +272,7 @@ impl RustSerdeCodeGenerator {
         let mut result = String::new();
 
         let Some(Field { name, ty, doc, default, .. }) = &field_node.as_field() else {
-            return Err(CodeGenError::Other(format!("Node with ID {:?} is not a Field", field_node.id)));
+            return Err(Box::new(CodeGenError::Other(format!("Node with ID {:?} is not a Field", field_node.id))));
         };
 
         if let Some(doc) = doc {
@@ -314,14 +314,16 @@ impl RustSerdeCodeGenerator {
 
         let mut result = String::new();
 
-        let ty = match atom.variant {
+        let ty: Result<String, Box<CodeGenError>> = match atom.variant {
             TypeVariant::Primitive(p) => match p {
                 PrimitiveType::String => Ok("String".to_string()),
                 PrimitiveType::Int => Ok("i64".to_string()),
                 PrimitiveType::Bool => Ok("bool".to_string()),
             },
             TypeVariant::AnonymousModel => {
-                return Err(CodeGenError::Other("Anonymous models are currently not supported in Rust Serde generation".to_string()));
+                return Err(Box::new(CodeGenError::Other(
+                    "Anonymous models are currently not supported in Rust Serde generation".to_string(),
+                )));
             }
             TypeVariant::Ref(TypeRef { ref name, .. }) => {
                 if let Some(ref_node) = self.symbols.resolve_ref(&self.ast, field_node_id, name) {
@@ -332,13 +334,13 @@ impl RustSerdeCodeGenerator {
                         let ref_name = effective_name.clone().unwrap_or(name.to_string());
                         return Ok(ref_name);
                     } else {
-                        return Err(CodeGenError::Other(format!("Referenced type '{}' is neither a Model nor an Enum", name)));
+                        return Err(Box::new(CodeGenError::Other(format!("Referenced type '{}' is neither a Model nor an Enum", name))));
                     }
                 }
-                return Err(CodeGenError::Other(format!("Failed to resolve reference to type '{}'", &name)));
+                return Err(Box::new(CodeGenError::Other(format!("Failed to resolve reference to type '{}'", &name))));
             }
-        }?;
-        result.push_str(&ty);
+        };
+        result.push_str(ty?.as_str());
 
         if atom.is_optional {
             result = format!("Option<{}>", result);

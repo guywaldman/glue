@@ -56,13 +56,13 @@ impl PythonPydanticCodeGenerator {
         Self {
             config,
             ast: artifacts.ast,
-            source_file: artifacts.source_file,
+            source_file: artifacts.src_file_contents,
         }
     }
 
     fn emit_model(&mut self, model: &AstNode) -> EmitResult {
         let Some(Model { name, .. }) = model.as_model() else {
-            return Err(CodeGenError::Other("Expected a model node".to_string()));
+            return Err(Box::new(CodeGenError::Other("Expected a model node".to_string())));
         };
 
         let children = self.ast.get_children(model.id()).unwrap_or_default();
@@ -110,7 +110,7 @@ impl PythonPydanticCodeGenerator {
         let mut result = String::new();
 
         let Some(Field { name, ty, doc, .. }) = field.as_field() else {
-            return Err(CodeGenError::Other("Expected a field node".to_string()));
+            return Err(Box::new(CodeGenError::Other("Expected a field node".to_string())));
         };
         let decorator = self
             .ast
@@ -139,7 +139,7 @@ impl PythonPydanticCodeGenerator {
         let mut result = String::new();
 
         let Some(Enum { name, variants, .. }) = enum_node.as_enum() else {
-            return Err(CodeGenError::Other("Expected an enum node".to_string()));
+            return Err(Box::new(CodeGenError::Other("Expected an enum node".to_string())));
         };
 
         result.push_str(&format!("class {name}(StrEnum):\n"));
@@ -173,7 +173,7 @@ impl PythonPydanticCodeGenerator {
                 },
                 TypeVariant::Ref(TypeRef { effective_name, .. }) => atom_str.push_str(effective_name),
                 TypeVariant::AnonymousModel => {
-                    return Err(CodeGenError::Other("Anonymous models are not supported in this context".to_string()));
+                    return Err(Box::new(CodeGenError::Other("Anonymous models are not supported in this context".to_string())));
                 }
             }
 

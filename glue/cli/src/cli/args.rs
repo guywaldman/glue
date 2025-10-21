@@ -91,5 +91,5 @@ pub enum CliError {
     #[error("Compilation error")]
     Compilation(#[from] Box<LangError>),
     #[error("Code generation error: {0}")]
-    CodeGen(CodeGenError),
+    CodeGen(Box<CodeGenError>),
 }

@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use gluelang::{
-    Ast, AstNode, AstNodeKind, AstNodePayload, ConstantValue, Decorator, Endpoint, Enum, Field, Model, PrimitiveType, SemanticAnalysisArtifacts, SymbolTable, TreeNode, Type,
-    TypeAtom, TypeRef, TypeVariant,
+    Ast, AstNode, AstNodeId, AstNodeKind, AstNodePayload, ConstantValue, Decorator, Endpoint, Enum, Field, LangError, Model, PrimitiveType, SemanticAnalysisArtifacts, Span,
+    SymbolTable, TreeNode, Type, TypeAtom, TypeRef, TypeVariant,
 };
 
 use crate::codegen::{CodeGenError, CodeGenerator, types::EmitResult};
@@ -10,6 +10,12 @@ use crate::codegen::{CodeGenError, CodeGenerator, types::EmitResult};
 pub struct OpenApiCodeGenerator {
     ast: Ast,
     symbols: SymbolTable,
+    src_file_name: String,
+    src_file_contents: String,
+
+    // State
+    components: json::JsonValue,
+    security: json::JsonValue,
 }
 
 struct Components {
@@ -114,6 +120,10 @@ impl CodeGenerator for OpenApiCodeGenerator {
             .get_children(self.ast.get_root())
             .ok_or(CodeGenError::Other("AST root has no children".to_string()))?;
 
+        if let Some(node_id) = top_level_nodes.iter().find(|n| n.kind == AstNodeKind::GlobalAnnotations).map(|n| &n.id) {
+            self.emit_global_auth(*node_id)?;
+        }
+
         for node in top_level_nodes {
             match node.payload {
                 AstNodePayload::Endpoint { .. } => {
@@ -151,8 +161,19 @@ impl CodeGenerator for OpenApiCodeGenerator {
         }
 
         result_obj["components"] = json::object! {
-                        schemas: schemas_json
+            schemas: schemas_json
         };
+
+        // TODO: Refactor top-level fields such as components such that all methods contribute to it directly
+        if !self.components.is_empty() {
+            for (key, value) in self.components.entries() {
+                result_obj["components"][key] = value.clone();
+            }
+        }
+
+        if !self.security.is_empty() {
+            result_obj["security"] = self.security;
+        }
 
         Ok(json::stringify_pretty(result_obj, 4))
     }
@@ -163,6 +184,12 @@ impl OpenApiCodeGenerator {
         Self {
             ast: artifacts.ast,
             symbols: artifacts.symbols,
+            src_file_name: artifacts.src_file_name,
+            src_file_contents: artifacts.src_file_contents,
+
+            // State
+            components: json::JsonValue::new_object(),
+            security: json::JsonValue::new_array(),
         }
     }
 
@@ -351,6 +378,91 @@ impl OpenApiCodeGenerator {
             parameters,
             consumed_path_params,
         })
+    }
+
+    fn emit_global_auth(&mut self, global_annotations_node_id: AstNodeId) -> EmitResult<()> {
+        let decorators = self
+            .ast
+            .get_children(global_annotations_node_id)
+            .ok_or_else(|| CodeGenError::Other("Global annotations node has no children".to_string()))?;
+        for annotation_node in decorators.iter().filter(|a| a.kind == AstNodeKind::Decorator) {
+            if let AstNodePayload::Decorator(Decorator {
+                name,
+                positional_args,
+                named_args,
+                ..
+            }) = &annotation_node.payload
+                && name == "auth"
+            {
+                if positional_args.is_empty() {
+                    return Err(self.err(
+                        *annotation_node.span(),
+                        "The 'auth' decorator requires at least one positional argument that specifies its type",
+                        Some("specify one of the supported types: 'api-key', 'bearer'".to_string()),
+                        None,
+                    ));
+                }
+
+                match &positional_args[0] {
+                    ConstantValue::String(t) if t == "api-key" => {
+                        if let Some((_, ConstantValue::String(header_name))) = named_args.iter().find(|(name, _)| *name == "header") {
+                            self.components["securitySchemes"]["ApiKeyHeader"] = {
+                                let mut security_scheme = json::JsonValue::new_object();
+                                security_scheme["type"] = "apiKey".into();
+                                security_scheme["name"] = header_name.clone().into();
+                                security_scheme["in"] = "header".into();
+                                security_scheme
+                            };
+                            let _ = self.security.push(json::object! {
+                                ApiKeyHeader: json::JsonValue::new_array()
+                            });
+                        }
+                        if let Some((_, ConstantValue::String(cookie_name))) = named_args.iter().find(|(name, _)| *name == "cookie") {
+                            self.components["securitySchemes"]["ApiKeyCookie"] = {
+                                let mut security_scheme = json::JsonValue::new_object();
+                                security_scheme["type"] = "apiKey".into();
+                                security_scheme["name"] = cookie_name.clone().into();
+                                security_scheme["in"] = "cookie".into();
+                                security_scheme
+                            };
+                            let _ = self.security.push(json::object! {
+                                ApiKeyCookie: json::JsonValue::new_array()
+                            });
+                        }
+                    }
+                    ConstantValue::String(t) if t == "bearer" => {
+                        self.components["securitySchemes"]["BearerAuth"] = {
+                            let mut security_scheme = json::JsonValue::new_object();
+                            security_scheme["type"] = "http".into();
+                            security_scheme["scheme"] = "bearer".into();
+                            security_scheme["bearerFormat"] = "JWT".into();
+                            security_scheme
+                        };
+                        let _ = self.security.push(json::object! {
+                            BearerAuth: json::JsonValue::new_array()
+                        });
+                    }
+                    ConstantValue::String(t) => {
+                        return Err(self.err(
+                            *annotation_node.span(),
+                            format!("Unsupported auth type: '{}'", t),
+                            Some("specify one of the supported types: 'api-key', 'bearer'".to_string()),
+                            None,
+                        ));
+                    }
+                    _ => {
+                        return Err(self.err(
+                            *annotation_node.span(),
+                            "Invalid auth type, expected string",
+                            Some("specify one of the supported types: 'api-key', 'bearer'".to_string()),
+                            None,
+                        ));
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
     fn emit_header_parameters(&mut self, endpoint: &AstNode, field: &AstNode) -> Result<Vec<json::JsonValue>, CodeGenError> {
@@ -681,5 +793,16 @@ impl OpenApiCodeGenerator {
             ConstantValue::String(s) => Ok(s.clone()),
             _ => Err(CodeGenError::Other(format!("Expected string literal for '{label}' argument in @response decorator"))),
         }
+    }
+
+    fn err(&self, span: Span, msg: impl Into<String>, note: Option<String>, code: Option<&str>) -> Box<CodeGenError> {
+        Box::new(CodeGenError::LangError(LangError::error(
+            &self.src_file_name,
+            &self.src_file_contents,
+            span,
+            msg,
+            note,
+            code,
+        )))
     }
 }

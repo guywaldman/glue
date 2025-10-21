@@ -56,6 +56,11 @@ impl<'a> Parser<'a> {
     /// Parses a sequence of tokens into an AST.
     pub fn parse(mut self) -> LangResult<ParserArtifacts> {
         let root_id = self.ast.get_root();
+
+        if let Some(global_annotations_node_id) = self.parse_global_annotations()? {
+            self.ast.append_child(root_id, global_annotations_node_id);
+        }
+
         while self.peek_kind() != TokenKind::Eof {
             let next_relevant_kind = self.tokens[self.current..]
                 .iter()
@@ -80,7 +85,7 @@ impl<'a> Parser<'a> {
                 }
                 TokenKind::Eof => break,
                 _ => {
-                    // Unknown token at top-level; advance to avoid infinite loop.
+                    // Unknown token at top-level, advance to avoid infinite loop.
                     self.advance()?;
                 }
             }
@@ -89,6 +94,31 @@ impl<'a> Parser<'a> {
             ast: self.ast,
             symbols: self.symbols,
         })
+    }
+
+    fn parse_global_annotations(&mut self) -> LangResult<Option<AstNodeId>> {
+        let mut decorators = Vec::new();
+        let span = self.curr_span();
+        // Parse decorators of the form `[@auth(...)]`
+        while self.peek_kind() == TokenKind::LBracket {
+            self.expect(TokenKind::LBracket)?;
+            decorators.push(self.parse_decorator()?);
+            self.expect(TokenKind::RBracket)?;
+        }
+
+        let span = span.merge(&self.prev_span());
+
+        if decorators.is_empty() {
+            Ok(None)
+        } else {
+            let global_annotations_node_id = self
+                .ast
+                .add_node(AstNode::new_with_span(AstNodeKind::GlobalAnnotations, AstNodePayload::GlobalAnnotations, span));
+            for (decorator_id, _) in decorators.into_iter() {
+                self.ast.append_child(global_annotations_node_id, decorator_id);
+            }
+            Ok(Some(global_annotations_node_id))
+        }
     }
 
     /// Parses an enum definition.
@@ -169,7 +199,7 @@ impl<'a> Parser<'a> {
             if self.peek_kind() == TokenKind::AtSign {
                 // Decorator(s) present
                 while self.peek_kind() == TokenKind::AtSign {
-                    decorator_node_id = Some(self.parse_decorator()?);
+                    decorator_node_id = Some(self.parse_decorator()?.0);
                 }
             }
             expect_tokens!(self, TokenKind::KeywordModel);
@@ -348,7 +378,7 @@ impl<'a> Parser<'a> {
         let span = self.curr_span();
         // A decorator is required for endpoints to specify method and path.
         // Should look like: @endpoint("GET "/users/{id}")
-        let decorator_node_id = self.parse_decorator()?;
+        let decorator_node_id = self.parse_decorator()?.0;
         let decorator_node = self.ast.get_node(decorator_node_id).unwrap();
         let AstNodePayload::Decorator(Decorator { name, positional_args, .. }) = &decorator_node.payload() else {
             return Err(self.err(*decorator_node.span(), "Expected decorator node", None, Some("EExpectedDecoratorNode")));
@@ -563,7 +593,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_decorator(&mut self) -> LangResult<AstNodeId> {
+    fn parse_decorator(&mut self) -> LangResult<(AstNodeId, Decorator)> {
         self.expect(TokenKind::AtSign)?;
         let decorator_name = match self.peek_kind() {
             TokenKind::Ident => {
@@ -587,45 +617,55 @@ impl<'a> Parser<'a> {
 
         if self.peek_kind() == TokenKind::LParen {
             self.advance()?; // consume '('
-
-            while self.peek_kind() != TokenKind::RParen && self.peek_kind() != TokenKind::Eof {
-                if self.peek().unwrap().kind != TokenKind::Ident {
-                    // Positional argument
-                    let arg_value = self
-                        .parse_constant_value()?
-                        .ok_or_else(|| self.err(self.curr_span(), "Expected constant value for positional argument", None, Some("EExpectedPosArgValue")))?;
-                    positional_args.push(arg_value);
-                    continue;
-                }
-                let TokenPayload::String(arg_name) = self.expect(TokenKind::Ident)?.payload else {
-                    return Err(self.err(self.curr_span(), "Expected argument name identifier", None, Some("EExpectedArgName")));
-                };
-                let arg_name = arg_name.to_string();
-                self.expect(TokenKind::Equal)?;
-                let arg_value = self
-                    .parse_constant_value()?
-                    .ok_or_else(|| self.err(self.curr_span(), "Expected constant value for argument", None, Some("EExpectedArgValue")))?;
-                named_args.insert(arg_name, arg_value);
-                if self.peek_kind() == TokenKind::Comma {
-                    self.advance()?; // consume ','
-                } else {
-                    break;
-                }
-            }
-            self.expect(TokenKind::RParen)?; // consume ')'
+        } else {
+            return Err(self.err(self.curr_span(), "Expected '(' after decorator name", None, Some("EExpectedLParenAfterDecoratorName")));
         }
 
-        let decorator_node = AstNode::new_with_span(
-            AstNodeKind::Decorator,
-            AstNodePayload::Decorator(Decorator {
-                name: decorator_name,
-                named_args,
-                positional_args,
-            }),
-            self.curr_span(),
-        );
+        let mut args_count = -1;
+        while self.peek_kind() != TokenKind::RParen && self.peek_kind() != TokenKind::Eof {
+            args_count += 1;
+
+            if self.peek_kind() == TokenKind::Comma {
+                self.advance()?;
+            } else if args_count > 0 {
+                return Err(self.err(
+                    self.curr_span(),
+                    "Expected ',' between decorator arguments",
+                    None,
+                    Some("EExpectedCommaBetweenDecoratorArgs"),
+                ));
+            }
+
+            if self.peek().unwrap().kind != TokenKind::Ident {
+                // Positional argument
+                let arg_value = self
+                    .parse_constant_value()?
+                    .ok_or_else(|| self.err(self.curr_span(), "Expected constant value for positional argument", None, Some("EExpectedPosArgValue")))?;
+                positional_args.push(arg_value);
+                continue;
+            }
+
+            let TokenPayload::String(arg_name) = self.expect(TokenKind::Ident)?.payload else {
+                return Err(self.err(self.curr_span(), "Expected argument name identifier", None, Some("EExpectedArgName")));
+            };
+            let arg_name = arg_name.to_string();
+            self.expect(TokenKind::Equal)?;
+            let arg_value = self
+                .parse_constant_value()?
+                .ok_or_else(|| self.err(self.curr_span(), "Expected constant value for argument", None, Some("EExpectedArgValue")))?;
+            named_args.insert(arg_name, arg_value);
+        }
+
+        self.expect(TokenKind::RParen)?; // consume ')'
+
+        let decorator = Decorator {
+            name: decorator_name,
+            named_args,
+            positional_args,
+        };
+        let decorator_node = AstNode::new_with_span(AstNodeKind::Decorator, AstNodePayload::Decorator(decorator.clone()), self.curr_span());
         let decorator_node_id = self.ast.add_node(decorator_node);
-        Ok(decorator_node_id)
+        Ok((decorator_node_id, decorator))
     }
 
     fn parse_optional_docblocks(&mut self) -> LangResult<Option<String>> {
@@ -650,7 +690,7 @@ impl<'a> Parser<'a> {
         let mut decorator_node_id = None;
         if self.peek().unwrap().kind == TokenKind::AtSign {
             // Field decorators are not currently supported; skip them.
-            decorator_node_id = Some(self.parse_decorator()?);
+            decorator_node_id = Some(self.parse_decorator()?.0);
         }
 
         // Field identifiers can be normal identifiers, string literals, or numeric literals (e.g., HTTP status codes).
@@ -1101,5 +1141,18 @@ mod tests {
 
         let symbols = symbols.symbols_in_scope(ast, bar_type_node.id()).unwrap();
         assert!(symbols.contains_key(&AstSymbol::Model("Bar".to_string())));
+    }
+
+    #[test]
+    fn test_global_annotations() {
+        let input = indoc! {r#"
+            [@auth("api-key", header="Authorization")]
+        "#};
+        let artifacts = parse(input).unwrap();
+        let ast = &artifacts.ast;
+        let root_node_id = ast.get_root();
+        let root_children = ast.get_children(root_node_id).unwrap();
+        assert_eq!(root_children.len(), 1);
+        assert_eq!(root_children[0].kind(), AstNodeKind::GlobalAnnotations);
     }
 }

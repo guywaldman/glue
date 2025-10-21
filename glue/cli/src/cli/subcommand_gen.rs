@@ -6,7 +6,7 @@ use crate::{
         args::{CliError, CliGenArgs, CodeGenMode},
         utils::read_config,
     },
-    codegen::{CodeGenerator, JsonSchemaCodeGenerator, OpenApiCodeGenerator, PythonPydanticCodeGenerator, RustSerdeCodeGenerator},
+    codegen::{CodeGenError, CodeGenerator, JsonSchemaCodeGenerator, OpenApiCodeGenerator, PythonPydanticCodeGenerator, RustSerdeCodeGenerator},
 };
 
 pub struct GenSubcommand;
@@ -34,11 +34,23 @@ impl GenSubcommand {
                 }
             }
         };
-        self.generate(args, effective_mode)?;
+        match self.generate(args, effective_mode) {
+            Ok(_) => {}
+            Err(e) => match e {
+                CliError::CodeGen(ref lang_err) => {
+                    if let CodeGenError::LangError(inner_err) = lang_err.as_ref() {
+                        GlueCli::report_errors(&[inner_err.clone()][..]);
+                    } else {
+                        return Err(e.into());
+                    }
+                }
+                _ => return Err(e.into()),
+            },
+        }
         Ok(())
     }
 
-    fn generate(&self, args: &CliGenArgs, effective_mode: CodeGenMode) -> Result<()> {
+    fn generate(&self, args: &CliGenArgs, effective_mode: CodeGenMode) -> Result<(), CliError> {
         let (file_name, file_contents) = GlueCli::handle_file(args.input.clone())?;
 
         let artifacts = GlueCli::analyze(&file_name, file_contents)?;

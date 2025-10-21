@@ -20,7 +20,8 @@ pub struct SemanticAnalyzer<'a> {
 pub struct SemanticAnalysisArtifacts {
     pub warnings: Vec<LangError>,
     pub ast: Ast,
-    pub source_file: String,
+    pub src_file_name: String,
+    pub src_file_contents: String,
     pub symbols: SymbolTable,
 }
 
@@ -33,7 +34,8 @@ impl<'a> SemanticAnalyzer<'a> {
             symbols: &parser_artifacts.symbols,
             artifacts: SemanticAnalysisArtifacts {
                 warnings: Vec::new(),
-                source_file: file_name.to_string(),
+                src_file_name: file_name.to_string(),
+                src_file_contents: src.to_string(),
                 ast: parser_artifacts.ast.clone(),
                 symbols: parser_artifacts.symbols.clone(),
             },

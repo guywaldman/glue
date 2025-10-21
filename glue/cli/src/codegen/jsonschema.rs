@@ -34,13 +34,13 @@ impl CodeGenerator for JsonSchemaCodeGenerator {
             }
         });
         let Some(root_model_node) = root_model_node else {
-            return Err(CodeGenError::Other(
+            return Err(Box::new(CodeGenError::Other(
                 "For JSON schema generation, one top-level model must be decorated with the `@root` decorator".to_string(),
-            ));
+            )));
         };
         let root_model_node_name = match root_model_node.payload() {
             AstNodePayload::Model(Model { name, .. }) => name,
-            _ => return Err(CodeGenError::Other("Expected a model node".to_string())),
+            _ => return Err(Box::new(CodeGenError::Other("Expected a model node".to_string()))),
         };
         let root_model = self.emit_model(root_model_node)?;
 

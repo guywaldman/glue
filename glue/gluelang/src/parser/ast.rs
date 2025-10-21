@@ -120,6 +120,7 @@ impl std::fmt::Display for Type {
 pub enum AstNodeKind {
     #[default]
     Root,
+    GlobalAnnotations,
     Enum,
     Model,
     Endpoint,
@@ -133,6 +134,8 @@ pub enum AstNodeKind {
 #[derive(Debug, Clone)]
 pub enum AstNodePayload {
     None,
+    /// Represents global decorators applied at the top of files. Contains no payload since its children are the decorators.
+    GlobalAnnotations,
     String(String),
     Enum(Enum),
     Model(Model),
