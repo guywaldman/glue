@@ -1,0 +1,38 @@
+SPACE = _{ " " | "\t" }
+WHITESPACE = _{ SPACE | NEWLINE }
+COMMENT = _{ "//" ~ (!NEWLINE ~ ANY)* ~ NEWLINE }
+
+doc_comment = _{ "///" ~ (!NEWLINE ~ ANY)* ~ NEWLINE }
+
+ident = ${ (ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")*) | (ASCII_DIGIT ~ (ASCII_DIGIT+ | "XX")) }
+
+string_literal = { "\"" ~ string_literal_inner ~ "\"" }
+string_literal_inner = @{ char* }
+char = {
+    !("\"" | "\\") ~ ANY
+    | "\\" ~ ("\"" | "\\" | "/" | "b" | "f" | "n" | "r" | "t")
+    | "\\" ~ ("u" ~ ASCII_HEX_DIGIT{4})
+}
+const_expr = { string_literal | ASCII_DIGIT+ }
+
+builtin_type = { "int" | "string" | "bool" }
+type_decl = !{ builtin_type | ident | anon_model }
+
+decorator_named_arg = { ident ~ "=" ~ const_expr }
+decorator_positional_arg = { const_expr }
+decorator_args = _{
+    decorator_positional_arg ~ ("," ~ decorator_positional_arg)* ~ ("," ~ decorator_named_arg)*
+    | decorator_named_arg ~ ("," ~ decorator_named_arg)*
+}
+decorator = { "@" ~ (#decorator_name = ident) ~ "(" ~ decorator_args? ~ ")" }
+
+field_name = !{ ident | string_literal }
+field = @{ decorator* ~ (#field_name = field_name) ~ ":" ~ SPACE+ ~ (#field_type = type_decl) }
+
+model_body = { ((#top_level_field = field) | model)* }
+model = { doc_comment* ~ decorator* ~ "model" ~ (#model_name = ident) ~ "{" ~ model_body ~ "}" }
+anon_model = { "{" ~ model_body ~ "}" }
+
+endpoint = { doc_comment* ~ decorator* ~ "endpoint" ~ (#endpoint_name = ident) ~ "{" ~ model_body ~ "}" }
+
+program = _{ SOI ~ ((model | endpoint)+) ~ EOI }

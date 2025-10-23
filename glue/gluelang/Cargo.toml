@@ -8,6 +8,8 @@ colored = "3.0.0"
 indoc = "2.0.6"
 log = "0.4.28"
 miette = { version = "7.6.0", features = ["fancy"] }
+pest = { version = "2.8.3", features = ["miette-error"] }
+pest_derive = { version = "2.8.3", features = ["grammar-extras"] }
 pretty_assertions = { version = "1.4.1", features = ["unstable"] }
 pretty_env_logger = "0.5.0"
 rayon = "1.10"

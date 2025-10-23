@@ -1,6 +1,5 @@
 use gluelang::{
-    Ast, AstNode, AstNodeKind, AstNodePayload, AstSymbol, Decorator, Enum, Field, Model, PrimitiveType, SemanticAnalysisArtifacts, SymbolTable, TreeNode, Type, TypeAtom, TypeRef,
-    TypeVariant,
+    Ast, AstNode, AstNodeKind, AstNodePayload, AstSymbol, Decorator, Enum, Field, Model, PrimitiveType, SemanticAnalysisArtifacts, SymbolTable, TreeNode, Type, TypeAtom, TypeRef, TypeVariant,
 };
 
 use crate::codegen::{CodeGenError, CodeGenerator, types::EmitResult};
@@ -14,10 +13,7 @@ impl CodeGenerator for JsonSchemaCodeGenerator {
     fn generate(mut self) -> EmitResult {
         let mut json = json::object::Object::new();
 
-        let top_level_nodes = self
-            .ast
-            .get_children(self.ast.get_root())
-            .ok_or_else(|| CodeGenError::Other("AST root has no children".to_string()))?;
+        let top_level_nodes = self.ast.get_children(self.ast.get_root()).ok_or_else(|| CodeGenError::Other("AST root has no children".to_string()))?;
 
         // Find the model that has the `@root` decorator
         let root_model_node = top_level_nodes.iter().find(|node| {
