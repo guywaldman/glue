@@ -1,6 +1,9 @@
 mod cli;
 mod codegen;
 
+#[cfg(test)]
+mod test_utils;
+
 use anyhow::Result;
 
 use crate::cli::GlueCli;

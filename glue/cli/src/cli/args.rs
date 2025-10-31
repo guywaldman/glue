@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
-use gluelang::LangError;
 use thiserror::Error;
 
 use crate::codegen::CodeGenError;
@@ -48,35 +47,28 @@ pub struct CliGenArgs {
 
 #[derive(Subcommand)]
 pub enum CliSubcommand {
-    /// Operations related to .glue ASTs.
+    /// Outputs the AST in Mermaid format
     #[command(name = "ast")]
     Ast {
-        #[command(subcommand)]
-        command: CliAstSubcommand,
-    },
-    #[command(name = "check")]
-    Check {
-        /// Path to the input .glue file (defaults to stdin if not provided)
-        input: Option<PathBuf>,
-    },
-
-    Gen {
-        #[command(flatten)]
-        args: CliGenArgs,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum CliAstSubcommand {
-    /// Generate a Mermaid diagram from a .glue file
-    #[command(name = "mermaid")]
-    Mermaid {
         /// Path to the input .glue file (defaults to stdin if not provided)
         #[arg(short = 'i', long)]
         input: Option<PathBuf>,
         /// Output directory for generated code
         #[arg(short = 'o', long)]
         output: PathBuf,
+    },
+
+    /// Checks for validity of the Glue file
+    #[command(name = "check")]
+    Check {
+        /// Path to the input .glue file (defaults to stdin if not provided)
+        input: Option<PathBuf>,
+    },
+
+    /// Generates code from the Glue file
+    Gen {
+        #[command(flatten)]
+        args: CliGenArgs,
     },
 }
 
@@ -88,8 +80,12 @@ pub enum CliError {
     BadInput(String),
     #[error("I/O error")]
     Io(#[from] std::io::Error),
+    #[error("Formatting error")]
+    FormatError(#[from] std::fmt::Error),
     #[error("Compilation error")]
-    Compilation(#[from] Box<LangError>),
-    #[error("Code generation error: {0}")]
-    CodeGen(Box<CodeGenError>),
+    ParsingError,
+    #[error("Semantic analysis error")]
+    SemanticAnalysisError,
+    #[error("Code generation error")]
+    CodeGen(miette::Report),
 }

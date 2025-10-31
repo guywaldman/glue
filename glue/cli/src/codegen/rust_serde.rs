@@ -1,9 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use gluelang::{
-    Ast, AstNode, AstNodeId, AstNodeKind, AstNodePayload, ConstantValue, Enum, Field, Model, PrimitiveType, SemanticAnalysisArtifacts, SymbolTable, Type, TypeAtom, TypeRef,
-    TypeVariant,
-};
+use gluelang::{Ast, AstNode, AstNodeId, AstNodeKind, AstNodePayload, ConstantValue, Enum, Field, Model, PrimitiveType, SemanticAnalysisArtifacts, SymbolTable, Type, TypeAtom, TypeRef, TypeVariant};
 use log::debug;
 
 use crate::codegen::{CodeGenError, CodeGenerator, GlueConfigSchema, types::EmitResult};
@@ -22,10 +19,7 @@ impl CodeGenerator for RustSerdeCodeGenerator {
 
         let mut body = String::new();
 
-        let top_level_nodes = self
-            .ast
-            .get_children(self.ast.get_root())
-            .ok_or(CodeGenError::Other("Failed to get top-level nodes".to_string()))?;
+        let top_level_nodes = self.ast.get_children(self.ast.get_root()).ok_or(CodeGenError::Other("Failed to get top-level nodes".to_string()))?;
 
         for node in top_level_nodes {
             if node.kind == AstNodeKind::Model {
@@ -78,7 +72,7 @@ impl RustSerdeCodeGenerator {
     }
 
     fn apply_prefixes(&mut self, node_id: AstNodeId, parent_prefix: Option<String>) -> Result<(), CodeGenError> {
-        let node = self.ast.get_node(node_id).ok_or(CodeGenError::Other(format!("Failed to get node with ID {node_id:?}")))?;
+        let node = self.ast.node(node_id).ok_or(CodeGenError::Other(format!("Failed to get node with ID {node_id:?}")))?;
 
         match node.payload {
             AstNodePayload::Model(ref model) => {
@@ -131,7 +125,7 @@ impl RustSerdeCodeGenerator {
     }
 
     fn update_field_reference_name(&mut self, field_node_id: AstNodeId) -> Result<(), CodeGenError> {
-        let Some(field_node) = self.ast.get_node(field_node_id) else {
+        let Some(field_node) = self.ast.node(field_node_id) else {
             return Err(CodeGenError::Other(format!("Failed to get field node with ID {field_node_id:?}")));
         };
 
@@ -187,10 +181,7 @@ impl RustSerdeCodeGenerator {
         result.push_str("#[derive(Debug, Clone, Serialize, Deserialize)]\n");
         result.push_str(&format!("pub struct {} {{\n", struct_name));
         for field_node_id in model.fields.values() {
-            let field_node = self
-                .ast
-                .get_node(*field_node_id)
-                .ok_or(CodeGenError::Other("Failed to get field node for model field".to_string()))?;
+            let field_node = self.ast.node(*field_node_id).ok_or(CodeGenError::Other("Failed to get field node for model field".to_string()))?;
             let field_code = self.emit_field(&field_node, &current_path)?;
             result.push_str(&field_code);
         }
@@ -217,10 +208,7 @@ impl RustSerdeCodeGenerator {
             result.push_str("    fn default() -> Self {\n");
             result.push_str("        Self {\n");
             for field_node_id in model.fields.values() {
-                let field_node = self
-                    .ast
-                    .get_node(*field_node_id)
-                    .ok_or(CodeGenError::Other("Failed to get field node for model field".to_string()))?;
+                let field_node = self.ast.node(*field_node_id).ok_or(CodeGenError::Other("Failed to get field node for model field".to_string()))?;
                 let AstNodePayload::Field(field) = &field_node.payload else {
                     return Err(Box::new(CodeGenError::Other(format!("Node with ID {:?} is not a Field", field_node.id))));
                 };
@@ -237,11 +225,7 @@ impl RustSerdeCodeGenerator {
 
     fn emit_enum(&self, enum_node: &AstNode) -> EmitResult {
         let Some(Enum {
-            effective_name,
-            name,
-            variants,
-            doc,
-            ..
+            effective_name, name, variants, doc, ..
         }) = &enum_node.as_enum()
         else {
             return Err(Box::new(CodeGenError::Other(format!("Node with ID {:?} is not an Enum", enum_node.id))));
@@ -321,9 +305,7 @@ impl RustSerdeCodeGenerator {
                 PrimitiveType::Bool => Ok("bool".to_string()),
             },
             TypeVariant::AnonymousModel => {
-                return Err(Box::new(CodeGenError::Other(
-                    "Anonymous models are currently not supported in Rust Serde generation".to_string(),
-                )));
+                return Err(Box::new(CodeGenError::Other("Anonymous models are currently not supported in Rust Serde generation".to_string())));
             }
             TypeVariant::Ref(TypeRef { ref name, .. }) => {
                 if let Some(ref_node) = self.symbols.resolve_ref(&self.ast, field_node_id, name) {

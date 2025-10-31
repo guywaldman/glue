@@ -1,14 +1,13 @@
-use std::{io, path::PathBuf};
+use std::path::PathBuf;
 
 use crate::cli::{
-    args::{Cli, CliAstSubcommand, CliError, CliSubcommand},
+    args::{Cli, CliError, CliSubcommand},
     subcommand_gen::GenSubcommand,
 };
 use anyhow::{Context, Result};
-use clap::Parser;
-use gluelang::{AstNode, Lexer, SemanticAnalysisArtifacts, SemanticAnalyzer};
+use clap::Parser as ClapParser;
+use gluelang::{ParsedProgram, Parser, SemanticAnalyzer, SourceCodeMetadata, print_report};
 use log::debug;
-use miette::GraphicalReportHandler;
 
 pub struct GlueCli;
 
@@ -21,28 +20,23 @@ impl GlueCli {
         let args = Cli::parse_from(cli_args);
 
         match &args.command {
-            CliSubcommand::Ast { command } => match command {
-                CliAstSubcommand::Mermaid { input, output } => {
-                    let (file_name, file_contents) = Self::handle_file(input.clone())?;
-
-                    let artifacts = Self::analyze(&file_name, file_contents)?;
-                    let mermaid = artifacts.ast.to_mermaid_with_formatter(Some(|node: &AstNode| {
-                        format!("{node:?}<br/><span style=\"font-size: smaller; color: white;\">{}</span>", node.span())
-                    }));
-                    std::fs::write(output, mermaid).with_context(|| format!("failed to write to {}", output.display()))?;
-                }
-            },
+            CliSubcommand::Ast { input, output } => {
+                let (file_name, file_contents) = Self::handle_file(input.clone())?;
+                let source_metadata = SourceCodeMetadata {
+                    file_name: &file_name,
+                    contents: &file_contents,
+                };
+                let parsed_program = Self::analyze(&source_metadata)?;
+                let mermaid = parsed_program.ast.to_mermaid();
+                std::fs::write(output, mermaid).with_context(|| format!("failed to write to {}", output.display()))?;
+            }
             CliSubcommand::Check { input } => {
-                let file_name = match input {
-                    Some(path) => path.display().to_string(),
-                    None => "stdin".to_string(),
+                let (file_name, file_contents) = Self::handle_file(input.clone())?;
+                let source_metadata = SourceCodeMetadata {
+                    file_name: &file_name,
+                    contents: &file_contents,
                 };
-                let file_contents: Box<dyn io::BufRead> = match input {
-                    // TODO: Handle file open errors
-                    Some(path) => Box::new(io::BufReader::new(std::fs::File::open(path).unwrap())),
-                    None => Box::new(io::BufReader::new(io::stdin())),
-                };
-                Self::analyze(&file_name, file_contents).map(|_| {})?;
+                Self::analyze(&source_metadata).map(|_| ())?;
             }
             CliSubcommand::Gen { args } => {
                 GenSubcommand::new().run(args)?;
@@ -51,45 +45,36 @@ impl GlueCli {
         Ok(())
     }
 
-    pub fn analyze<T: io::BufRead>(file_name: &str, mut file_contents: T) -> Result<SemanticAnalysisArtifacts, CliError> {
-        let mut buf = String::new();
-        debug!("Reading file '{}'", file_name);
-        let _ = file_contents.read_to_string(&mut buf).map_err(CliError::Io)?;
-        debug!("Lexing file '{}'", file_name);
-        let tokens = Lexer::new(&buf).lex();
-        debug!("Parsing file '{}'", file_name);
-        let parser_artifacts = gluelang::Parser::new(file_name, &buf, &tokens).parse().map_err(|e| {
-            Self::report_errors(&[*e.clone()]);
-            CliError::Compilation(Box::new(*e))
-        })?;
-        debug!("Performing semantic analysis on file '{}'", file_name);
-        let semantic_analyzer_artifacts = SemanticAnalyzer::new(file_name, &buf, &parser_artifacts).analyze().map_err(|e| {
-            Self::report_errors(&[*e.clone()]);
-            CliError::Compilation(Box::new(*e))
-        })?;
-        Ok(semantic_analyzer_artifacts)
-    }
-
-    pub fn report_errors(errs: &[impl miette::Diagnostic]) {
-        for e in errs.iter() {
-            let mut out = String::new();
-            GraphicalReportHandler::new().render_report(&mut out, e).expect("Rendering report failed");
-            eprintln!("----");
-            eprintln!("{out}");
+    pub fn analyze<'a>(source_code_metadata: &'a SourceCodeMetadata<'a>) -> Result<ParsedProgram<'a>, CliError> {
+        debug!("Parsing file '{}'", source_code_metadata.file_name);
+        let parser = Parser::new(source_code_metadata);
+        let parsed_program = match parser.parse() {
+            Ok(ast) => ast,
+            Err(e) => {
+                print_report(&e).expect("Rendering report failed");
+                return Err(CliError::ParsingError);
+            }
+        };
+        let semantic_analyzer = SemanticAnalyzer::new(&parsed_program.ast);
+        match semantic_analyzer.check() {
+            Ok(_) => {}
+            Err(errs) => {
+                for e in errs.iter() {
+                    print_report(e.report()).expect("Rendering report failed");
+                }
+                return Err(CliError::SemanticAnalysisError);
+            }
         }
+        Ok(parsed_program)
     }
 
-    pub fn handle_file(input: Option<PathBuf>) -> Result<(String, Box<dyn io::BufRead>)> {
+    // TODO: Use BufRead instead of String for file_contents
+    pub fn handle_file(input: Option<PathBuf>) -> Result<(String, String)> {
         let file_name = match &input {
             Some(path) => path.display().to_string(),
             None => "stdin".to_string(),
         };
-        let file_contents: Box<dyn io::BufRead> = match &input {
-            Some(path) => Box::new(io::BufReader::new(
-                std::fs::File::open(path).with_context(|| format!("failed to open file '{}'", path.display()))?,
-            )),
-            None => Box::new(io::BufReader::new(io::stdin())),
-        };
+        let file_contents = std::fs::read_to_string(input.as_deref().unwrap_or_else(|| std::path::Path::new("/dev/stdin")))?;
         Ok((file_name, file_contents))
     }
 }

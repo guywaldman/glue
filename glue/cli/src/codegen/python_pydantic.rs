@@ -29,10 +29,7 @@ impl CodeGenerator for PythonPydanticCodeGenerator {
         result.push_str("from enum import StrEnum\n");
         result.push_str("from typing import Annotated, List, Optional\n\n");
 
-        let top_level_nodes = self
-            .ast
-            .get_children(self.ast.get_root())
-            .ok_or(CodeGenError::Other("AST root has no children".to_string()))?;
+        let top_level_nodes = self.ast.get_children(self.ast.get_root()).ok_or(CodeGenError::Other("AST root has no children".to_string()))?;
 
         // Traverse the top-level models and enums of the AST.
         for node in top_level_nodes {

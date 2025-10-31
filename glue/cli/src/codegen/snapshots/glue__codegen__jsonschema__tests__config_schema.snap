@@ -1,0 +1,41 @@
+---
+source: cli/src/codegen/jsonschema.rs
+expression: generated_code
+---
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "GlueConfigSchema",
+    "type": "object",
+    "properties": {
+        "generation": {
+            "type": "object",
+            "properties": {
+                "watermark": {
+                    "type": "string",
+                    "description": "Mode for the watermark at the top of the generated files"
+                },
+                "rust_serde": {
+                    "type": "object",
+                    "properties": {
+                        "include_yaml": {
+                            "type": "boolean",
+                            "description": ""
+                        }
+                    },
+                    "description": "Configurations for Rust code generation using Serde (`glue gen rust-serde [...]`)"
+                },
+                "python_pydantic": {
+                    "type": "object",
+                    "properties": {
+                        "base_model": {
+                            "type": "string",
+                            "description": "The full import path for the base model class to inherit from (e.g., `pydantic.BaseModel` or `my.module.CustomBaseModel`)"
+                        }
+                    },
+                    "description": "Configurations for Python code generation using Pydantic (`glue gen py-pydantic [...]`)"
+                }
+            },
+            "description": "Configuration for code generation (`glue gen [...]`)"
+        }
+    }
+}

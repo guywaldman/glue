@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use gluelang::{
-    Ast, AstNode, AstNodeId, AstNodeKind, AstNodePayload, ConstantValue, Decorator, Endpoint, Enum, Field, LangError, Model, PrimitiveType, SemanticAnalysisArtifacts, Span,
-    SymbolTable, TreeNode, Type, TypeAtom, TypeRef, TypeVariant,
+    Ast, AstNode, AstNodeId, AstNodeKind, AstNodePayload, ConstantValue, Decorator, Endpoint, Enum, Field, LangError, Model, PrimitiveType, SemanticAnalysisArtifacts, Span, SymbolTable, TreeNode,
+    Type, TypeAtom, TypeRef, TypeVariant,
 };
 
 use crate::codegen::{CodeGenError, CodeGenerator, types::EmitResult};
@@ -115,10 +115,7 @@ impl CodeGenerator for OpenApiCodeGenerator {
         let mut paths = json::JsonValue::new_object();
         let mut components = Components::new();
 
-        let top_level_nodes = self
-            .ast
-            .get_children(self.ast.get_root())
-            .ok_or(CodeGenError::Other("AST root has no children".to_string()))?;
+        let top_level_nodes = self.ast.get_children(self.ast.get_root()).ok_or(CodeGenError::Other("AST root has no children".to_string()))?;
 
         if let Some(node_id) = top_level_nodes.iter().find(|n| n.kind == AstNodeKind::GlobalAnnotations).map(|n| &n.id) {
             self.emit_global_auth(*node_id)?;
@@ -145,7 +142,7 @@ impl CodeGenerator for OpenApiCodeGenerator {
             }
         }
 
-        if let Some(root_node) = self.ast.get_node(self.ast.get_root()) {
+        if let Some(root_node) = self.ast.node(self.ast.get_root()) {
             let root_components = self.contribute_components_from_node(&root_node)?;
             components.merge(root_components);
         }
@@ -261,10 +258,7 @@ impl OpenApiCodeGenerator {
         let mut request_body: Option<json::JsonValue> = None;
 
         if let Some(request_field_id) = request {
-            let request_field = self
-                .ast
-                .get_node(*request_field_id)
-                .ok_or_else(|| CodeGenError::Other("Request field node missing".to_string()))?;
+            let request_field = self.ast.node(*request_field_id).ok_or_else(|| CodeGenError::Other("Request field node missing".to_string()))?;
             let artifacts = self.collect_request_artifacts(endpoint, &request_field, path_params)?;
             if let Some(body) = artifacts.body {
                 request_body = Some(body);
@@ -297,9 +291,7 @@ impl OpenApiCodeGenerator {
         if !parameters.is_empty() {
             let mut parameters_json = json::JsonValue::new_array();
             for parameter in parameters {
-                parameters_json
-                    .push(parameter)
-                    .map_err(|err| CodeGenError::Other(format!("failed to push parameter: {err}")))?;
+                parameters_json.push(parameter).map_err(|err| CodeGenError::Other(format!("failed to push parameter: {err}")))?;
             }
             operation["parameters"] = parameters_json;
         }
@@ -387,10 +379,7 @@ impl OpenApiCodeGenerator {
             .ok_or_else(|| CodeGenError::Other("Global annotations node has no children".to_string()))?;
         for annotation_node in decorators.iter().filter(|a| a.kind == AstNodeKind::Decorator) {
             if let AstNodePayload::Decorator(Decorator {
-                name,
-                positional_args,
-                named_args,
-                ..
+                name, positional_args, named_args, ..
             }) = &annotation_node.payload
                 && name == "auth"
             {
@@ -554,9 +543,7 @@ impl OpenApiCodeGenerator {
 
         match &atom.variant {
             TypeVariant::AnonymousModel => {
-                let type_node = self
-                    .find_type_node(field)
-                    .ok_or_else(|| CodeGenError::Other("Anonymous model type node missing".to_string()))?;
+                let type_node = self.find_type_node(field).ok_or_else(|| CodeGenError::Other("Anonymous model type node missing".to_string()))?;
                 let model_node = self
                     .ast
                     .get_children_fn(type_node.id(), |n| matches!(n.kind(), AstNodeKind::Model))
@@ -593,12 +580,7 @@ impl OpenApiCodeGenerator {
         let decorators = self.ast.get_children_fn(node.id(), |n| matches!(n.kind(), AstNodeKind::Decorator)).unwrap_or_default();
 
         for decorator in decorators {
-            let Some(Decorator {
-                name,
-                named_args,
-                positional_args,
-            }) = decorator.as_decorator()
-            else {
+            let Some(Decorator { name, named_args, positional_args }) = decorator.as_decorator() else {
                 continue;
             };
             if name != "response" {
@@ -712,9 +694,7 @@ impl OpenApiCodeGenerator {
                 let mut variants = json::JsonValue::new_array();
                 for atom in atoms {
                     let schema = self.emit_type_atom_schema(field, type_node, atom)?;
-                    variants
-                        .push(schema)
-                        .map_err(|err| CodeGenError::Other(format!("failed to push union variant schema: {err}")))?;
+                    variants.push(schema).map_err(|err| CodeGenError::Other(format!("failed to push union variant schema: {err}")))?;
                 }
                 let mut wrapper = json::JsonValue::new_object();
                 wrapper["oneOf"] = variants;
@@ -735,7 +715,7 @@ impl OpenApiCodeGenerator {
                     return Err(CodeGenError::Other(format!("Referenced type '{effective_name}' not found in scope")));
                 };
                 let ref_node_id = ref_node.id;
-                let Some(ref_node) = self.ast.get_node(ref_node_id) else {
+                let Some(ref_node) = self.ast.node(ref_node_id) else {
                     return Err(CodeGenError::Other(format!("Referenced type node with id '{ref_node_id}' not found")));
                 };
                 let _ = self.contribute_components_from_node(&ref_node);
@@ -796,13 +776,6 @@ impl OpenApiCodeGenerator {
     }
 
     fn err(&self, span: Span, msg: impl Into<String>, note: Option<String>, code: Option<&str>) -> Box<CodeGenError> {
-        Box::new(CodeGenError::LangError(LangError::error(
-            &self.src_file_name,
-            &self.src_file_contents,
-            span,
-            msg,
-            note,
-            code,
-        )))
+        Box::new(CodeGenError::LangError(LangError::error(&self.src_file_name, &self.src_file_contents, span, msg, note, code)))
     }
 }

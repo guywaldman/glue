@@ -1,0 +1,40 @@
+---
+source: cli/src/codegen/jsonschema.rs
+expression: generated_code
+---
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Config",
+    "type": "object",
+    "properties": {
+        "title": {
+            "type": "string",
+            "description": "The title of the configuration"
+        },
+        "version": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "integer"
+                }
+            ],
+            "description": "The version of the configuration"
+        },
+        "database": {
+            "type": "object",
+            "properties": {
+                "host": {
+                    "type": "string",
+                    "description": "The hostnmae"
+                },
+                "port": {
+                    "type": "integer",
+                    "description": "The port number"
+                }
+            },
+            "description": "Configuration for the database"
+        }
+    }
+}

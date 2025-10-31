@@ -1,211 +1,268 @@
-use gluelang::{
-    Ast, AstNode, AstNodeKind, AstNodePayload, AstSymbol, Decorator, Enum, Field, Model, PrimitiveType, SemanticAnalysisArtifacts, SymbolTable, TreeNode, Type, TypeAtom, TypeRef, TypeVariant,
-};
+use gluelang::{Ast, AstNodeId, Decorator, DiagnosticContext, RawAstNode, RawTypeAtom};
+use json::{JsonValue, object::Object};
+use miette::Report;
 
 use crate::codegen::{CodeGenError, CodeGenerator, types::EmitResult};
 
-pub struct JsonSchemaCodeGenerator {
-    ast: Ast,
-    symbols: SymbolTable,
+pub struct JsonSchemaCodeGenerator<'a> {
+    ast: &'a Ast<'a>,
+    diagnostic_ctx: DiagnosticContext,
 }
 
-impl CodeGenerator for JsonSchemaCodeGenerator {
+impl CodeGenerator for JsonSchemaCodeGenerator<'_> {
     fn generate(mut self) -> EmitResult {
-        let mut json = json::object::Object::new();
+        let root_model_id = self.find_root_model()?;
+        let model_node = self.ast.node(root_model_id).expect("model node must exist");
+        let model = model_node.as_model().expect("root node must be a model");
+        let title = model.name.to_string();
+        let properties = self.emit_model(root_model_id)?;
 
-        let top_level_nodes = self.ast.get_children(self.ast.get_root()).ok_or_else(|| CodeGenError::Other("AST root has no children".to_string()))?;
+        let mut schema = Object::new();
+        schema["$schema"] = JsonValue::String("http://json-schema.org/draft-07/schema#".to_string());
+        schema["title"] = JsonValue::String(title);
+        schema["type"] = JsonValue::String("object".to_string());
+        schema["properties"] = JsonValue::Object(properties);
 
-        // Find the model that has the `@root` decorator
-        let root_model_node = top_level_nodes.iter().find(|node| {
-            if let AstNodeKind::Model = node.kind() {
-                let Some(root_decorators) = self
-                    .ast
-                    .get_children_fn(node.id(), |n| matches!(n.payload(), AstNodePayload::Decorator(Decorator { name, .. }) if name == "root"))
-                else {
-                    return false;
-                };
-                !root_decorators.is_empty()
-            } else {
-                false
-            }
-        });
-        let Some(root_model_node) = root_model_node else {
-            return Err(Box::new(CodeGenError::Other(
-                "For JSON schema generation, one top-level model must be decorated with the `@root` decorator".to_string(),
-            )));
-        };
-        let root_model_node_name = match root_model_node.payload() {
-            AstNodePayload::Model(Model { name, .. }) => name,
-            _ => return Err(Box::new(CodeGenError::Other("Expected a model node".to_string()))),
-        };
-        let root_model = self.emit_model(root_model_node)?;
-
-        json["$schema"] = json::JsonValue::String("http://json-schema.org/draft-07/schema#".to_string());
-        json["title"] = json::JsonValue::String(root_model_node_name.to_string());
-        json["type"] = json::JsonValue::String("object".to_string());
-        json["properties"] = json::JsonValue::Object(root_model);
-
-        let result = json::stringify_pretty(json, 4);
-
-        Ok(result)
+        Ok(json::stringify_pretty(JsonValue::Object(schema), 4))
     }
 }
 
-impl JsonSchemaCodeGenerator {
-    pub fn new(artifacts: SemanticAnalysisArtifacts) -> Self {
-        Self {
-            ast: artifacts.ast,
-            symbols: artifacts.symbols,
+impl<'a> JsonSchemaCodeGenerator<'a> {
+    pub fn new(ast: &'a Ast<'a>) -> Self {
+        let diagnostic_ctx = DiagnosticContext::new(ast.source_code_metadata.file_name, ast.source_code_metadata.contents);
+        Self { ast, diagnostic_ctx }
+    }
+
+    fn find_root_model(&self) -> Result<AstNodeId, CodeGenError> {
+        let mut root_id = None;
+
+        for &node_id in self.ast.top_level_nodes() {
+            let Some(node) = self.ast.node(node_id) else {
+                continue;
+            };
+            let Some(model) = node.as_model() else {
+                continue;
+            };
+
+            let has_root = model.decorators.iter().any(|&decorator_id| {
+                self.ast
+                    .node(decorator_id)
+                    .and_then(|decorator| decorator.as_decorator())
+                    .map(|Decorator { name }| *name == "root")
+                    .unwrap_or(false)
+            });
+
+            if has_root {
+                if root_id.is_some() {
+                    let report = self.diagnostic_ctx.error(node.span, format_args!("Multiple `@root` models found"), None);
+                    return Err(Box::new(report));
+                }
+                root_id = Some(node_id);
+            }
+        }
+
+        match root_id {
+            Some(id) => Ok(id),
+            None => {
+                let root_node = self.ast.node(0).expect("root node must exist");
+                let report = self.diagnostic_ctx.error(root_node.span, format_args!("Could not find model decorated with `@root`"), None);
+                Err(Box::new(report))
+            }
         }
     }
 
-    /// Emit JSON Schema model properties from an AST node.
-    fn emit_model(&mut self, model: &AstNode) -> Result<json::object::Object, CodeGenError> {
-        let mut result = json::object::Object::new();
-
-        let AstNodeKind::Model = model.kind() else {
-            return Err(CodeGenError::Other("Expected a model node".to_string()));
+    fn emit_model(&mut self, model_id: AstNodeId) -> Result<Object, CodeGenError> {
+        let model_node = self.ast.node(model_id).ok_or_else(|| Box::new(Report::msg("Model node missing")))?;
+        let RawAstNode::Model(model) = &model_node.payload else {
+            let report = self.diagnostic_ctx.error(model_node.span, format_args!("Expected a model node"), None);
+            return Err(Box::new(report));
         };
 
-        let children = self.ast.get_children(model.id()).unwrap_or_default();
-        for child in children {
-            match child.payload() {
-                AstNodePayload::Field(Field { name: field_name, ty, doc, .. }) => {
-                    let types = match ty {
-                        Type::Single(t) => vec![t.clone()],
-                        Type::Union(variants) => variants.clone(),
-                    };
+        let mut result = Object::new();
 
-                    let mut field_obj = json::object::Object::new();
+        for &field_id in &model.fields {
+            let Some(field_node) = self.ast.node(field_id) else {
+                continue;
+            };
+            let RawAstNode::Field(field) = &field_node.payload else {
+                continue;
+            };
 
-                    if types.len() > 1 {
-                        // Use `anyOf` for union types
-                        let mut any_of = vec![];
-                        for t in &types {
-                            let emitted = self.emit_type_atom(&child, t)?;
-                            any_of.push(emitted);
-                        }
-                        field_obj["anyOf"] = json::JsonValue::Array(any_of);
-                    } else {
-                        let ty = &types[0];
-                        let emitted = self.emit_type_atom(&child, ty)?;
-                        // Merge the emitted type properties into field_obj instead of nesting under "type"
-                        if let json::JsonValue::Object(type_obj) = emitted {
-                            for (key, value) in type_obj.iter() {
-                                field_obj[key] = value.clone();
-                            }
-                        }
-                    }
-
-                    if let Some(doc_str) = doc {
-                        field_obj["description"] = json::JsonValue::String(doc_str.clone());
-                    }
-                    result[field_name] = json::JsonValue::Object(field_obj);
-                }
-                AstNodePayload::Model { .. } => {
-                    let Some(Model { name: _nested_name, .. }) = child.as_model() else {
-                        continue;
-                    };
-                    // Nested models are handled when referenced by fields
-                }
-                AstNodePayload::Enum { .. } => {
-                    // Inline enum definitions are handled when referenced by fields
-                    continue;
-                }
-                _ => continue,
+            if field.type_atoms.is_empty() {
+                continue;
             }
+
+            let mut field_object = Object::new();
+
+            if field.type_atoms.len() > 1 {
+                let mut any_of = Vec::new();
+                for &type_atom_id in &field.type_atoms {
+                    any_of.push(self.emit_type_atom(type_atom_id)?);
+                }
+                field_object["anyOf"] = JsonValue::Array(any_of);
+            } else {
+                let emitted = self.emit_type_atom(field.type_atoms[0])?;
+                match emitted {
+                    JsonValue::Object(obj) => field_object = obj,
+                    other => field_object["value"] = other,
+                }
+            }
+
+            if let Some(doc) = &field.doc {
+                field_object["description"] = JsonValue::String(doc.content.clone());
+            }
+
+            result[field.name] = JsonValue::Object(field_object);
         }
 
         Ok(result)
-        // let children = self.ast.get_children(model.id()).unwrap_or_default();
     }
 
-    fn emit_type_atom(&mut self, node: &AstNode, atom: &TypeAtom) -> Result<json::JsonValue, CodeGenError> {
-        match &atom.variant {
-            TypeVariant::Ref(TypeRef { effective_name: ref_name, .. }) => {
-                let symbols = self.symbols.symbols_in_scope(&self.ast, node.id());
-                if let Some(symbols) = symbols {
-                    // Try to find as a model first
-                    if let Some(entry) = symbols.get(&AstSymbol::Model(ref_name.clone())) {
-                        let model_node = self
-                            .ast
-                            .get_node(entry.id)
-                            .ok_or_else(|| CodeGenError::Other(format!("Referenced model node with ID {} not found", entry.id)))?;
-                        let model_properties = self.emit_model(&model_node)?;
+    fn emit_type_atom(&mut self, node_id: AstNodeId) -> Result<JsonValue, CodeGenError> {
+        let node = self.ast.node(node_id).ok_or_else(|| Box::new(Report::msg("Type atom node missing")))?;
+        let RawAstNode::TypeAtom(atom) = &node.payload else {
+            let report = self.diagnostic_ctx.error(node.span, format_args!("Expected a type atom"), None);
+            return Err(Box::new(report));
+        };
 
-                        if atom.is_array {
-                            let mut items_obj = json::object::Object::new();
-                            items_obj["type"] = json::JsonValue::String("object".to_string());
-                            items_obj["properties"] = json::JsonValue::Object(model_properties);
-
-                            let mut array_obj = json::object::Object::new();
-                            array_obj["type"] = json::JsonValue::String("array".to_string());
-                            array_obj["items"] = json::JsonValue::Object(items_obj);
-                            Ok(json::JsonValue::Object(array_obj))
-                        } else {
-                            let mut obj = json::object::Object::new();
-                            obj["type"] = json::JsonValue::String("object".to_string());
-                            obj["properties"] = json::JsonValue::Object(model_properties);
-                            Ok(json::JsonValue::Object(obj))
-                        }
-                    }
-                    // Try to find as an enum
-                    else if let Some(entry) = symbols.get(&AstSymbol::Enum(ref_name.clone())) {
-                        let enum_node = self
-                            .ast
-                            .get_node(entry.id)
-                            .ok_or_else(|| CodeGenError::Other(format!("Referenced enum node with ID {} not found", entry.id)))?;
-
-                        let Some(Enum { variants, doc, .. }) = enum_node.as_enum() else {
-                            return Err(CodeGenError::Other("Expected an enum node".to_string()));
-                        };
-
-                        if atom.is_array {
-                            let mut items_obj = json::object::Object::new();
-                            items_obj["type"] = json::JsonValue::String("string".to_string());
-                            items_obj["enum"] = json::JsonValue::Array(variants.iter().map(|v| json::JsonValue::String(v.clone())).collect());
-                            if let Some(doc_str) = doc {
-                                items_obj["description"] = json::JsonValue::String(doc_str.clone());
-                            }
-
-                            let mut array_obj = json::object::Object::new();
-                            array_obj["type"] = json::JsonValue::String("array".to_string());
-                            array_obj["items"] = json::JsonValue::Object(items_obj);
-                            Ok(json::JsonValue::Object(array_obj))
-                        } else {
-                            let mut obj = json::object::Object::new();
-                            obj["type"] = json::JsonValue::String("string".to_string());
-                            obj["enum"] = json::JsonValue::Array(variants.iter().map(|v| json::JsonValue::String(v.clone())).collect());
-                            if let Some(doc_str) = doc {
-                                obj["description"] = json::JsonValue::String(doc_str.clone());
-                            }
-                            Ok(json::JsonValue::Object(obj))
-                        }
-                    } else {
-                        Err(CodeGenError::Other(format!("Referenced type '{ref_name}' not found in symbols")))
-                    }
+        let mut value = match &atom.payload {
+            RawTypeAtom::String => self.simple_type("string"),
+            RawTypeAtom::Int => self.simple_type("integer"),
+            RawTypeAtom::Bool => self.simple_type("boolean"),
+            RawTypeAtom::Ref(name) => {
+                if let Some(model_id) = self.find_model_by_name(name) {
+                    let props = self.emit_model(model_id)?;
+                    let mut obj = Object::new();
+                    obj["type"] = JsonValue::String("object".to_string());
+                    obj["properties"] = JsonValue::Object(props);
+                    JsonValue::Object(obj)
                 } else {
-                    Err(CodeGenError::Other("No symbols found in scope".to_string()))
+                    let mut obj = Object::new();
+                    obj["type"] = JsonValue::String("string".to_string());
+                    obj["description"] = JsonValue::String(format!("Unresolved reference: {}", name));
+                    JsonValue::Object(obj)
                 }
             }
-            TypeVariant::Primitive(ty) => {
-                let type_str = match ty {
-                    PrimitiveType::String => "string",
-                    PrimitiveType::Int => "integer",
-                    PrimitiveType::Bool => "boolean",
-                };
-                let mut obj = json::object::Object::new();
-                obj["type"] = json::JsonValue::String(type_str.to_string());
-                if atom.is_array {
-                    let mut array_obj = json::object::Object::new();
-                    array_obj["type"] = json::JsonValue::String("array".to_string());
-                    array_obj["items"] = json::JsonValue::Object(obj);
-                    Ok(json::JsonValue::Object(array_obj))
-                } else {
-                    Ok(json::JsonValue::Object(obj))
-                }
+            RawTypeAtom::AnonModel(model_id) => {
+                let props = self.emit_model(*model_id)?;
+                let mut obj = Object::new();
+                obj["type"] = JsonValue::String("object".to_string());
+                obj["properties"] = JsonValue::Object(props);
+                JsonValue::Object(obj)
             }
-            TypeVariant::AnonymousModel => Err(CodeGenError::Other("Anonymous models are not supported in this context".to_string())),
+        };
+
+        if atom.is_array {
+            value = self.wrap_array(value);
         }
+
+        if atom.is_optional {
+            value = self.mark_nullable(value);
+        }
+
+        Ok(value)
+    }
+
+    fn simple_type(&self, ty: &str) -> JsonValue {
+        let mut obj = Object::new();
+        obj["type"] = JsonValue::String(ty.to_string());
+        JsonValue::Object(obj)
+    }
+
+    fn wrap_array(&self, inner: JsonValue) -> JsonValue {
+        let mut obj = Object::new();
+        obj["type"] = JsonValue::String("array".to_string());
+        obj["items"] = inner;
+        JsonValue::Object(obj)
+    }
+
+    fn mark_nullable(&self, value: JsonValue) -> JsonValue {
+        match value {
+            JsonValue::Object(mut obj) => {
+                obj["nullable"] = JsonValue::Boolean(true);
+                JsonValue::Object(obj)
+            }
+            other => other,
+        }
+    }
+
+    fn find_model_by_name(&self, name: &str) -> Option<AstNodeId> {
+        self.ast
+            .nodes()
+            .iter()
+            .find(|node| matches!(&node.payload, RawAstNode::Model(model) if model.name == name))
+            .map(|node| node.id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use indoc::indoc;
+    use insta::assert_snapshot;
+
+    use crate::test_utils::parse;
+
+    use super::*;
+
+    #[test]
+    fn test_jsonschema_basic() {
+        let src = indoc! {r#"
+            @root
+            model Config {
+                /// The title of the configuration
+                title: string
+                /// The version of the configuration
+                version: string | int
+                /// Configuration for the database
+                database: DatabaseConfig
+
+                /// Database configuration model
+                model DatabaseConfig {
+                    /// The hostnmae
+                    host: string
+                    /// The port number
+                    port: int
+                }
+            }
+        "#};
+        let parsed_program = parse(src).expect("Parsing failed");
+        let codegen = JsonSchemaCodeGenerator::new(&parsed_program.ast);
+        let generated_code = codegen.generate().expect("Code generation failed");
+        assert_snapshot!(generated_code);
+    }
+
+    #[test]
+    fn test_config_schema() {
+        let src = indoc! {r#"
+            @root
+            model GlueConfigSchema {
+                /// Configuration for code generation (`glue gen [...]`)
+                @default
+                generation: Generation
+
+                model Generation {
+                    /// Mode for the watermark at the top of the generated files
+                    watermark: Watermark = "short"
+                    enum Watermark: "full" | "short" | "none"
+
+                    /// Configurations for Rust code generation using Serde (`glue gen rust-serde [...]`)
+                    rust_serde: RustSerde
+                    model RustSerde {
+                        include_yaml: bool = false
+                    }
+
+                    /// Configurations for Python code generation using Pydantic (`glue gen py-pydantic [...]`)
+                    python_pydantic: PythonPydantic
+                    model PythonPydantic {
+                        /// The full import path for the base model class to inherit from (e.g., `pydantic.BaseModel` or `my.module.CustomBaseModel`)
+                        base_model: string = "pydantic.BaseModel"
+                    }
+                }
+            }
+        "#};
+        let parsed_program = parse(src).expect("Parsing failed");
+        let codegen = JsonSchemaCodeGenerator::new(&parsed_program.ast);
+        let generated_code = codegen.generate().expect("Code generation failed");
+        assert_snapshot!(generated_code);
     }
 }
