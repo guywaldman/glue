@@ -1,4 +1,0 @@
-# yaml-language-server: $schema=../../../assets/config_schema.json
-generation:
-  python_pydantic:
-    base_model: custom_models.CustomBaseModel

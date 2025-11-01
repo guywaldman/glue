@@ -1,28 +1,126 @@
-   0.098141083s  INFO prepare_target{force=false package_id=cli v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/cli) target="glue"}: cargo::core::compiler::fingerprint: stale: changed "/Users/guywald/Dev/PersonalRepos/glue/glue/gluelang/src/grammar.pest"
-   0.098148917s  INFO prepare_target{force=false package_id=cli v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/cli) target="glue"}: cargo::core::compiler::fingerprint:           (vs) "/Users/guywald/Dev/PersonalRepos/glue/glue/target/debug/.fingerprint/gluelang-7dc8cc75a55e1d3d/dep-lib-gluelang"
-   0.098151292s  INFO prepare_target{force=false package_id=cli v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/cli) target="glue"}: cargo::core::compiler::fingerprint:                FileTime { seconds: 1761862200, nanos: 536028925 } < FileTime { seconds: 1761862917, nanos: 802916260 }
-   0.098689417s  INFO prepare_target{force=false package_id=cli v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/cli) target="glue"}: cargo::core::compiler::fingerprint: fingerprint dirty for cli v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/cli)/Check { test: false }/TargetInner { name: "glue", doc: true, ..: with_path("/Users/guywald/Dev/PersonalRepos/glue/glue/cli/src/main.rs", Edition2024) }
-   0.098694958s  INFO prepare_target{force=false package_id=cli v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/cli) target="glue"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "gluelang" })
-   0.100396708s  INFO prepare_target{force=false package_id=gluelang v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/gluelang) target="gluelang"}: cargo::core::compiler::fingerprint: fingerprint dirty for gluelang v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/gluelang)/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("gluelang", ["lib"], "/Users/guywald/Dev/PersonalRepos/glue/glue/gluelang/src/lib.rs", Edition2024) }
-   0.100401708s  INFO prepare_target{force=false package_id=gluelang v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/gluelang) target="gluelang"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleItem(ChangedFile { reference: "/Users/guywald/Dev/PersonalRepos/glue/glue/target/debug/.fingerprint/gluelang-7dc8cc75a55e1d3d/dep-lib-gluelang", reference_mtime: FileTime { seconds: 1761862200, nanos: 536028925 }, stale: "/Users/guywald/Dev/PersonalRepos/glue/glue/gluelang/src/grammar.pest", stale_mtime: FileTime { seconds: 1761862917, nanos: 802916260 } }))
-   0.103765250s  INFO prepare_target{force=false package_id=cli v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/cli) target="glue"}: cargo::core::compiler::fingerprint: fingerprint dirty for cli v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/cli)/Check { test: true }/TargetInner { name: "glue", doc: true, ..: with_path("/Users/guywald/Dev/PersonalRepos/glue/glue/cli/src/main.rs", Edition2024) }
-   0.103769250s  INFO prepare_target{force=false package_id=cli v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/cli) target="glue"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "gluelang" })
-   0.105094250s  INFO prepare_target{force=false package_id=cli v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/cli) target="e2e_tests"}: cargo::core::compiler::fingerprint: fingerprint dirty for cli v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/cli)/Check { test: true }/TargetInner { kind: "test", name: "e2e_tests", benched: false, ..: with_path("/Users/guywald/Dev/PersonalRepos/glue/glue/cli/tests/e2e_tests.rs", Edition2024) }
-   0.105098000s  INFO prepare_target{force=false package_id=cli v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/cli) target="e2e_tests"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "gluelang" })
-   0.105562500s  INFO prepare_target{force=false package_id=gluelang v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/gluelang) target="gluelang"}: cargo::core::compiler::fingerprint: stale: changed "/Users/guywald/Dev/PersonalRepos/glue/glue/gluelang/src/grammar.pest"
-   0.105564833s  INFO prepare_target{force=false package_id=gluelang v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/gluelang) target="gluelang"}: cargo::core::compiler::fingerprint:           (vs) "/Users/guywald/Dev/PersonalRepos/glue/glue/target/debug/.fingerprint/gluelang-aa809217ef911b65/dep-test-lib-gluelang"
-   0.105565958s  INFO prepare_target{force=false package_id=gluelang v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/gluelang) target="gluelang"}: cargo::core::compiler::fingerprint:                FileTime { seconds: 1761862200, nanos: 538359697 } < FileTime { seconds: 1761862917, nanos: 802916260 }
-   0.105606875s  INFO prepare_target{force=false package_id=gluelang v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/gluelang) target="gluelang"}: cargo::core::compiler::fingerprint: fingerprint dirty for gluelang v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/gluelang)/Check { test: true }/TargetInner { name_inferred: true, ..: lib_target("gluelang", ["lib"], "/Users/guywald/Dev/PersonalRepos/glue/glue/gluelang/src/lib.rs", Edition2024) }
-   0.105610625s  INFO prepare_target{force=false package_id=gluelang v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/gluelang) target="gluelang"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleItem(ChangedFile { reference: "/Users/guywald/Dev/PersonalRepos/glue/glue/target/debug/.fingerprint/gluelang-aa809217ef911b65/dep-test-lib-gluelang", reference_mtime: FileTime { seconds: 1761862200, nanos: 538359697 }, stale: "/Users/guywald/Dev/PersonalRepos/glue/glue/gluelang/src/grammar.pest", stale_mtime: FileTime { seconds: 1761862917, nanos: 802916260 } }))
-   0.106001583s  INFO prepare_target{force=false package_id=gluelang v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/gluelang) target="gluelang"}: cargo::core::compiler::fingerprint: fingerprint dirty for gluelang v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/gluelang)/Check { test: false }/TargetInner { name: "gluelang", doc: true, ..: with_path("/Users/guywald/Dev/PersonalRepos/glue/glue/gluelang/src/main.rs", Edition2024) }
-   0.106004958s  INFO prepare_target{force=false package_id=gluelang v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/gluelang) target="gluelang"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "gluelang" })
-   0.106530250s  INFO prepare_target{force=false package_id=gluelang v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/gluelang) target="gluelang"}: cargo::core::compiler::fingerprint: fingerprint dirty for gluelang v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/gluelang)/Check { test: true }/TargetInner { name: "gluelang", doc: true, ..: with_path("/Users/guywald/Dev/PersonalRepos/glue/glue/gluelang/src/main.rs", Edition2024) }
-   0.106533583s  INFO prepare_target{force=false package_id=gluelang v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/gluelang) target="gluelang"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "gluelang" })
-   0.111964917s  INFO prepare_target{force=false package_id=lsp v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/lsp) target="lsp"}: cargo::core::compiler::fingerprint: fingerprint dirty for lsp v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/lsp)/Check { test: false }/TargetInner { name: "lsp", doc: true, ..: with_path("/Users/guywald/Dev/PersonalRepos/glue/glue/lsp/src/main.rs", Edition2024) }
-   0.111972292s  INFO prepare_target{force=false package_id=lsp v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/lsp) target="lsp"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "gluelang" })
-   0.114562250s  INFO prepare_target{force=false package_id=lsp v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/lsp) target="lsp"}: cargo::core::compiler::fingerprint: fingerprint dirty for lsp v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/lsp)/Check { test: true }/TargetInner { name: "lsp", doc: true, ..: with_path("/Users/guywald/Dev/PersonalRepos/glue/glue/lsp/src/main.rs", Edition2024) }
-   0.114566250s  INFO prepare_target{force=false package_id=lsp v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/lsp) target="lsp"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "gluelang" })
-    Checking gluelang v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/gluelang)
-    Checking cli v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/cli)
-    Checking lsp v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/lsp)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.60s
+   0.072126666s  INFO prepare_target{force=false package_id=lang v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/lang) target="lang"}: cargo::core::compiler::fingerprint: fingerprint error for lang v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/lang)/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("lang", ["lib"], "/Users/guywald/Dev/PersonalRepos/glue/glue/lang/src/lib.rs", Edition2024) }
+   0.072143166s  INFO prepare_target{force=false package_id=lang v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/lang) target="lang"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/guywald/Dev/PersonalRepos/glue/glue/target/debug/.fingerprint/lang-6e45314f36416bde/lib-lang`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: std::backtrace::Backtrace::create
+   1: <std::io::error::Error as anyhow::context::ext::StdError>::ext_context::<alloc::string::String>
+   2: cargo_util::paths::read
+   3: cargo::core::compiler::fingerprint::prepare_target
+   4: cargo::core::compiler::compile
+   5: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   6: cargo::ops::cargo_compile::compile_ws
+   7: cargo::ops::cargo_compile::compile_with_exec
+   8: cargo::ops::cargo_compile::compile
+   9: cargo::commands::check::exec
+  10: <cargo::cli::Exec>::exec
+  11: cargo::cli::main
+  12: cargo::main
+  13: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  14: std::rt::lang_start::<()>::{closure#0}
+  15: std::rt::lang_start_internal
+  16: _main
+   0.078514791s  INFO prepare_target{force=false package_id=slotmap v1.0.7 target="slotmap"}: cargo::core::compiler::fingerprint: fingerprint error for slotmap v1.0.7/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("slotmap", ["lib"], "/Users/guywald/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/slotmap-1.0.7/src/lib.rs", Edition2018) }
+   0.078527916s  INFO prepare_target{force=false package_id=slotmap v1.0.7 target="slotmap"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/guywald/Dev/PersonalRepos/glue/glue/target/debug/.fingerprint/slotmap-6827575378cb8b61/lib-slotmap`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: std::backtrace::Backtrace::create
+   1: <std::io::error::Error as anyhow::context::ext::StdError>::ext_context::<alloc::string::String>
+   2: cargo_util::paths::read
+   3: cargo::core::compiler::fingerprint::prepare_target
+   4: cargo::core::compiler::compile
+   5: cargo::core::compiler::compile
+   6: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   7: cargo::ops::cargo_compile::compile_ws
+   8: cargo::ops::cargo_compile::compile_with_exec
+   9: cargo::ops::cargo_compile::compile
+  10: cargo::commands::check::exec
+  11: <cargo::cli::Exec>::exec
+  12: cargo::cli::main
+  13: cargo::main
+  14: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  15: std::rt::lang_start::<()>::{closure#0}
+  16: std::rt::lang_start_internal
+  17: _main
+   0.079009791s  INFO prepare_target{force=false package_id=lang v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/lang) target="lang"}: cargo::core::compiler::fingerprint: fingerprint error for lang v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/lang)/Check { test: true }/TargetInner { name_inferred: true, ..: lib_target("lang", ["lib"], "/Users/guywald/Dev/PersonalRepos/glue/glue/lang/src/lib.rs", Edition2024) }
+   0.079015125s  INFO prepare_target{force=false package_id=lang v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/lang) target="lang"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/guywald/Dev/PersonalRepos/glue/glue/target/debug/.fingerprint/lang-cc307b47db553683/test-lib-lang`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: std::backtrace::Backtrace::create
+   1: <std::io::error::Error as anyhow::context::ext::StdError>::ext_context::<alloc::string::String>
+   2: cargo_util::paths::read
+   3: cargo::core::compiler::fingerprint::prepare_target
+   4: cargo::core::compiler::compile
+   5: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   6: cargo::ops::cargo_compile::compile_ws
+   7: cargo::ops::cargo_compile::compile_with_exec
+   8: cargo::ops::cargo_compile::compile
+   9: cargo::commands::check::exec
+  10: <cargo::cli::Exec>::exec
+  11: cargo::cli::main
+  12: cargo::main
+  13: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  14: std::rt::lang_start::<()>::{closure#0}
+  15: std::rt::lang_start_internal
+  16: _main
+   0.079485750s  INFO prepare_target{force=false package_id=lang v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/lang) target="lang"}: cargo::core::compiler::fingerprint: fingerprint error for lang v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/lang)/Check { test: false }/TargetInner { name: "lang", doc: true, ..: with_path("/Users/guywald/Dev/PersonalRepos/glue/glue/lang/src/main.rs", Edition2024) }
+   0.079489875s  INFO prepare_target{force=false package_id=lang v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/lang) target="lang"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/guywald/Dev/PersonalRepos/glue/glue/target/debug/.fingerprint/lang-830c6713f716e79e/bin-lang`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: std::backtrace::Backtrace::create
+   1: <std::io::error::Error as anyhow::context::ext::StdError>::ext_context::<alloc::string::String>
+   2: cargo_util::paths::read
+   3: cargo::core::compiler::fingerprint::prepare_target
+   4: cargo::core::compiler::compile
+   5: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   6: cargo::ops::cargo_compile::compile_ws
+   7: cargo::ops::cargo_compile::compile_with_exec
+   8: cargo::ops::cargo_compile::compile
+   9: cargo::commands::check::exec
+  10: <cargo::cli::Exec>::exec
+  11: cargo::cli::main
+  12: cargo::main
+  13: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  14: std::rt::lang_start::<()>::{closure#0}
+  15: std::rt::lang_start_internal
+  16: _main
+   0.079927541s  INFO prepare_target{force=false package_id=lang v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/lang) target="lang"}: cargo::core::compiler::fingerprint: fingerprint error for lang v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/lang)/Check { test: true }/TargetInner { name: "lang", doc: true, ..: with_path("/Users/guywald/Dev/PersonalRepos/glue/glue/lang/src/main.rs", Edition2024) }
+   0.079931416s  INFO prepare_target{force=false package_id=lang v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/lang) target="lang"}: cargo::core::compiler::fingerprint:     err: failed to read `/Users/guywald/Dev/PersonalRepos/glue/glue/target/debug/.fingerprint/lang-27e2c52c4a255996/test-bin-lang`
+
+Caused by:
+    No such file or directory (os error 2)
+
+Stack backtrace:
+   0: std::backtrace::Backtrace::create
+   1: <std::io::error::Error as anyhow::context::ext::StdError>::ext_context::<alloc::string::String>
+   2: cargo_util::paths::read
+   3: cargo::core::compiler::fingerprint::prepare_target
+   4: cargo::core::compiler::compile
+   5: <cargo::core::compiler::build_runner::BuildRunner>::compile
+   6: cargo::ops::cargo_compile::compile_ws
+   7: cargo::ops::cargo_compile::compile_with_exec
+   8: cargo::ops::cargo_compile::compile
+   9: cargo::commands::check::exec
+  10: <cargo::cli::Exec>::exec
+  11: cargo::cli::main
+  12: cargo::main
+  13: std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>
+  14: std::rt::lang_start::<()>::{closure#0}
+  15: std::rt::lang_start_internal
+  16: _main
+    Checking slotmap v1.0.7
+    Checking lang v0.1.0 (/Users/guywald/Dev/PersonalRepos/glue/glue/lang)
+error: could not compile `lang` (lib) due to 7 previous errors; 5 warnings emitted
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `lang` (lib test) due to 7 previous errors; 5 warnings emitted
