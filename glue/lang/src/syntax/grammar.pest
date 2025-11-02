@@ -2,8 +2,8 @@ SPACE = _{ " " | "\t" }
 WHITESPACE = _{ SPACE | NEWLINE }
 COMMENT = _{ "//" ~ (!"/") ~ (!NEWLINE ~ ANY)* ~ NEWLINE }
 
-doc_comment = @{ SPACE* ~ "///" ~ (!NEWLINE ~ ANY)* }
-doc_block = @{ (NEWLINE? ~ doc_comment ~ NEWLINE)+ }
+doc_block_line = @{ SPACE* ~ "///" ~ (!NEWLINE ~ ANY)* }
+doc_block = @{ NEWLINE? ~ (doc_block_line ~ (NEWLINE? ~ doc_block_line ~ NEWLINE?)*) }
 
 ident = @{ (ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")*) | (ASCII_DIGIT ~ (ASCII_DIGIT+ | "XX")) }
 
@@ -36,7 +36,7 @@ decorator = { "@" ~ (#decorator_name = ident) ~ ("(" ~ decorator_args? ~ ")")? }
 field_name = { ident | string_literal }
 field = { doc_block? ~ decorator* ~ (#field_name = field_name) ~ ":" ~ (#field_type = type_expr) ~ ("=" ~ const_expr)? }
 
-enum_variant = { doc_block? ~ decorator* ~ (#variant_name = string_literal) }
+enum_variant = { doc_block? ~ decorator* ~ string_literal }
 enum_variants = { enum_variant ~ ("|" ~ enum_variant)* }
 enum_def = { doc_block? ~ decorator* ~ "enum" ~ (#enum_name = ident) ~ ":" ~ enum_variants }
 
@@ -46,4 +46,4 @@ anon_model = { "{" ~ model_body ~ "}" }
 
 endpoint = { doc_block? ~ decorator* ~ "endpoint" ~ (#endpoint_name = ident) ~ "{" ~ model_body ~ "}" }
 
-program = _{ SOI ~ ((model | endpoint)+) ~ EOI }
+program = _{ SOI ~ ((model | endpoint | enum_def)+) ~ EOI }

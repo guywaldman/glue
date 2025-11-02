@@ -27,6 +27,8 @@ pub enum LSyntaxKind {
     // Nodes
     TYPE_ATOM,
     DOC_BLOCK,
+    DOC_BLOCK_LINE,
+    DOC_CONTENT,
     TYPE_ATOM_MODIFIERS,
     IDENT,
     TYPE,
@@ -89,12 +91,11 @@ impl rowan::Language for Lang {
 pub type LNode = rowan::SyntaxNode<Lang>;
 pub type LToken = rowan::SyntaxToken<Lang>;
 
-pub struct LParser;
+pub struct Parser;
 
 #[derive(Debug, Clone)]
-pub struct Parsed<'a> {
-    pub root: LNode,
-    pub metadata: SourceCodeMetadata<'a>,
+pub struct ParsedProgram {
+    pub ast_root: LNode,
 }
 
 #[derive(Debug)]
@@ -110,15 +111,15 @@ impl ParserError {
     }
 }
 
-impl LParser {
+impl Parser {
     pub fn new() -> Self {
         Self
     }
 
-    pub fn parse<'a>(&self, metadata: SourceCodeMetadata<'a>) -> Result<Parsed<'a>, ParserError> {
+    pub fn parse(&self, metadata: &SourceCodeMetadata) -> Result<ParsedProgram, ParserError> {
         let src = &metadata.file_contents;
-        let root = Self::parse_to_rowan(src);
-        Ok(Parsed { root, metadata })
+        let root = Self::parse_to_rowan(src)?;
+        Ok(ParsedProgram { ast_root: root })
     }
 
     fn map_rule(r: Rule) -> LSyntaxKind {
@@ -152,13 +153,13 @@ impl LParser {
             Rule::string_literal_inner => STRING_LITERAL_INNER,
             Rule::char => CHAR,
             Rule::doc_block => DOC_BLOCK,
-            Rule::doc_comment => DOC_COMMENT,
+            Rule::doc_block_line => DOC_BLOCK_LINE,
             _ => ERROR,
         }
     }
 
-    fn parse_to_rowan(src: &str) -> rowan::SyntaxNode<Lang> {
-        let pairs = P::parse(Rule::program, src).expect("parse error");
+    fn parse_to_rowan(src: &str) -> Result<rowan::SyntaxNode<Lang>, ParserError> {
+        let pairs = P::parse(Rule::program, src).map_err(|e| ParserError::GeneralError(e.into_miette().into()))?;
 
         let mut b = rowan::GreenNodeBuilder::new();
         b.start_node(LSyntaxKind::PROGRAM.into());
@@ -169,7 +170,7 @@ impl LParser {
         }
         b.finish_node();
 
-        rowan::SyntaxNode::new_root(b.finish()) // ok: exactly one child
+        Ok(rowan::SyntaxNode::new_root(b.finish()))
     }
 
     fn build_pair(b: &mut rowan::GreenNodeBuilder, src: &str, pos: &mut usize, pair: Pair<Rule>) {

@@ -1,7 +1,6 @@
 use std::{fmt::Arguments, sync::Arc};
 
 use miette::{Diagnostic, GraphicalReportHandler, LabeledSpan, NamedSource, Report, Severity, diagnostic};
-use pest::Span;
 use rowan::TextRange;
 
 #[derive(Clone)]

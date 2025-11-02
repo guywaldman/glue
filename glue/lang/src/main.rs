@@ -1,7 +1,5 @@
-// use gluelang::{Lexer, Parser, SemanticAnalyzer};
-
 use indoc::indoc;
-use lang::{LParser, SemanticAnalyzer, SemanticAnalyzerError, SourceCodeMetadata, print_report};
+use lang::{Parser, SemanticAnalyzer, SourceCodeMetadata, print_report};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     pretty_env_logger::init();
@@ -19,7 +17,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             @deprecated
             name: string
             id: string
-            blah: Ba
+            blah: BarEnum
+
+            enum BarEnum: "A" | "B" | "C"
         }
 
         model Bar {
@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         file_name: "example.glue",
         file_contents: src,
     };
-    let parsed = match LParser::new().parse(source_code_metadata) {
+    let parsed = match Parser::new().parse(&source_code_metadata) {
         Ok(p) => p,
         Err(e) => {
             let mut out = String::with_capacity(2048);
@@ -39,7 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let analyzed = match SemanticAnalyzer::new().analyze(parsed) {
+    let analyzed = match SemanticAnalyzer::new().analyze(&parsed, &source_code_metadata) {
         Ok(p) => p,
         Err(errs) => {
             let mut out = String::with_capacity(2048);

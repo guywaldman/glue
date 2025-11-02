@@ -1,0 +1,68 @@
+---
+source: codegen/src/codegen_jsonschema.rs
+expression: output
+---
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "GlueConfigSchema",
+    "type": "object",
+    "properties": {
+        "generation": {
+            "$ref": "#/$defs/GlueConfigSchema::Generation",
+            "description": "Configuration for code generation (`glue gen [...]`)"
+        }
+    },
+    "$defs": {
+        "GlueConfigSchema": {
+            "type": "object",
+            "properties": {
+                "generation": {
+                    "$ref": "#/$defs/GlueConfigSchema::Generation",
+                    "description": "Configuration for code generation (`glue gen [...]`)"
+                }
+            }
+        },
+        "GlueConfigSchema::Generation": {
+            "type": "object",
+            "properties": {
+                "python_pydantic": {
+                    "$ref": "#/$defs/GlueConfigSchema::Generation::PythonPydantic",
+                    "description": "Configurations for Python code generation using Pydantic (`glue gen py-pydantic [...]`)"
+                },
+                "rust_serde": {
+                    "$ref": "#/$defs/GlueConfigSchema::Generation::RustSerde",
+                    "description": "Configurations for Rust code generation using Serde (`glue gen rust-serde [...]`)"
+                },
+                "watermark": {
+                    "$ref": "#/$defs/GlueConfigSchema::Generation::Watermark",
+                    "description": "Mode for the watermark at the top of the generated files"
+                }
+            }
+        },
+        "GlueConfigSchema::Generation::PythonPydantic": {
+            "type": "object",
+            "properties": {
+                "base_model": {
+                    "type": "string",
+                    "description": "The full import path for the base model class to inherit from (e.g., `pydantic.BaseModel` or `my.module.CustomBaseModel`)"
+                }
+            }
+        },
+        "GlueConfigSchema::Generation::RustSerde": {
+            "type": "object",
+            "properties": {
+                "include_yaml": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "GlueConfigSchema::Generation::Watermark": {
+            "type": "string",
+            "enum": [
+                "full",
+                "short",
+                "none"
+            ]
+        }
+    }
+}

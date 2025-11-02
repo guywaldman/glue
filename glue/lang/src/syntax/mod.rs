@@ -1,5 +1,5 @@
 mod ast;
 mod parser;
 
-pub use ast::{AstNode, Decorator, Field, Model, Type, TypeAtom};
-pub use parser::{LNode, LParser, LSyntaxKind, LToken, Parsed};
+pub use ast::{AstNode, Decorator, Enum, Field, Model, PrimitiveType, Type, TypeAtom};
+pub use parser::{LNode, LSyntaxKind, ParsedProgram, Parser};

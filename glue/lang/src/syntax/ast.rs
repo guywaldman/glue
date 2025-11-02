@@ -23,6 +23,18 @@ impl Model {
         self.0.children_with_tokens().filter_map(|e| e.into_token()).find(|t| t.kind() == LSyntaxKind::IDENT)
     }
 
+    pub fn ident(&self) -> Option<String> {
+        self.ident_token().map(|t| t.text().to_string())
+    }
+
+    pub fn docs(&self) -> Option<Vec<String>> {
+        self.0
+            .children_with_tokens()
+            .find(|t| t.kind() == LSyntaxKind::DOC_BLOCK)
+            .and_then(|doc_block_node| doc_block_node.into_token().map(|n| n.text().to_string()))
+            .map(|text| text.lines().map(|line| line.trim().trim_start_matches("///").trim().to_string()).collect())
+    }
+
     pub fn field_nodes(&self) -> Vec<LNode> {
         self.0
             .children()
@@ -32,8 +44,66 @@ impl Model {
             .collect()
     }
 
+    pub fn nested_model_nodes(&self) -> Vec<LNode> {
+        self.0
+            .children()
+            .find(|n| n.kind() == LSyntaxKind::MODEL_BODY)
+            .into_iter()
+            .flat_map(|model_body| model_body.children().filter(|n| n.kind() == LSyntaxKind::MODEL))
+            .collect()
+    }
+
+    pub fn nested_enum_nodes(&self) -> Vec<LNode> {
+        self.0
+            .children()
+            .find(|n| n.kind() == LSyntaxKind::MODEL_BODY)
+            .into_iter()
+            .flat_map(|model_body| model_body.children().filter(|n| n.kind() == LSyntaxKind::ENUM))
+            .collect()
+    }
+
     pub fn decorator_nodes(&self) -> Vec<LNode> {
         self.0.children().filter(|n| n.kind() == LSyntaxKind::DECORATOR).collect()
+    }
+
+    pub fn decorators(&self) -> Vec<Decorator> {
+        self.decorator_nodes().into_iter().filter_map(Decorator::cast).collect()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Enum(LNode);
+
+impl AstNode for Enum {
+    fn cast(n: LNode) -> Option<Self> {
+        (n.kind() == LSyntaxKind::ENUM).then(|| Enum(n))
+    }
+
+    fn syntax(&self) -> &LNode {
+        &self.0
+    }
+}
+
+impl Enum {
+    pub fn ident_token(&self) -> Option<LToken> {
+        self.0.children_with_tokens().filter_map(|e| e.into_token()).find(|t| t.kind() == LSyntaxKind::IDENT)
+    }
+
+    pub fn docs(&self) -> Option<Vec<String>> {
+        self.0
+            .children_with_tokens()
+            .find(|t| t.kind() == LSyntaxKind::DOC_BLOCK)
+            .and_then(|doc_block_node| doc_block_node.into_token().map(|n| n.text().to_string()))
+            .map(|text| text.lines().map(|line| line.trim().trim_start_matches("///").trim().to_string()).collect())
+    }
+
+    pub fn variant_nodes(&self) -> Vec<LNode> {
+        self.0
+            .children()
+            .find(|n| n.kind() == LSyntaxKind::ENUM_VARIANTS)
+            .into_iter()
+            .flat_map(|enum_variants| enum_variants.children().filter(|n| n.kind() == LSyntaxKind::ENUM_VARIANT))
+            .collect()
     }
 }
 
@@ -53,6 +123,10 @@ impl AstNode for Decorator {
 impl Decorator {
     pub fn ident_token(&self) -> Option<LToken> {
         self.0.children_with_tokens().find(|n| n.kind() == LSyntaxKind::IDENT).and_then(|ident_node| ident_node.into_token())
+    }
+
+    pub fn name(&self) -> Option<String> {
+        self.ident_token().map(|t| t.text().to_string())
     }
 }
 
@@ -77,12 +151,44 @@ impl Field {
             .and_then(|field_name| field_name.children_with_tokens().filter_map(|e| e.into_token()).find(|t| t.kind() == LSyntaxKind::IDENT))
     }
 
+    pub fn docs(&self) -> Option<Vec<String>> {
+        self.0
+            .children_with_tokens()
+            .find(|t| t.kind() == LSyntaxKind::DOC_BLOCK)
+            .and_then(|doc_block_node| doc_block_node.into_token().map(|n| n.text().to_string()))
+            .map(|text| text.lines().map(|line| line.trim().trim_start_matches("///").trim().to_string()).collect())
+    }
+
     pub fn type_node(&self) -> Option<LNode> {
         self.0.children().find(|n| n.kind() == LSyntaxKind::TYPE)
     }
 
+    pub fn ty(&self) -> Option<Type> {
+        self.type_node().and_then(Type::cast)
+    }
+
     pub fn decorator_nodes(&self) -> Vec<LNode> {
         self.0.children().filter(|n| n.kind() == LSyntaxKind::DECORATOR).collect()
+    }
+}
+
+pub enum PrimitiveType {
+    String,
+    Int,
+    Float,
+    Bool,
+}
+
+impl TryFrom<&str> for PrimitiveType {
+    type Error = ();
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        match s.trim() {
+            "string" => Ok(PrimitiveType::String),
+            "int" => Ok(PrimitiveType::Int),
+            "float" => Ok(PrimitiveType::Float),
+            "bool" => Ok(PrimitiveType::Bool),
+            _ => Err(()),
+        }
     }
 }
 
@@ -101,6 +207,10 @@ impl AstNode for Type {
 impl Type {
     pub fn type_atom_nodes(&self) -> Vec<LNode> {
         self.0.children().filter(|n| n.kind() == LSyntaxKind::TYPE_ATOM).collect()
+    }
+
+    pub fn type_atoms(&self) -> Vec<TypeAtom> {
+        self.type_atom_nodes().into_iter().filter_map(TypeAtom::cast).collect()
     }
 }
 
@@ -131,6 +241,11 @@ impl TypeAtom {
     pub fn ident_token(&self) -> Option<LToken> {
         self.0.children_with_tokens().find(|n| n.kind() == LSyntaxKind::IDENT).and_then(|ident_node| ident_node.into_token())
     }
+
+    pub fn as_primitive_type(&self) -> Option<PrimitiveType> {
+        let type_atom_text = self.0.text().to_string();
+        PrimitiveType::try_from(type_atom_text.as_str()).ok()
+    }
 }
 
 #[cfg(test)]
@@ -139,7 +254,7 @@ mod tests {
         metadata::SourceCodeMetadata,
         syntax::{
             ast::{Field, Model, Type, TypeAtom},
-            parser::LParser,
+            parser::Parser,
         },
     };
     use indoc::indoc;
@@ -161,8 +276,8 @@ mod tests {
             file_name: "test.glue",
             file_contents: src,
         };
-        let parsed = LParser::new().parse(metadata).unwrap();
-        let ast_root = parsed.root;
+        let parsed = Parser::new().parse(&metadata).unwrap();
+        let ast_root = parsed.ast_root;
 
         let models: Vec<_> = ast_root.children().filter(|n| n.kind() == LSyntaxKind::MODEL).collect();
         println!("{} models", models.len());

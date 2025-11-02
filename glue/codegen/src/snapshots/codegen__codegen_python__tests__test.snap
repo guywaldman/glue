@@ -1,0 +1,8 @@
+---
+source: codegen/src/codegen_python.rs
+expression: output
+---
+from pydantic import BaseModel
+
+class GlueConfigSchema(BaseModel):
+    generation: str
