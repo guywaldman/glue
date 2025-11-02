@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use miette::Report;
 
 use crate::{
-    SourceCodeMetadata,
+    EnumVariant, Literal, LiteralExpr, PrimitiveType, SourceCodeMetadata,
     diagnostics::DiagnosticContext,
     symbols::{SymId, SymTable},
     syntax::{AstNode, Enum, Field, LNode, LSyntaxKind, Model, ParsedProgram, Type, TypeAtom},
@@ -55,7 +55,7 @@ impl SemanticAnalyzer {
             match kind {
                 LSyntaxKind::MODEL => {
                     // TODO: Remove clone for symbols
-                    Self::check_model(node, symbols.clone(), None, errors.clone(), diagnostic_ctx.clone());
+                    Self::check_model(node, &symbols, None, errors.clone(), diagnostic_ctx.clone());
                 }
                 _ => {}
             }
@@ -66,24 +66,88 @@ impl SemanticAnalyzer {
         if !errors.is_empty() { Err(errors) } else { Ok(AnalyzedProgram { ast_root: root, symbols }) }
     }
 
-    fn check_model(node: LNode, symbols: SymTable<LNode>, scope: Option<SymId>, errors: Arc<Mutex<Vec<SemanticAnalyzerError>>>, diag: DiagnosticContext) {
+    fn check_model(node: LNode, symbols: &SymTable<LNode>, scope: Option<SymId>, errors: Arc<Mutex<Vec<SemanticAnalyzerError>>>, diag: DiagnosticContext) {
         let model = Model::cast(node.clone()).unwrap();
         let model_fields = model.field_nodes();
         let model_ident_token = model.ident_token().unwrap();
         let model_name = model_ident_token.text().to_string();
         let model_scope = symbols.resolve_id(scope, &model_name);
         for field_node in model_fields {
-            Self::check_field(field_node, symbols.clone(), model_scope, errors.clone(), diag.clone());
+            Self::check_field(field_node, symbols, model_scope, errors.clone(), diag.clone());
+        }
+
+        for nested_model_node in model.nested_model_nodes() {
+            Self::check_model(nested_model_node, symbols, model_scope, errors.clone(), diag.clone());
         }
     }
 
-    fn check_field(node: LNode, symbols: SymTable<LNode>, scope: Option<SymId>, errors: Arc<Mutex<Vec<SemanticAnalyzerError>>>, diag: DiagnosticContext) {
+    fn check_field(node: LNode, symbols: &SymTable<LNode>, scope: Option<SymId>, errors: Arc<Mutex<Vec<SemanticAnalyzerError>>>, diag: DiagnosticContext) {
         let field = Field::cast(node.clone()).unwrap();
         let field_type = field.type_node().unwrap();
-        Self::check_type(field_type, symbols, scope, errors, diag);
+        Self::check_type(field_type, symbols, scope, errors.clone(), diag.clone());
+
+        // Check that the default matches the type
+        if let Some(field_default_value_node) = field.default_literal_expr_node() {
+            let literal_expr = LiteralExpr::cast(field_default_value_node.clone()).expect("Expected ConstExpr node");
+            let default_value = literal_expr.value().expect("Expected value in LiteralExpr");
+            let type_expr = Type::cast(field.type_node().unwrap().clone()).unwrap();
+            let type_atom_nodes: Vec<_> = type_expr.type_atom_nodes();
+
+            // TODO: Support unions
+            if type_atom_nodes.len() == 1 {
+                let type_atom = TypeAtom::cast(type_atom_nodes[0].clone()).unwrap();
+
+                if let Some(primitive_type) = type_atom.as_primitive_type() {
+                    match (primitive_type, default_value) {
+                        (PrimitiveType::Bool, Literal::BoolLiteral(_)) => {}
+                        (PrimitiveType::Int, Literal::IntLiteral(_)) => {}
+                        (PrimitiveType::Float, Literal::FloatLiteral(_)) => {}
+                        (PrimitiveType::String, Literal::StringLiteral(_)) => {}
+                        _ => {
+                            let report = diag.error(field_default_value_node.text_range(), format_args!("Type of default value does not match field type"), None);
+                            errors.lock().unwrap().push(SemanticAnalyzerError::DuplicateField(report));
+                        }
+                    }
+                } else {
+                    // Not a literal type - must be a ref
+                    let ref_name = type_atom.ident_token().unwrap().text().to_string();
+                    let ref_sym = symbols.resolve_id(scope, &ref_name).expect("Expected referenced symbol to exist");
+                    let ref_entry = symbols.get(ref_sym).expect("Expected symbol entry to exist");
+
+                    match (&ref_entry.data.kind(), &default_value) {
+                        (LSyntaxKind::ENUM, Literal::StringLiteral(variant_literal)) => {
+                            let enum_node = ref_entry.data.clone();
+                            let enum_model = Enum::cast(enum_node.clone()).unwrap();
+                            let enum_ident_token = enum_model.ident_token().unwrap();
+                            let enum_name_str = enum_ident_token.text().to_string();
+                            let variant_exists = enum_model.variant_nodes().iter().any(|curr_variant_node| {
+                                let curr_variant = EnumVariant::cast(curr_variant_node.clone()).unwrap();
+                                let curr_variant_name = curr_variant.value().unwrap();
+                                *variant_literal == curr_variant_name
+                            });
+                            if !variant_exists {
+                                let report_label = diag.labeled_span(enum_node.text_range(), format!("Enum '{}' defined here", enum_name_str));
+                                let report = diag.error_with_labels(
+                                    field_default_value_node.text_range(),
+                                    format_args!("Enum variant '{}' does not exist in enum '{}'", variant_literal, enum_name_str),
+                                    None,
+                                    None,
+                                    vec![report_label],
+                                );
+                                errors.lock().unwrap().push(SemanticAnalyzerError::DuplicateField(report));
+                            }
+                        }
+                        _ => {
+                            let report = diag.error(field_default_value_node.text_range(), format_args!("Type of default value does not match field type"), None);
+                            errors.lock().unwrap().push(SemanticAnalyzerError::DuplicateField(report));
+                        }
+                    }
+                }
+            }
+        }
     }
 
-    fn check_type(node: LNode, symbols: SymTable<LNode>, scope: Option<SymId>, errors: Arc<Mutex<Vec<SemanticAnalyzerError>>>, diag: DiagnosticContext) {
+    fn check_type(node: LNode, symbols: &SymTable<LNode>, scope: Option<SymId>, errors: Arc<Mutex<Vec<SemanticAnalyzerError>>>, diag: DiagnosticContext) {
         let type_expr = Type::cast(node.clone()).unwrap();
         let type_atom_nodes = type_expr.type_atom_nodes();
         for type_atom_node in type_atom_nodes {

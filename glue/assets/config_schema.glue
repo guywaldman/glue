@@ -7,13 +7,15 @@ model GlueConfigSchema {
 	model Generation {
 		/// Mode for the watermark at the top of the generated files
 		watermark: Watermark = "short"
-		enum Watermark: "full" | "short" | "none"
 
-		/// Configurations for Rust code generation using Serde (`glue gen rust-serde [...]`)
-		rust_serde: RustSerde
-		model RustSerde {
-			include_yaml: bool = false
-		}
+		/// Mode for generating the watermark comment at the top of generated files
+		enum Watermark: 
+			/// Includes full details including generation timestamp, Glue version, source file, etc.
+			"full" |
+			/// Includes minimal details such as the the timestamp and source file
+			"short" |
+			/// No watermark comment is included
+			"none"
 
 		/// Configurations for Python code generation using Pydantic (`glue gen py-pydantic [...]`)
 		python_pydantic: PythonPydantic

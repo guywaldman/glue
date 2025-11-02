@@ -26,6 +26,10 @@ impl DiagnosticContext {
         self.build(span, message, help, Severity::Error, primary_label, extra_labels)
     }
 
+    pub fn labeled_span(&self, span: TextRange, label: String) -> LabeledSpan {
+        LabeledSpan::at(span.start().into()..span.end().into(), label)
+    }
+
     fn build(&self, span: TextRange, message: Arguments<'_>, help: Option<String>, severity: Severity, primary_label: Option<String>, mut labels: Vec<LabeledSpan>) -> Report {
         let message = message.to_string();
         let primary_label = primary_label.unwrap_or_else(|| message.clone());

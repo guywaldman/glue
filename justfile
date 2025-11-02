@@ -1,3 +1,6 @@
+assets_dir := "assets"
+config_schema := "assets/config_schema.glue"
+
 build:
 	cd glue && cargo build --workspace --all-features
 
@@ -7,9 +10,11 @@ generate: build
 	set -e
 
 	cd glue
-	cargo run --bin glue -- gen jsonschema -i assets/config_schema.glue -o assets/config_schema.json
-	# cargo run --bin glue -- gen rust-serde -i assets/config_schema.glue -o cli/src/codegen/config_schema_generated.rs
-	# cargo fmt -- cli/src/codegen/config_schema_generated.rs
+	cargo run --bin glue -- gen jsonschema -i {{config_schema}} -o {{assets_dir}}/config_schema.json
+
+	config_rust_file="config/src/schema.rs"
+	cargo run --bin glue -- gen rust -i {{config_schema}} -o $config_rust_file
+	cargo fmt -- $config_rust_file
 
 check-cli:
 	just lint-cli

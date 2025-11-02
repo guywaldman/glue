@@ -72,6 +72,40 @@ impl Model {
 }
 
 #[derive(Debug, Clone)]
+pub struct EnumVariant(LNode);
+
+impl AstNode for EnumVariant {
+    fn cast(n: LNode) -> Option<Self> {
+        (n.kind() == LSyntaxKind::ENUM_VARIANT).then(|| EnumVariant(n))
+    }
+
+    fn syntax(&self) -> &LNode {
+        &self.0
+    }
+}
+
+impl EnumVariant {
+    pub fn value(&self) -> Option<String> {
+        self.0
+            .children_with_tokens()
+            .find(|n| n.kind() == LSyntaxKind::STRING_LITERAL)
+            .and_then(|string_node| string_node.into_node())
+            .and_then(|n| n.children_with_tokens().find(|t| t.kind() == LSyntaxKind::STRING_LITERAL_INNER))
+            .map(|n| n.into_token())
+            .and_then(|t| t.map(|token| token.text().to_string()))
+            .map(|s| s.trim().trim_start_matches('"').trim_end_matches('"').to_string())
+    }
+
+    pub fn docs(&self) -> Option<Vec<String>> {
+        self.0
+            .children_with_tokens()
+            .find(|t| t.kind() == LSyntaxKind::DOC_BLOCK)
+            .and_then(|doc_block_node| doc_block_node.into_token().map(|n| n.text().to_string()))
+            .map(|text| text.lines().map(|line| line.trim().trim_start_matches("///").trim().to_string()).collect())
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Enum(LNode);
 
 impl AstNode for Enum {
@@ -87,6 +121,10 @@ impl AstNode for Enum {
 impl Enum {
     pub fn ident_token(&self) -> Option<LToken> {
         self.0.children_with_tokens().filter_map(|e| e.into_token()).find(|t| t.kind() == LSyntaxKind::IDENT)
+    }
+
+    pub fn ident(&self) -> Option<String> {
+        self.ident_token().map(|t| t.text().to_string())
     }
 
     pub fn docs(&self) -> Option<Vec<String>> {
@@ -131,6 +169,64 @@ impl Decorator {
 }
 
 #[derive(Debug, Clone)]
+pub enum Literal {
+    StringLiteral(String),
+    IntLiteral(i64),
+    FloatLiteral(f64),
+    BoolLiteral(bool),
+}
+
+#[derive(Debug, Clone)]
+pub struct LiteralExpr(LNode);
+
+impl AstNode for LiteralExpr {
+    fn cast(n: LNode) -> Option<Self> {
+        (n.kind() == LSyntaxKind::LITERAL).then(|| LiteralExpr(n))
+    }
+
+    fn syntax(&self) -> &LNode {
+        &self.0
+    }
+}
+
+impl LiteralExpr {
+    pub fn value(&self) -> Option<Literal> {
+        let child = self.0.children_with_tokens().find(|n| {
+            matches!(
+                n.kind(),
+                LSyntaxKind::STRING_LITERAL | LSyntaxKind::BOOL_LITERAL | LSyntaxKind::TRUE_LITERAL | LSyntaxKind::FALSE_LITERAL | LSyntaxKind::IDENT
+            )
+        })?;
+
+        match child.kind() {
+            LSyntaxKind::STRING_LITERAL => Some(Literal::StringLiteral(
+                child.into_node().unwrap().text().to_string().trim().trim_start_matches("\"").trim_end_matches("\"").to_string(),
+            )),
+            LSyntaxKind::BOOL_LITERAL => {
+                let bool_node = child.into_node().unwrap();
+                let inner_literal = bool_node.children_with_tokens().find(|n| matches!(n.kind(), LSyntaxKind::TRUE_LITERAL | LSyntaxKind::FALSE_LITERAL))?;
+                match inner_literal.kind() {
+                    LSyntaxKind::TRUE_LITERAL => Some(Literal::BoolLiteral(true)),
+                    LSyntaxKind::FALSE_LITERAL => Some(Literal::BoolLiteral(false)),
+                    _ => None,
+                }
+            }
+            LSyntaxKind::IDENT => {
+                let text = child.into_token().unwrap().text().to_string();
+                if let Ok(int_value) = text.parse::<i64>() {
+                    Some(Literal::IntLiteral(int_value))
+                } else if let Ok(float_value) = text.parse::<f64>() {
+                    Some(Literal::FloatLiteral(float_value))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Field(LNode);
 
 impl AstNode for Field {
@@ -151,6 +247,10 @@ impl Field {
             .and_then(|field_name| field_name.children_with_tokens().filter_map(|e| e.into_token()).find(|t| t.kind() == LSyntaxKind::IDENT))
     }
 
+    pub fn ident(&self) -> Option<String> {
+        self.ident_token().map(|t| t.text().to_string())
+    }
+
     pub fn docs(&self) -> Option<Vec<String>> {
         self.0
             .children_with_tokens()
@@ -161,6 +261,13 @@ impl Field {
 
     pub fn type_node(&self) -> Option<LNode> {
         self.0.children().find(|n| n.kind() == LSyntaxKind::TYPE)
+    }
+
+    pub fn default_literal_expr_node(&self) -> Option<LNode> {
+        self.0
+            .children()
+            .find(|n| n.kind() == LSyntaxKind::FIELD_DEFAULT_VALUE)
+            .and_then(|node| node.children().find(|n| n.kind() == LSyntaxKind::LITERAL))
     }
 
     pub fn ty(&self) -> Option<Type> {
@@ -211,6 +318,20 @@ impl Type {
 
     pub fn type_atoms(&self) -> Vec<TypeAtom> {
         self.type_atom_nodes().into_iter().filter_map(TypeAtom::cast).collect()
+    }
+
+    pub fn as_single_ref(&self) -> Option<String> {
+        let type_atoms: Vec<_> = self.type_atom_nodes();
+        if type_atoms.len() != 1 {
+            return None;
+        }
+        let first_atom = &type_atoms[0];
+        let type_atom = TypeAtom::cast(first_atom.clone())?;
+        if type_atom.as_primitive_type().is_some() {
+            return None;
+        }
+        let ident_token = type_atom.ident_token()?;
+        Some(ident_token.text().to_string())
     }
 }
 

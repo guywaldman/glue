@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use config::GlueConfig;
 use lang::{AnalyzedProgram, AstNode, Decorator, DiagnosticContext, Enum, Field, LNode, LSyntaxKind, Model, PrimitiveType, SourceCodeMetadata, SymId, SymTable, Type, TypeAtom};
 
 use crate::{CodeGenError, CodeGenerator, types::CodeGenResult};
@@ -8,7 +9,7 @@ pub struct CodeGenJsonSchema;
 
 // TODO: Refactor such that visitors also emit contributions, and similar refs are shared and not inlined
 impl CodeGenerator for CodeGenJsonSchema {
-    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata) -> Result<String, crate::CodeGenError> {
+    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, _config: &GlueConfig) -> Result<String, crate::CodeGenError> {
         let ast = program.ast_root.clone();
         let mut json = json::object::Object::new();
 
@@ -94,15 +95,14 @@ impl CodeGeneratorImpl {
     }
 
     fn visit_model(&mut self, node: LNode, parent_sym: Option<SymId>) -> CodeGenResult<CodeGenVisitorContributions<json::object::Object>> {
-        let model = Model::cast(node).ok_or(CodeGenError::GeneralError("Expected model node".into()))?;
-        let model_name_token = model.ident_token().ok_or(CodeGenError::GeneralError("Expected model to have ident token".into()))?;
+        let model = Model::cast(node).ok_or(CodeGenError::InternalError("Expected model node".into()))?;
+        let model_name_token = model.ident_token().ok_or(CodeGenError::InternalError("Expected model to have ident token".into()))?;
         let model_name = model_name_token.text().to_string();
 
-        let current_scope = match parent_sym {
-            Some(scope) => self.syms.resolve_id(Some(scope), &model_name),
-            None => self.syms.resolve_id(None, &model_name),
-        }
-        .unwrap_or_else(|| panic!("Unresolved model symbol for model: {}", model_name));
+        let current_scope = self
+            .syms
+            .resolve_id(parent_sym, &model_name)
+            .unwrap_or_else(|| panic!("Unresolved model symbol for model: {}", model_name));
 
         // Check if model has existing def - if not, contribute to definitions.
         let decorators = model.decorators();
@@ -124,10 +124,10 @@ impl CodeGeneratorImpl {
 
         let field_nodes = model.field_nodes();
         for field_node in field_nodes {
-            let field = Field::cast(field_node).ok_or(CodeGenError::GeneralError("Expected field node".into()))?;
-            let field_name_token = field.ident_token().ok_or(CodeGenError::GeneralError("Expected field to have ident token".into()))?;
+            let field = Field::cast(field_node).ok_or(CodeGenError::InternalError("Expected field node".into()))?;
+            let field_name_token = field.ident_token().ok_or(CodeGenError::InternalError("Expected field to have ident token".into()))?;
             let field_name = field_name_token.text().to_string();
-            let field_type_node = field.type_node().ok_or(CodeGenError::GeneralError("Expected field to have type node".into()))?;
+            let field_type_node = field.type_node().ok_or(CodeGenError::InternalError("Expected field to have type node".into()))?;
             let mut field_type_json = self.visit_type(field_type_node.clone(), Some(current_scope))?;
             if let Some(docs) = field.docs() {
                 field_type_json["description"] = docs.join("\n").into();
@@ -145,15 +145,11 @@ impl CodeGeneratorImpl {
     }
 
     pub fn visit_enum(&mut self, node: LNode, parent_sym: Option<SymId>) -> CodeGenResult<json::JsonValue> {
-        let enum_model = Enum::cast(node).ok_or(CodeGenError::GeneralError("Expected enum node".into()))?;
-        let enum_name_token = enum_model.ident_token().ok_or(CodeGenError::GeneralError("Expected enum to have ident token".into()))?;
+        let enum_model = Enum::cast(node).ok_or(CodeGenError::InternalError("Expected enum node".into()))?;
+        let enum_name_token = enum_model.ident_token().ok_or(CodeGenError::InternalError("Expected enum to have ident token".into()))?;
         let enum_name = enum_name_token.text().to_string();
 
-        let current_scope = match parent_sym {
-            Some(scope) => self.syms.resolve_id(Some(scope), &enum_name),
-            None => self.syms.resolve_id(None, &enum_name),
-        }
-        .unwrap_or_else(|| panic!("Unresolved enum symbol for enum: {}", enum_name));
+        let current_scope = self.syms.resolve_id(parent_sym, &enum_name).unwrap_or_else(|| panic!("Unresolved enum symbol for enum: {}", enum_name));
 
         let variant_nodes = enum_model.variant_nodes();
         let mut variants: Vec<String> = Vec::new();
@@ -187,7 +183,7 @@ impl CodeGeneratorImpl {
     }
 
     pub fn visit_type(&mut self, node: LNode, parent_sym: Option<SymId>) -> CodeGenResult<json::JsonValue> {
-        let type_expr = Type::cast(node).ok_or(CodeGenError::GeneralError("Expected type node".into()))?;
+        let type_expr = Type::cast(node).ok_or(CodeGenError::InternalError("Expected type node".into()))?;
         let type_atom_nodes = type_expr.type_atoms();
 
         let mut types: Vec<json::JsonValue> = Vec::new();
@@ -204,7 +200,7 @@ impl CodeGeneratorImpl {
     }
 
     fn visit_type_atom(&mut self, node: LNode, parent_sym: Option<SymId>) -> CodeGenResult<json::JsonValue> {
-        let type_atom = TypeAtom::cast(node).ok_or(CodeGenError::GeneralError("Expected type atom node".into()))?;
+        let type_atom = TypeAtom::cast(node).ok_or(CodeGenError::InternalError("Expected type atom node".into()))?;
 
         if let Some(primitive_type) = type_atom.as_primitive_type() {
             let primitive_type = match primitive_type {
@@ -220,7 +216,7 @@ impl CodeGeneratorImpl {
         } else {
             let ref_name = type_atom
                 .ident_token()
-                .ok_or(CodeGenError::GeneralError("Expected type atom to have ident token".into()))?
+                .ok_or(CodeGenError::InternalError("Expected type atom to have ident token".into()))?
                 .text()
                 .to_string();
             let sym_id = self.syms.resolve_id(parent_sym, &ref_name).expect("Unresolved symbol");
@@ -231,7 +227,7 @@ impl CodeGeneratorImpl {
                 let ref_sym = self
                     .syms
                     .resolve(parent_sym, &ref_name)
-                    .ok_or(CodeGenError::GeneralError(format!("Unresolved type reference: {}", ref_name)))?;
+                    .ok_or(CodeGenError::InternalError(format!("Unresolved type reference: {}", ref_name)))?;
                 let ref_node = ref_sym.data;
 
                 match ref_node.kind() {
@@ -245,7 +241,7 @@ impl CodeGeneratorImpl {
                         self.visit_enum(ref_node.clone(), parent_sym)?;
                         Ok(self.format_ref(parent_sym, &ref_name).into())
                     }
-                    _ => Err(CodeGenError::GeneralError(format!("Unsupported type reference kind: {:?}", ref_node.kind()))),
+                    _ => Err(CodeGenError::InternalError(format!("Unsupported type reference kind: {:?}", ref_node.kind()))),
                 }
             }
         }
@@ -330,9 +326,9 @@ mod tests {
 
         let codegen = CodeGenJsonSchema::new();
         let output = codegen
-            .generate(program, &source)
+            .generate(program, &source, &GlueConfig::default())
             .map_err(|e| match e {
-                CodeGenError::GeneralError(msg) => msg,
+                CodeGenError::InternalError(msg) => msg,
                 CodeGenError::GenerationErrors(diags) => {
                     for diag in diags {
                         print_report(&diag).expect("Failed to print diagnostic");

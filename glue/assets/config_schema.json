@@ -1,7 +1,7 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "type": "object",
     "title": "GlueConfigSchema",
+    "type": "object",
     "properties": {
         "generation": {
             "$ref": "#/$defs/GlueConfigSchema::Generation",
@@ -9,13 +9,27 @@
         }
     },
     "$defs": {
-        "GlueConfigSchema::Generation::Watermark": {
-            "type": "string",
-            "enum": [
-                "full",
-                "short",
-                "none"
-            ]
+        "GlueConfigSchema": {
+            "type": "object",
+            "properties": {
+                "generation": {
+                    "$ref": "#/$defs/GlueConfigSchema::Generation",
+                    "description": "Configuration for code generation (`glue gen [...]`)"
+                }
+            }
+        },
+        "GlueConfigSchema::Generation": {
+            "type": "object",
+            "properties": {
+                "python_pydantic": {
+                    "$ref": "#/$defs/GlueConfigSchema::Generation::PythonPydantic",
+                    "description": "Configurations for Python code generation using Pydantic (`glue gen py-pydantic [...]`)"
+                },
+                "watermark": {
+                    "$ref": "#/$defs/GlueConfigSchema::Generation::Watermark",
+                    "description": "Mode for the watermark at the top of the generated files"
+                }
+            }
         },
         "GlueConfigSchema::Generation::PythonPydantic": {
             "type": "object",
@@ -26,39 +40,14 @@
                 }
             }
         },
-        "GlueConfigSchema::Generation::RustSerde": {
-            "type": "object",
-            "properties": {
-                "include_yaml": {
-                    "type": "boolean"
-                }
-            }
-        },
-        "GlueConfigSchema::Generation": {
-            "type": "object",
-            "properties": {
-                "watermark": {
-                    "$ref": "#/$defs/GlueConfigSchema::Generation::Watermark",
-                    "description": "Mode for the watermark at the top of the generated files"
-                },
-                "rust_serde": {
-                    "$ref": "#/$defs/GlueConfigSchema::Generation::RustSerde",
-                    "description": "Configurations for Rust code generation using Serde (`glue gen rust-serde [...]`)"
-                },
-                "python_pydantic": {
-                    "$ref": "#/$defs/GlueConfigSchema::Generation::PythonPydantic",
-                    "description": "Configurations for Python code generation using Pydantic (`glue gen py-pydantic [...]`)"
-                }
-            }
-        },
-        "GlueConfigSchema": {
-            "type": "object",
-            "properties": {
-                "generation": {
-                    "$ref": "#/$defs/GlueConfigSchema::Generation",
-                    "description": "Configuration for code generation (`glue gen [...]`)"
-                }
-            }
+        "GlueConfigSchema::Generation::Watermark": {
+            "type": "string",
+            "description": "Mode for generating the watermark comment at the top of generated files",
+            "enum": [
+                "full",
+                "short",
+                "none"
+            ]
         }
     }
 }

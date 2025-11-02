@@ -14,6 +14,8 @@ pub struct SymEntry<TData> {
 #[derive(Clone)]
 pub struct SymTable<TData>(HopSlotMap<SymId, SymEntry<TData>>);
 
+const SYMBOL_NAME_SEPARATOR: &str = "::";
+
 impl<TData> SymTable<TData>
 where
     TData: Clone + std::hash::Hash + PartialEq + Eq,
@@ -88,7 +90,7 @@ where
         let top_level_entries = self
             .0
             .iter()
-            .filter_map(|(_, sym_entry)| if !sym_entry.name.contains("::") { Some(sym_entry.clone()) } else { None })
+            .filter_map(|(_, sym_entry)| if !sym_entry.name.contains(SYMBOL_NAME_SEPARATOR) { Some(sym_entry.clone()) } else { None })
             .collect::<Vec<_>>();
 
         let entry = match scope {
@@ -104,12 +106,12 @@ where
             }
         };
 
-        let prefixes: Vec<_> = entry.split("::").collect();
+        let prefixes: Vec<_> = entry.split(SYMBOL_NAME_SEPARATOR).collect();
         let mut results: HashSet<_> = HashSet::from_iter(top_level_entries);
         for (_, sym_entry) in self.0.iter() {
             for i in 0..=prefixes.len() {
-                let prefix = prefixes[..i].join("::");
-                let expected_prefix = if prefix.is_empty() { "".to_string() } else { format!("{}::", prefix) };
+                let prefix = prefixes[..i].join(SYMBOL_NAME_SEPARATOR);
+                let expected_prefix = if prefix.is_empty() { "".to_string() } else { format!("{}{}", prefix, SYMBOL_NAME_SEPARATOR) };
                 if sym_entry.name.starts_with(&expected_prefix) && sym_entry.name != entry {
                     results.insert(sym_entry.clone());
                     break;
@@ -123,6 +125,10 @@ where
     pub fn join_entries(prefix: &str, entry: &str) -> String {
         if prefix.is_empty() { entry.to_string() } else { format!("{}::{}", prefix, entry) }
     }
+}
+
+pub fn symbol_name_to_parts(name: &str) -> Vec<&str> {
+    name.split(SYMBOL_NAME_SEPARATOR).collect()
 }
 
 impl<TData> std::fmt::Debug for SymTable<TData> {

@@ -219,12 +219,14 @@ dependencies = [
  "chrono",
  "clap",
  "codegen",
+ "config",
  "indoc",
  "insta",
  "json",
  "lang",
  "log",
  "miette",
+ "pathdiff",
  "pretty_env_logger",
  "rand",
  "serde",
@@ -240,6 +242,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "config",
  "convert_case",
  "indoc",
  "insta",
@@ -268,6 +271,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fde0e0ec90c9dfb3b4b1a0891a7dcd0e2bffde2f7efed5fe7c9bb00e5bfb915e"
 dependencies = [
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "config"
+version = "0.1.0"
+dependencies = [
+ "indoc",
+ "log",
+ "pretty_assertions",
+ "pretty_env_logger",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror",
 ]
 
 [[package]]
@@ -681,6 +698,12 @@ name = "owo-colors"
 version = "4.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c6901729fa79e91a0913333229e9ca5dc725089d1c363b2f4b4760709dc4a52"
+
+[[package]]
+name = "pathdiff"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df94ce210e5bc13cb6651479fa48d14f601d9858cfe0467f43ae157023b938d3"
 
 [[package]]
 name = "pest"

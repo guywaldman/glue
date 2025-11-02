@@ -1,0 +1,63 @@
+---
+source: codegen/src/codegen_rust.rs
+expression: output
+---
+use serde::{Serialize, Deserialize};
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct GlueConfigSchema {
+    /// Configuration for code generation (`glue gen [...]`)
+    pub generation: GlueConfigSchemaGeneration,
+
+}
+
+
+fn default_glue_config_schema_generation_watermark() -> GlueConfigSchemaGenerationWatermark { GlueConfigSchemaGenerationWatermark::Short }
+fn default_glue_config_schema_generation_rust_serde_include_yaml() -> bool { false }
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct GlueConfigSchemaGenerationRustSerde {
+    #[serde(default = "default_glue_config_schema_generation_rust_serde_include_yaml")]
+    pub include_yaml: bool,
+}
+
+
+fn default_glue_config_schema_generation_python_pydantic_base_model() -> String { "pydantic.BaseModel".to_string() }
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct GlueConfigSchemaGenerationPythonPydantic {
+    #[serde(default = "default_glue_config_schema_generation_python_pydantic_base_model")]
+    /// The full import path for the base model class to inherit from (e.g., `pydantic.BaseModel` or `my.module.CustomBaseModel`)
+    pub base_model: String,
+}
+
+
+/// Watermark modes for generated files
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum GlueConfigSchemaGenerationWatermark {
+    Full,
+    Short,
+    None,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct GlueConfigSchemaGeneration {
+    #[serde(default = "default_glue_config_schema_generation_watermark")]
+    /// Mode for the watermark at the top of the generated files
+    pub watermark: GlueConfigSchemaGenerationWatermark,
+    /// Configurations for Rust code generation using Serde (`glue gen rust-serde [...]`)
+    pub rust_serde: GlueConfigSchemaGenerationRustSerde,
+    /// Configurations for Python code generation using Pydantic (`glue gen py-pydantic [...]`)
+    pub python_pydantic: GlueConfigSchemaGenerationPythonPydantic,
+
+
+
+}
+
+impl Default for GlueConfigSchemaGeneration {
+    fn default() -> Self {
+        Self {
+        watermark: default_glue_config_schema_generation_watermark(),
+        rust_serde: Default::default(),
+        python_pydantic: Default::default(),
+    }
+  }
+}

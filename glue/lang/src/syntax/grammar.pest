@@ -18,32 +18,33 @@ char = {
 true_literal = { "true" }
 false_literal = { "false" }
 bool_literal = { true_literal | false_literal }
-const_expr = { string_literal | bool_literal | ASCII_DIGIT+ }
+literal = { string_literal | bool_literal | ASCII_DIGIT+ }
 
 builtin_type = { "int" | "string" | "bool" }
 type_atom_modifiers = { "[]"? ~ "?"? }
 type_atom = { (builtin_type | ident | anon_model) ~ type_atom_modifiers }
 type_expr = { type_atom ~ ("|" ~ type_atom)* }
 
-decorator_named_arg = { ident ~ "=" ~ const_expr }
-decorator_positional_arg = { const_expr }
+decorator_named_arg = { ident ~ "=" ~ literal }
+decorator_positional_arg = { literal }
 decorator_args = _{
     decorator_positional_arg ~ ("," ~ decorator_positional_arg)* ~ ("," ~ decorator_named_arg)*
     | decorator_named_arg ~ ("," ~ decorator_named_arg)*
 }
-decorator = { "@" ~ (#decorator_name = ident) ~ ("(" ~ decorator_args? ~ ")")? }
+decorator = { "@" ~ ident ~ ("(" ~ decorator_args? ~ ")")? }
 
 field_name = { ident | string_literal }
-field = { doc_block? ~ decorator* ~ (#field_name = field_name) ~ ":" ~ (#field_type = type_expr) ~ ("=" ~ const_expr)? }
+field_default_value = { literal }
+field = { doc_block? ~ decorator* ~ field_name ~ ":" ~ type_expr ~ ("=" ~ field_default_value)? }
 
 enum_variant = { doc_block? ~ decorator* ~ string_literal }
 enum_variants = { enum_variant ~ ("|" ~ enum_variant)* }
-enum_def = { doc_block? ~ decorator* ~ "enum" ~ (#enum_name = ident) ~ ":" ~ enum_variants }
+enum_def = { doc_block? ~ decorator* ~ "enum" ~ ident ~ ":" ~ enum_variants }
 
-model_body = { ((#top_level_field = field) | model | enum_def)* }
-model = { doc_block? ~ decorator* ~ "model" ~ (#model_name = ident) ~ "{" ~ model_body ~ "}" }
+model_body = { (field | model | enum_def)* }
+model = { doc_block? ~ decorator* ~ "model" ~ ident ~ "{" ~ model_body ~ "}" }
 anon_model = { "{" ~ model_body ~ "}" }
 
-endpoint = { doc_block? ~ decorator* ~ "endpoint" ~ (#endpoint_name = ident) ~ "{" ~ model_body ~ "}" }
+endpoint = { doc_block? ~ decorator* ~ "endpoint" ~ ident ~ "{" ~ model_body ~ "}" }
 
 program = _{ SOI ~ ((model | endpoint | enum_def)+) ~ EOI }

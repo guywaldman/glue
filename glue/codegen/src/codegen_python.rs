@@ -1,3 +1,4 @@
+use config::GlueConfig;
 use convert_case::Casing;
 use lang::{AnalyzedProgram, AstNode, Enum, Field, LNode, LSyntaxKind, Model, SourceCodeMetadata};
 
@@ -6,7 +7,7 @@ use crate::CodeGenerator;
 pub struct CodeGenPython;
 
 impl CodeGenerator for CodeGenPython {
-    fn generate(&self, program: AnalyzedProgram, _source: &SourceCodeMetadata) -> Result<String, crate::CodeGenError> {
+    fn generate(&self, program: AnalyzedProgram, _source: &SourceCodeMetadata, _config: &GlueConfig) -> Result<String, crate::CodeGenError> {
         let ast = program.ast_root;
 
         let mut output = String::new();
@@ -96,6 +97,7 @@ impl CodeGenPython {
 
 #[cfg(test)]
 mod tests {
+    use config::GlueConfig;
     use indoc::indoc;
     use insta::assert_snapshot;
     use lang::print_report;
@@ -136,9 +138,9 @@ mod tests {
 
         let codegen = CodeGenPython::new();
         let output = codegen
-            .generate(program, &source)
+            .generate(program, &source, &GlueConfig::default())
             .map_err(|e| match e {
-                CodeGenError::GeneralError(msg) => msg,
+                CodeGenError::InternalError(msg) => msg,
                 CodeGenError::GenerationErrors(diags) => {
                     for diag in diags {
                         print_report(&diag).expect("Failed to print diagnostic");
