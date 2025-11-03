@@ -1,7 +1,7 @@
 mod args;
 
 use anyhow::Result;
-use codegen::{CodeGenError, CodeGenJsonSchema, CodeGenPython, CodeGenRust, CodeGenerator};
+use codegen::{CodeGenError, CodeGenJsonSchema, CodeGenOpenAPI, CodeGenPython, CodeGenRust, CodeGenerator};
 use config::{GlueConfig, GlueConfigSchemaGenerationWatermark};
 use std::{io::Read, path::PathBuf};
 use thiserror::Error;
@@ -78,6 +78,7 @@ impl GlueCli {
                     CodeGenMode::Python => Box::new(CodeGenPython::new()),
                     CodeGenMode::JsonSchema => Box::new(CodeGenJsonSchema::new()),
                     CodeGenMode::Rust => Box::new(CodeGenRust::new()),
+                    CodeGenMode::OpenApi => Box::new(CodeGenOpenAPI::new()),
                 };
                 let config = match config_path {
                     Some(path) => {
@@ -186,6 +187,7 @@ impl GlueCli {
             CodeGenMode::Python => "#",
             CodeGenMode::JsonSchema => "//",
             CodeGenMode::Rust => "//",
+            CodeGenMode::OpenApi => "//",
         };
         if !watermark_lines.is_empty() {
             watermark.push_str(&format!("{} {}\n", comment_prefix, Self::WATERMARK_SEPERATOR));

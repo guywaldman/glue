@@ -13,8 +13,8 @@ pub struct Cli {
 pub enum CodeGenMode {
     #[value(alias("jsonschema"))]
     JsonSchema,
-    // #[value(alias("openapi"))]
-    // OpenApi,
+    #[value(alias("openapi"))]
+    OpenApi,
     #[value(alias("rust"))]
     Rust,
     #[value(alias("python"))]
