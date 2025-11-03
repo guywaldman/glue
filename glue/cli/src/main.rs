@@ -210,6 +210,7 @@ impl GlueCli {
                 return Err(CliError::ParsingError);
             }
         };
+
         match SemanticAnalyzer::new().analyze(&parsed_program, &source) {
             Ok(analyzed_program) => Ok((analyzed_program, source)),
             Err(errs) => {

@@ -367,6 +367,10 @@ impl TypeAtom {
         self.0.children_with_tokens().find(|n| n.kind() == LSyntaxKind::IDENT).and_then(|ident_node| ident_node.into_token())
     }
 
+    pub fn as_anon_model(&self) -> Option<LNode> {
+        self.0.children().find(|n| n.kind() == LSyntaxKind::ANON_MODEL)
+    }
+
     // Note: Ignores modifiers
     pub fn as_primitive_type(&self) -> Option<PrimitiveType> {
         let mut type_atom_text = self.0.text().to_string();

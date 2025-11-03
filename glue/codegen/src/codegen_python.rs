@@ -130,7 +130,7 @@ impl CodeGeneratorImpl {
                 let field_type_atoms = field_type.type_atom_nodes();
                 let field_type_atom_codes = field_type_atoms
                     .into_iter()
-                    .map(|type_atom_node| self.emit_type_atom(type_atom_node, Some(current_scope.id)))
+                    .map(|type_atom_node| self.emit_type_atom(type_atom_node, &field_name, Some(current_scope.id)))
                     .collect::<Result<Vec<String>, CodeGenError>>()?;
                 let mut field_type_code = if field_type_atom_codes.len() == 1 {
                     field_type_atom_codes[0].clone()
@@ -150,7 +150,7 @@ impl CodeGeneratorImpl {
                 }
                 annotated_content.push(')');
 
-                output.push_str(&indent_lines(&format!("{}: Annotated[{}]\n", field_name, annotated_content), 4));
+                output.push_str(&indent_lines(&format!("{}: Annotated[{}]\n", field_name.to_case(convert_case::Case::Snake), annotated_content), 4));
                 if let Some(docs) = field.docs() {
                     let docstring = self.emit_docstring(docs);
                     output.push_str(&indent_lines(&docstring, 4));
@@ -193,7 +193,7 @@ impl CodeGeneratorImpl {
             let variant = EnumVariant::cast(variant_node).ok_or(CodeGenError::InternalError("Expected EnumVariant node".to_string()))?;
             let variant_value = variant.value().ok_or(CodeGenError::InternalError("EnumVariant missing ident".to_string()))?;
             let variant_ident = variant_value.replace('-', "_").to_case(convert_case::Case::UpperSnake);
-            output.push_str(&indent_lines(&format!("{}: \"{}\"\n", variant_ident, variant_value), 4));
+            output.push_str(&indent_lines(&format!("{} = \"{}\"\n", variant_ident, variant_value), 4));
             if let Some(docs) = variant.docs() {
                 let docstring = self.emit_docstring(docs);
                 output.push_str(&indent_lines(&docstring, 4));
@@ -203,7 +203,7 @@ impl CodeGeneratorImpl {
         Ok(output)
     }
 
-    fn emit_type_atom(&mut self, node: LNode, _parent_scope: Option<SymId>) -> CodeGenResult<String> {
+    fn emit_type_atom(&mut self, node: LNode, _field_name: &str, parent_scope: Option<SymId>) -> CodeGenResult<String> {
         let type_atom = TypeAtom::cast(node.clone()).ok_or(CodeGenError::InternalError("Expected TypeAtom node".to_string()))?;
         // TODO: Support enums?
         let mut res = if let Some(primitive_type) = type_atom.as_primitive_type() {
@@ -216,15 +216,24 @@ impl CodeGeneratorImpl {
         } else {
             // Should be a reference to another model
             let Some(type_ident_token) = type_atom.ident_token() else {
+                if type_atom.as_anon_model().is_some() {
+                    // TODO: Support anonymous models
+                    // // Add a pseudo-symbol for the anonymous model
+                    // let parent_scope = self.syms.get(parent_scope.unwrap()).unwrap();
+                    // let anon_model_qualified_name = SymTable::<LNode>::join_entries(&parent_scope.name, field_name);
+                    // self.syms.add_to_scope(Some(parent_scope.id), anon_model_qualified_name, node.clone());
+                    return Err(CodeGenError::GenerationError(self.diag.error(node.text_range(), "Anonymous models are currently not supported")));
+                }
                 return Err(CodeGenError::InternalError("Expected TypeAtom to have ident for non-primitive type".to_string()));
             };
             let type_name = type_ident_token.text().to_string();
             let sym = self
                 .syms
-                .resolve(_parent_scope, &type_name)
+                .resolve(parent_scope, &type_name)
                 .ok_or_else(|| CodeGenError::InternalError(format!("Unresolved type atom symbol for type: {}", type_name)))?;
 
-            qualified_symbol_name_to_case(&sym.name, convert_case::Case::Pascal)
+            // Wrap in quotes to support forward references
+            format!("\"{}\"", qualified_symbol_name_to_case(&sym.name, convert_case::Case::Pascal))
         };
 
         if type_atom.is_optional() {

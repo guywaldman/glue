@@ -119,8 +119,7 @@ impl Parser {
     }
 
     pub fn parse(&self, metadata: &SourceCodeMetadata) -> Result<ParsedProgram, ParserError> {
-        let src = &metadata.file_contents;
-        let root = Self::parse_to_rowan(src)?;
+        let root = Self::parse_to_rowan(metadata.file_contents, metadata.file_name)?;
         Ok(ParsedProgram { ast_root: root })
     }
 
@@ -162,8 +161,8 @@ impl Parser {
         }
     }
 
-    fn parse_to_rowan(src: &str) -> Result<rowan::SyntaxNode<Lang>, ParserError> {
-        let pairs = P::parse(Rule::program, src).map_err(|e| ParserError::GeneralError(e.into_miette().into()))?;
+    fn parse_to_rowan(src: &str, file_name: &str) -> Result<rowan::SyntaxNode<Lang>, ParserError> {
+        let pairs = P::parse(Rule::program, src).map_err(|e| ParserError::GeneralError(e.with_path(file_name).into_miette().into()))?;
 
         let mut b = rowan::GreenNodeBuilder::new();
         b.start_node(LSyntaxKind::PROGRAM.into());

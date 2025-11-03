@@ -11,15 +11,15 @@ from enum import StrEnum
 from typing import Annotated, Optional, Union
 
 class GlueConfigSchema(BaseModel):
-    generation: Annotated[GlueConfigSchemaGeneration, Field()]
+    generation: Annotated["GlueConfigSchemaGeneration", Field()]
     """Configuration for code generation (`glue gen [...]`)"""
 
 class GlueConfigSchemaGeneration(BaseModel):
-    watermark: Annotated[GlueConfigSchemaGenerationWatermark, Field()]
+    watermark: Annotated["GlueConfigSchemaGenerationWatermark", Field()]
     """Mode for the watermark at the top of the generated files"""
-    rust_serde: Annotated[GlueConfigSchemaGenerationRustSerde, Field()]
+    rust_serde: Annotated["GlueConfigSchemaGenerationRustSerde", Field()]
     """Configurations for Rust code generation using Serde (`glue gen rust-serde [...]`)"""
-    python_pydantic: Annotated[GlueConfigSchemaGenerationPythonPydantic, Field()]
+    python_pydantic: Annotated["GlueConfigSchemaGenerationPythonPydantic", Field()]
     """Configurations for Python code generation using Pydantic (`glue gen py-pydantic [...]`)"""
 
 class GlueConfigSchemaGenerationRustSerde(BaseModel):
@@ -31,9 +31,9 @@ class GlueConfigSchemaGenerationPythonPydantic(BaseModel):
 
 class GlueConfigSchemaGenerationWatermark(StrEnum):
     """Watermark modes for generated files"""
-    FULL: "full"
+    FULL = "full"
     """Includes full watermark with generation command and timestamp"""
-    SHORT: "short"
+    SHORT = "short"
     """Includes short watermark with just generation command"""
-    NONE: "none"
+    NONE = "none"
     """No watermark included"""

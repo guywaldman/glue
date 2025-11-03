@@ -50,15 +50,28 @@ where
     }
 
     pub fn resolve(&self, scope: Option<SymId>, entry_name: &str) -> Option<SymEntry<TData>> {
-        let mut full_entry_name = entry_name.to_string();
+        let mut symbol_name_candidates = vec![entry_name.to_string()];
         if let Some(scope) = scope
             && let Some(scope_entry) = self.0.get(scope)
         {
-            full_entry_name = Self::join_entries(&scope_entry.name, &full_entry_name);
+            // Separate scope entry name to parts
+            let scope_parts = symbol_name_to_parts(&scope_entry.name);
+            for i in (0..=scope_parts.len()).rev() {
+                let prefix = scope_parts[..i].join(SYMBOL_NAME_SEPARATOR);
+                let candidate = if prefix.is_empty() {
+                    entry_name.to_string()
+                } else {
+                    format!("{}{}{}", prefix, SYMBOL_NAME_SEPARATOR, entry_name)
+                };
+                symbol_name_candidates.push(candidate.clone());
+            }
         }
+
         for (_, sym_entry) in self.0.iter() {
-            if sym_entry.name == full_entry_name {
-                return Some(sym_entry.clone());
+            for candidate in &symbol_name_candidates {
+                if sym_entry.name == *candidate {
+                    return Some(sym_entry.clone());
+                }
             }
         }
         None
