@@ -3,6 +3,7 @@ mod syntax;
 
 mod metadata;
 mod semantic_analyzer;
+mod builtin_decorators;
 mod symbols;
 mod utils;
 

@@ -1,12 +1,15 @@
 use config::{GlueConfig, GlueConfigSchemaGenerationPythonPydantic};
 use convert_case::Casing;
-use lang::{AnalyzedProgram, AstNode, DiagnosticContext, Enum, EnumVariant, Field, LNode, LSyntaxKind, Model, PrimitiveType, SourceCodeMetadata, SymId, SymTable, TypeAtom};
+use lang::{AnalyzedProgram, AstNode, DiagnosticContext, Enum, EnumVariant, Field, LNode, LSyntaxKind, Literal, LiteralExpr, Model, PrimitiveType, SourceCodeMetadata, SymId, SymTable, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
     codegen_utils::{indent_lines, qualified_symbol_name_to_case},
     types::CodeGenResult,
 };
+
+const BOOL_LITERAL_TRUE: &str = "True";
+const BOOL_LITERAL_FALSE: &str = "False";
 
 pub struct CodeGenPython;
 
@@ -144,9 +147,27 @@ impl CodeGeneratorImpl {
 
                 let mut annotated_content = String::new();
                 annotated_content.push_str(format!("{}, Field(", field_type_code).as_str());
-                // TODO: Support defaults
+
+                let mut default_value_code = None;
                 if field.is_optional() {
-                    annotated_content.push_str("default=None");
+                    default_value_code = Some("None".to_string());
+                } else if let Some(default_literal_expr_node) = field.default_literal_expr_node() {
+                    let default_value = LiteralExpr::cast(default_literal_expr_node).ok_or(CodeGenError::InternalError("Missing default literal expression".to_string()))?;
+                    match default_value.value().expect("Expeced literal value") {
+                        Literal::BoolLiteral(v) => {
+                            default_value_code = Some(if v { BOOL_LITERAL_TRUE.to_string() } else { BOOL_LITERAL_FALSE.to_string() });
+                        }
+                        Literal::IntLiteral(v) => {
+                            default_value_code = Some(v.to_string());
+                        }
+                        Literal::StringLiteral(v) => {
+                            default_value_code = Some(format!("\"{}\"", v));
+                        }
+                        _ => {}
+                    }
+                }
+                if let Some(default_value_code) = default_value_code {
+                    annotated_content.push_str(&format!("default={}", default_value_code));
                 }
                 annotated_content.push(')');
 

@@ -283,6 +283,7 @@ impl Field {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum PrimitiveType {
     String,
     Int,
