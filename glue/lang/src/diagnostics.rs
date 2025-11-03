@@ -1,4 +1,4 @@
-use std::{fmt::Arguments, sync::Arc};
+use std::sync::Arc;
 
 use miette::{Diagnostic, GraphicalReportHandler, LabeledSpan, NamedSource, Report, Severity, diagnostic};
 use rowan::TextRange;
@@ -18,11 +18,15 @@ impl DiagnosticContext {
         }
     }
 
-    pub fn error(&self, span: TextRange, message: Arguments<'_>, help: Option<String>) -> Report {
-        self.build(span, message, help, Severity::Error, None, Vec::new())
+    pub fn error(&self, span: TextRange, message: &str) -> Report {
+        self.build(span, message, None, Severity::Error, None, Vec::new())
     }
 
-    pub fn error_with_labels(&self, span: TextRange, message: Arguments<'_>, help: Option<String>, primary_label: Option<String>, extra_labels: Vec<LabeledSpan>) -> Report {
+    pub fn error_with_help(&self, span: TextRange, message: &str, help: String) -> Report {
+        self.build(span, message, Some(help), Severity::Error, None, Vec::new())
+    }
+
+    pub fn error_with_labels(&self, span: TextRange, message: &str, help: Option<String>, primary_label: Option<String>, extra_labels: Vec<LabeledSpan>) -> Report {
         self.build(span, message, help, Severity::Error, primary_label, extra_labels)
     }
 
@@ -30,9 +34,8 @@ impl DiagnosticContext {
         LabeledSpan::at(span.start().into()..span.end().into(), label)
     }
 
-    fn build(&self, span: TextRange, message: Arguments<'_>, help: Option<String>, severity: Severity, primary_label: Option<String>, mut labels: Vec<LabeledSpan>) -> Report {
-        let message = message.to_string();
-        let primary_label = primary_label.unwrap_or_else(|| message.clone());
+    fn build(&self, span: TextRange, message: &str, help: Option<String>, severity: Severity, primary_label: Option<String>, mut labels: Vec<LabeledSpan>) -> Report {
+        let primary_label = primary_label.unwrap_or_else(|| message.to_string());
         labels.insert(0, LabeledSpan::at(span.start().into()..span.end().into(), primary_label));
         let diagnostic = diagnostic! {
             severity = severity,

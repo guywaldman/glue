@@ -104,7 +104,7 @@ impl SemanticAnalyzer {
                         (PrimitiveType::Float, Literal::FloatLiteral(_)) => {}
                         (PrimitiveType::String, Literal::StringLiteral(_)) => {}
                         _ => {
-                            let report = diag.error(field_default_value_node.text_range(), format_args!("Type of default value does not match field type"), None);
+                            let report = diag.error(field_default_value_node.text_range(), "Type of default value does not match field type");
                             errors.lock().unwrap().push(SemanticAnalyzerError::DuplicateField(report));
                         }
                     }
@@ -129,7 +129,7 @@ impl SemanticAnalyzer {
                                 let report_label = diag.labeled_span(enum_node.text_range(), format!("Enum '{}' defined here", enum_name_str));
                                 let report = diag.error_with_labels(
                                     field_default_value_node.text_range(),
-                                    format_args!("Enum variant '{}' does not exist in enum '{}'", variant_literal, enum_name_str),
+                                    &format!("Enum variant '{}' does not exist in enum '{}'", variant_literal, enum_name_str),
                                     None,
                                     None,
                                     vec![report_label],
@@ -138,7 +138,7 @@ impl SemanticAnalyzer {
                             }
                         }
                         _ => {
-                            let report = diag.error(field_default_value_node.text_range(), format_args!("Type of default value does not match field type"), None);
+                            let report = diag.error(field_default_value_node.text_range(), "Type of default value does not match field type");
                             errors.lock().unwrap().push(SemanticAnalyzerError::DuplicateField(report));
                         }
                     }
@@ -165,17 +165,15 @@ impl SemanticAnalyzer {
                     if let Some(suggested_name) = suggested_names.first()
                         && suggested_name.1 >= 50
                     {
-                        let report = diag.error_with_labels(
+                        let report = diag.error_with_help(
                             ident_token.text_range(),
-                            format_args!("Undefined type reference '{}'", type_name),
-                            Some(format!("Did you mean '{}'?", suggested_name.0)),
-                            Some("Undefined reference".to_string()),
-                            vec![],
+                            &format!("Undefined type reference '{}'", type_name),
+                            format!("Did you mean '{}'?", suggested_name.0),
                         );
                         errors.lock().unwrap().push(SemanticAnalyzerError::UndefinedTypeReference(report));
                         continue;
                     }
-                    let report = diag.error(ident_token.text_range(), format_args!("Undefined type reference '{}'", type_name), None);
+                    let report = diag.error(ident_token.text_range(), &format!("Undefined type reference '{}'", type_name));
                     errors.lock().unwrap().push(SemanticAnalyzerError::UndefinedTypeReference(report));
                 }
             }
@@ -209,7 +207,7 @@ impl SemanticAnalyzer {
                 let ident_token = model.ident_token().unwrap();
                 let model_name = ident_token.text().to_string();
                 if syms.resolve(parent_scope, &model_name).is_some() {
-                    let report = diag.error(ident_token.text_range(), format_args!("Duplicate model name '{}'", model_name), None);
+                    let report = diag.error(ident_token.text_range(), &format!("Duplicate model name '{}'", model_name));
                     errors.lock().unwrap().push(SemanticAnalyzerError::DuplicateField(report));
                     return Err(());
                 }
@@ -229,7 +227,7 @@ impl SemanticAnalyzer {
                 let ident_token = enum_model.ident_token().unwrap();
                 let enum_name = ident_token.text().to_string();
                 if syms.resolve(parent_scope, &enum_name).is_some() {
-                    let report = diag.error(ident_token.text_range(), format_args!("Duplicate enum name '{}'", enum_name), None);
+                    let report = diag.error(ident_token.text_range(), &format!("Duplicate enum name '{}'", enum_name));
                     errors.lock().unwrap().push(SemanticAnalyzerError::DuplicateField(report));
                     return Err(());
                 }
@@ -240,7 +238,7 @@ impl SemanticAnalyzer {
                 let ident_token = field.ident_token().unwrap();
                 let field_name = ident_token.text().to_string();
                 if syms.resolve(parent_scope, &field_name).is_some() {
-                    let report = diag.error(ident_token.text_range(), format_args!("Duplicate field name '{}'", field_name), None);
+                    let report = diag.error(ident_token.text_range(), &format!("Duplicate field name '{}'", field_name));
                     errors.lock().unwrap().push(SemanticAnalyzerError::DuplicateField(report));
                     return Err(());
                 }

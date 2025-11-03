@@ -9,7 +9,7 @@ pub struct CodeGenJsonSchema;
 
 // TODO: Refactor such that visitors also emit contributions, and similar refs are shared and not inlined
 impl CodeGenerator for CodeGenJsonSchema {
-    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, _config: &GlueConfig) -> Result<String, crate::CodeGenError> {
+    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, _config: Option<GlueConfig>) -> Result<String, crate::CodeGenError> {
         let ast = program.ast_root.clone();
         let mut json = json::object::Object::new();
 
@@ -159,11 +159,9 @@ impl CodeGeneratorImpl {
                 .find(|t| t.kind() == LSyntaxKind::STRING_LITERAL)
                 .and_then(|t| t.into_node())
                 .map(|t| t.text().to_string())
-                .ok_or(CodeGenError::GenerationErrors(vec![self.diag.error(
-                    variant_node.text_range(),
-                    format_args!("Expected variant to have string literal"),
-                    None,
-                )]))?;
+                .ok_or(CodeGenError::GenerationErrors(vec![
+                    self.diag.error(variant_node.text_range(), "Expected variant to have string literal"),
+                ]))?;
             let trimmed = variant_token.trim_matches('"').to_string();
             variants.push(trimmed);
         }
@@ -211,7 +209,14 @@ impl CodeGeneratorImpl {
             };
 
             let mut type_obj = json::object::Object::new();
-            type_obj.insert("type", primitive_type?);
+            if type_atom.is_array() {
+                type_obj.insert("type", "array".into());
+                let mut items_obj = json::object::Object::new();
+                items_obj.insert("type", primitive_type?);
+                type_obj.insert("items", items_obj.into());
+            } else {
+                type_obj.insert("type", primitive_type?);
+            }
             Ok(type_obj.into())
         } else {
             let ref_name = type_atom
@@ -326,9 +331,13 @@ mod tests {
 
         let codegen = CodeGenJsonSchema::new();
         let output = codegen
-            .generate(program, &source, &GlueConfig::default())
+            .generate(program, &source, None)
             .map_err(|e| match e {
                 CodeGenError::InternalError(msg) => msg,
+                CodeGenError::GenerationError(diag) => {
+                    print_report(&diag).expect("Failed to print diagnostic");
+                    panic!("Generation error occurred");
+                }
                 CodeGenError::GenerationErrors(diags) => {
                     for diag in diags {
                         print_report(&diag).expect("Failed to print diagnostic");

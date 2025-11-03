@@ -251,6 +251,10 @@ impl Field {
         self.ident_token().map(|t| t.text().to_string())
     }
 
+    pub fn is_optional(&self) -> bool {
+        self.0.children_with_tokens().any(|n| n.kind() == LSyntaxKind::OPTIONAL_MODIFIER)
+    }
+
     pub fn docs(&self) -> Option<Vec<String>> {
         self.0
             .children_with_tokens()
@@ -363,8 +367,11 @@ impl TypeAtom {
         self.0.children_with_tokens().find(|n| n.kind() == LSyntaxKind::IDENT).and_then(|ident_node| ident_node.into_token())
     }
 
+    // Note: Ignores modifiers
     pub fn as_primitive_type(&self) -> Option<PrimitiveType> {
-        let type_atom_text = self.0.text().to_string();
+        let mut type_atom_text = self.0.text().to_string();
+        // TODO: Improve... this is hacky
+        type_atom_text = type_atom_text.replace("?", "").replace("[]", "").trim().to_string();
         PrimitiveType::try_from(type_atom_text.as_str()).ok()
     }
 }

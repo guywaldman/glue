@@ -18,6 +18,7 @@ char = {
 true_literal = { "true" }
 false_literal = { "false" }
 bool_literal = { true_literal | false_literal }
+optional_modifier = { "?" }
 literal = { string_literal | bool_literal | ASCII_DIGIT+ }
 
 builtin_type = { "int" | "string" | "bool" }
@@ -33,9 +34,11 @@ decorator_args = _{
 }
 decorator = { "@" ~ ident ~ ("(" ~ decorator_args? ~ ")")? }
 
+// NOTE: Can be a string literal to allow for field names that are not valid identifiers (e.g., "2XX")
 field_name = { ident | string_literal }
 field_default_value = { literal }
-field = { doc_block? ~ decorator* ~ field_name ~ ":" ~ type_expr ~ ("=" ~ field_default_value)? }
+// TODO: This should be a `$` production
+field = { doc_block? ~ decorator* ~ field_name ~ optional_modifier? ~ ":" ~ type_expr ~ ("=" ~ field_default_value)? }
 
 enum_variant = { doc_block? ~ decorator* ~ string_literal }
 enum_variants = { enum_variant ~ ("|" ~ enum_variant)* }

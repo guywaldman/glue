@@ -22,6 +22,7 @@ pub enum LSyntaxKind {
     BOOL_LITERAL,
     LITERAL,
     BUILTIN_TYPE,
+    OPTIONAL_MODIFIER,
     DOC_COMMENT,
 
     // Nodes
@@ -147,6 +148,7 @@ impl Parser {
             Rule::endpoint => ENDPOINT,
             Rule::ident => IDENT,
             Rule::builtin_type => BUILTIN_TYPE,
+            Rule::optional_modifier => OPTIONAL_MODIFIER,
             Rule::literal => LITERAL,
             Rule::bool_literal => BOOL_LITERAL,
             Rule::true_literal => TRUE_LITERAL,

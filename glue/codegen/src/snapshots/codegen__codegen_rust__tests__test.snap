@@ -4,7 +4,7 @@ expression: output
 ---
 use serde::{Serialize, Deserialize};
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GlueConfigSchema {
     /// Configuration for code generation (`glue gen [...]`)
     pub generation: GlueConfigSchemaGeneration,
@@ -12,35 +12,35 @@ pub struct GlueConfigSchema {
 }
 
 
-fn default_glue_config_schema_generation_watermark() -> GlueConfigSchemaGenerationWatermark { GlueConfigSchemaGenerationWatermark::Short }
-fn default_glue_config_schema_generation_rust_serde_include_yaml() -> bool { false }
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GlueConfigSchemaGenerationRustSerde {
-    #[serde(default = "default_glue_config_schema_generation_rust_serde_include_yaml")]
     pub include_yaml: bool,
 }
 
 
-fn default_glue_config_schema_generation_python_pydantic_base_model() -> String { "pydantic.BaseModel".to_string() }
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GlueConfigSchemaGenerationPythonPydantic {
-    #[serde(default = "default_glue_config_schema_generation_python_pydantic_base_model")]
     /// The full import path for the base model class to inherit from (e.g., `pydantic.BaseModel` or `my.module.CustomBaseModel`)
     pub base_model: String,
 }
 
 
 /// Watermark modes for generated files
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum GlueConfigSchemaGenerationWatermark {
+    /// Includes full watermark with generation command and timestamp
+    #[serde(rename = "full")]
     Full,
+    /// Includes short watermark with just generation command
+    #[serde(rename = "short")]
     Short,
+    /// No watermark included
+    #[serde(rename = "none")]
     None,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GlueConfigSchemaGeneration {
-    #[serde(default = "default_glue_config_schema_generation_watermark")]
     /// Mode for the watermark at the top of the generated files
     pub watermark: GlueConfigSchemaGenerationWatermark,
     /// Configurations for Rust code generation using Serde (`glue gen rust-serde [...]`)
@@ -50,14 +50,4 @@ pub struct GlueConfigSchemaGeneration {
 
 
 
-}
-
-impl Default for GlueConfigSchemaGeneration {
-    fn default() -> Self {
-        Self {
-        watermark: default_glue_config_schema_generation_watermark(),
-        rust_serde: Default::default(),
-        python_pydantic: Default::default(),
-    }
-  }
 }
