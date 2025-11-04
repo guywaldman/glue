@@ -84,7 +84,7 @@ impl CodeGeneratorImpl {
             .map(|n| n.into_node().unwrap())
             .filter(|model_node| {
                 Model::cast(model_node.clone())
-                    .map(|m| m.decorators().iter().any(|d: &Decorator| d.name().as_deref() == Some("root")))
+                    .map(|m| m.decorators().iter().any(|d: &Decorator| d.ident().as_deref() == Some("root")))
                     .unwrap_or(false)
             })
             .expect("Expected root model");
@@ -106,7 +106,7 @@ impl CodeGeneratorImpl {
 
         // Check if model has existing def - if not, contribute to definitions.
         let decorators = model.decorators();
-        if decorators.iter().any(|d: &Decorator| d.name().as_deref() == Some("root")) {
+        if decorators.iter().any(|d: &Decorator| d.ident().as_deref() == Some("root")) {
             // Root model - do not reference
         } else if let Some((def_name, _)) = self.defs.get(&current_scope) {
             return Ok(CodeGenVisitorContributions {

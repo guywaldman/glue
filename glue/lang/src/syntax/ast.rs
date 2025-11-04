@@ -1,4 +1,7 @@
-use crate::syntax::parser::{LNode, LSyntaxKind, LToken};
+use crate::{
+    builtin_decorators::{DecoratorArgDef, DecoratorDef},
+    syntax::parser::{LNode, LSyntaxKind, LToken},
+};
 
 pub trait AstNode: Sized {
     fn cast(n: LNode) -> Option<Self>;
@@ -158,13 +161,88 @@ impl AstNode for Decorator {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct DecoratorArg(LNode);
+
+impl AstNode for DecoratorArg {
+    fn cast(n: LNode) -> Option<Self> {
+        (n.kind() == LSyntaxKind::DECORATOR_NAMED_ARG || n.kind() == LSyntaxKind::DECORATOR_POSITIONAL_ARG).then(|| DecoratorArg(n))
+    }
+
+    fn syntax(&self) -> &LNode {
+        &self.0
+    }
+}
+
+impl DecoratorArg {
+    pub fn ident_node(&self) -> Option<LNode> {
+        self.0.children().find(|n| n.kind() == LSyntaxKind::IDENT)
+    }
+
+    pub fn ident(&self) -> Option<String> {
+        self.ident_node()
+            .and_then(|ident_node| ident_node.children_with_tokens().find(|n| n.kind() == LSyntaxKind::IDENT))
+            .and_then(|n| n.into_token())
+            .map(|t| t.text().to_string())
+    }
+
+    pub fn literal_expr(&self) -> Option<LiteralExpr> {
+        let literal_node = self.0.children().find(|n| n.kind() == LSyntaxKind::LITERAL)?;
+        LiteralExpr::cast(literal_node)
+    }
+
+    pub fn literal(&self) -> Option<Literal> {
+        self.literal_expr().and_then(|le| le.value())
+    }
+}
+
 impl Decorator {
     pub fn ident_token(&self) -> Option<LToken> {
         self.0.children_with_tokens().find(|n| n.kind() == LSyntaxKind::IDENT).and_then(|ident_node| ident_node.into_token())
     }
 
-    pub fn name(&self) -> Option<String> {
+    pub fn ident(&self) -> Option<String> {
         self.ident_token().map(|t| t.text().to_string())
+    }
+
+    pub fn arg_nodes(&self) -> Vec<LNode> {
+        self.0
+            .children()
+            .filter(|n| n.kind() == LSyntaxKind::DECORATOR_NAMED_ARG || n.kind() == LSyntaxKind::DECORATOR_POSITIONAL_ARG)
+            .collect()
+    }
+
+    pub fn args(&self) -> Vec<DecoratorArg> {
+        self.arg_nodes().into_iter().filter_map(DecoratorArg::cast).collect()
+    }
+
+    pub fn positional_args(&self) -> Vec<DecoratorArg> {
+        self.arg_nodes()
+            .into_iter()
+            .filter(|n| n.kind() == LSyntaxKind::DECORATOR_POSITIONAL_ARG)
+            .filter_map(DecoratorArg::cast)
+            .collect()
+    }
+
+    pub fn named_args(&self) -> Vec<DecoratorArg> {
+        self.arg_nodes()
+            .into_iter()
+            .filter(|n| n.kind() == LSyntaxKind::DECORATOR_NAMED_ARG)
+            .filter_map(DecoratorArg::cast)
+            .collect()
+    }
+
+    pub fn arg(&self, decorator_def: &DecoratorDef, arg_def: &DecoratorArgDef) -> Option<DecoratorArg> {
+        // Either in the expected position if it's a positional arg, or with the expected ident if it's a named arg.
+        if let Some(expected_pos) = arg_def.expected_position
+            && expected_pos < self.positional_args().len()
+        {
+            Some(self.positional_args()[expected_pos].clone())
+        } else if decorator_def.named_args.iter().any(|arg| arg.id == arg_def.id) {
+            self.named_args().into_iter().find(|arg| arg.ident().as_deref() == Some(arg_def.id))
+        } else {
+            None
+        }
     }
 }
 
@@ -174,6 +252,17 @@ pub enum Literal {
     IntLiteral(i64),
     FloatLiteral(f64),
     BoolLiteral(bool),
+}
+
+impl std::fmt::Display for Literal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Literal::StringLiteral(s) => write!(f, "\"string ({s})\""),
+            Literal::IntLiteral(i) => write!(f, "\"int ({})\"", i),
+            Literal::FloatLiteral(fl) => write!(f, "\"float ({})\"", fl),
+            Literal::BoolLiteral(b) => write!(f, "\"bool ({})\"", b),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -194,7 +283,7 @@ impl LiteralExpr {
         let child = self.0.children_with_tokens().find(|n| {
             matches!(
                 n.kind(),
-                LSyntaxKind::STRING_LITERAL | LSyntaxKind::BOOL_LITERAL | LSyntaxKind::TRUE_LITERAL | LSyntaxKind::FALSE_LITERAL | LSyntaxKind::IDENT
+                LSyntaxKind::STRING_LITERAL | LSyntaxKind::BOOL_LITERAL | LSyntaxKind::TRUE_LITERAL | LSyntaxKind::FALSE_LITERAL | LSyntaxKind::INT_LITERAL | LSyntaxKind::IDENT
             )
         })?;
 
@@ -209,6 +298,16 @@ impl LiteralExpr {
                     LSyntaxKind::TRUE_LITERAL => Some(Literal::BoolLiteral(true)),
                     LSyntaxKind::FALSE_LITERAL => Some(Literal::BoolLiteral(false)),
                     _ => None,
+                }
+            }
+            LSyntaxKind::INT_LITERAL => {
+                let text = child.into_token().unwrap().text().to_string();
+                if let Ok(int_value) = text.parse::<i64>() {
+                    Some(Literal::IntLiteral(int_value))
+                } else if let Ok(float_value) = text.parse::<f64>() {
+                    Some(Literal::FloatLiteral(float_value))
+                } else {
+                    None
                 }
             }
             LSyntaxKind::IDENT => {
@@ -281,6 +380,10 @@ impl Field {
     pub fn decorator_nodes(&self) -> Vec<LNode> {
         self.0.children().filter(|n| n.kind() == LSyntaxKind::DECORATOR).collect()
     }
+
+    pub fn decorators(&self) -> Vec<Decorator> {
+        self.decorator_nodes().into_iter().filter_map(Decorator::cast).collect()
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -289,6 +392,18 @@ pub enum PrimitiveType {
     Int,
     Float,
     Bool,
+}
+
+impl std::fmt::Display for PrimitiveType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            PrimitiveType::String => "string",
+            PrimitiveType::Int => "int",
+            PrimitiveType::Float => "float",
+            PrimitiveType::Bool => "bool",
+        };
+        write!(f, "{}", s)
+    }
 }
 
 impl TryFrom<&str> for PrimitiveType {

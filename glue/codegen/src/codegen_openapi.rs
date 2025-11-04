@@ -1,12 +1,7 @@
-use config::{GlueConfig, GlueConfigSchemaGenerationPythonPydantic};
-use convert_case::Casing;
-use lang::{AnalyzedProgram, AstNode, DiagnosticContext, Enum, EnumVariant, Field, LNode, LSyntaxKind, Model, PrimitiveType, SourceCodeMetadata, SymId, SymTable, TypeAtom};
+use config::GlueConfig;
+use lang::{AnalyzedProgram, DiagnosticContext, LNode, SourceCodeMetadata, SymTable};
 
-use crate::{
-    CodeGenError, CodeGenerator,
-    codegen_utils::{indent_lines, qualified_symbol_name_to_case},
-    types::CodeGenResult,
-};
+use crate::{CodeGenerator, types::CodeGenResult};
 
 pub struct CodeGenOpenAPI;
 
@@ -53,7 +48,7 @@ impl CodeGeneratorImpl {
     }
 
     pub fn generate(&mut self) -> CodeGenResult<String> {
-        let mut output = String::new();
+        let output = String::new();
 
         Ok(output)
     }

@@ -1,6 +1,7 @@
 SPACE = _{ " " | "\t" }
 WHITESPACE = _{ SPACE | NEWLINE }
-COMMENT = _{ "//" ~ (!"/") ~ (!NEWLINE ~ ANY)* ~ NEWLINE }
+comment_prefix = @{ "//" ~ !"/" }
+COMMENT = _{ comment_prefix ~ (!NEWLINE ~ ANY)* ~ NEWLINE }  
 
 doc_block_line = @{ SPACE* ~ "///" ~ (!NEWLINE ~ ANY)* }
 doc_block = @{ NEWLINE? ~ (doc_block_line ~ (NEWLINE? ~ doc_block_line ~ NEWLINE?)*) }
@@ -18,12 +19,13 @@ char = {
 true_literal = { "true" }
 false_literal = { "false" }
 bool_literal = { true_literal | false_literal }
+int_literal = @{ ASCII_DIGIT+ }
 optional_modifier = { "?" }
-literal = { string_literal | bool_literal | ASCII_DIGIT+ }
+literal = { string_literal | bool_literal | int_literal }
 
 builtin_type = { "int" | "string" | "bool" }
 type_atom_modifiers = { "[]"? ~ "?"? }
-type_atom = { (builtin_type | ident | anon_model) ~ type_atom_modifiers }
+type_atom = @{ (builtin_type | ident | anon_model) ~ type_atom_modifiers }
 type_expr = { type_atom ~ ("|" ~ type_atom)* }
 
 decorator_named_arg = { ident ~ "=" ~ literal }
@@ -50,4 +52,4 @@ anon_model = { "{" ~ model_body ~ "}" }
 
 endpoint = { doc_block? ~ decorator* ~ "endpoint" ~ ident ~ "{" ~ model_body ~ "}" }
 
-program = _{ SOI ~ ((model | endpoint | enum_def)+) ~ EOI }
+program = _{ SOI ~ (model | endpoint | enum_def)+ ~ EOI }

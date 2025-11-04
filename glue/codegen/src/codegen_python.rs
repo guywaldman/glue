@@ -1,6 +1,9 @@
 use config::{GlueConfig, GlueConfigSchemaGenerationPythonPydantic};
 use convert_case::Casing;
-use lang::{AnalyzedProgram, AstNode, DiagnosticContext, Enum, EnumVariant, Field, LNode, LSyntaxKind, Literal, LiteralExpr, Model, PrimitiveType, SourceCodeMetadata, SymId, SymTable, TypeAtom};
+use lang::{
+    AnalyzedProgram, AstNode, DiagnosticContext, Enum, EnumVariant, Field, LNode, LSyntaxKind, Literal, LiteralExpr, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG, Model, PrimitiveType,
+    SourceCodeMetadata, SymId, SymTable, TypeAtom,
+};
 
 use crate::{
     CodeGenError, CodeGenerator,
@@ -85,10 +88,10 @@ impl CodeGeneratorImpl {
                     let model_code = self.visit_model(node.clone(), None)?;
                     output.push_str(&model_code);
                 }
-                // LSyntaxKind::ENUM => {
-                //     let enum_code = self.visit_enum(node.clone(), None)?;
-                //     output.push_str(&enum_code);
-                // }
+                LSyntaxKind::ENUM => {
+                    let enum_code = self.visit_enum(node.clone(), None)?;
+                    output.push_str(&enum_code);
+                }
                 _ => {}
             }
         }
@@ -145,8 +148,7 @@ impl CodeGeneratorImpl {
                     field_type_code = format!("Optional[{}]", field_type_code);
                 }
 
-                let mut annotated_content = String::new();
-                annotated_content.push_str(format!("{}, Field(", field_type_code).as_str());
+                let mut pydantic_field_args = vec![];
 
                 let mut default_value_code = None;
                 if field.is_optional() {
@@ -167,11 +169,36 @@ impl CodeGeneratorImpl {
                     }
                 }
                 if let Some(default_value_code) = default_value_code {
-                    annotated_content.push_str(&format!("default={}", default_value_code));
+                    pydantic_field_args.push(format!("default={}", default_value_code));
                 }
-                annotated_content.push(')');
 
-                output.push_str(&indent_lines(&format!("{}: Annotated[{}]\n", field_name.to_case(convert_case::Case::Snake), annotated_content), 4));
+                // Check for `@field`` decorator
+                let decorators = field.decorators();
+                let field_decorator = decorators.iter().find(|dec| dec.ident() == Some(MODEL_FIELD_DECORATOR.id.to_owned()));
+                if let Some(field_decorator) = field_decorator
+                    && let Some(alias_arg) = field_decorator.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_ALIAS_ARG)
+                {
+                    let alias_value = alias_arg.literal().ok_or(CodeGenError::InternalError("Missing alias argument value".to_string()))?;
+                    match alias_value {
+                        Literal::StringLiteral(v) => {
+                            pydantic_field_args.push(format!("alias=\"{}\"", v));
+                        }
+                        _ => {
+                            return Err(CodeGenError::InternalError("Alias argument must be a string literal".to_string()));
+                        }
+                    }
+                } else {
+                    // By default, use the field name as alias in snake_case
+                    let alias_name = field_name.to_case(convert_case::Case::Snake);
+                    if alias_name != field_name {
+                        pydantic_field_args.push(format!("alias=\"{}\"", field_name));
+                    }
+                }
+
+                output.push_str(&indent_lines(
+                    &format!("{}: Annotated[Field({})]\n", field_name.to_case(convert_case::Case::Snake), pydantic_field_args.join(", ")),
+                    4,
+                ));
                 if let Some(docs) = field.docs() {
                     let docstring = self.emit_docstring(docs);
                     output.push_str(&indent_lines(&docstring, 4));
