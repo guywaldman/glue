@@ -25,7 +25,7 @@ literal = { string_literal | bool_literal | int_literal }
 
 builtin_type = { "int" | "string" | "bool" }
 type_atom_modifiers = { "[]"? ~ "?"? }
-type_atom = @{ (builtin_type | ident | anon_model) ~ type_atom_modifiers }
+type_atom = { (builtin_type | ident | anon_model) ~ type_atom_modifiers }
 type_expr = { type_atom ~ ("|" ~ type_atom)* }
 
 decorator_named_arg = { ident ~ "=" ~ literal }

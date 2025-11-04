@@ -1,7 +1,7 @@
 mod args;
 
 use anyhow::Result;
-use codegen::{CodeGenError, CodeGenJsonSchema, CodeGenOpenAPI, CodeGenPython, CodeGenRust, CodeGenerator};
+use codegen::{CodeGen, CodeGenError};
 use config::{GlueConfig, GlueConfigSchemaGenerationWatermark};
 use std::{io::Read, path::PathBuf};
 use thiserror::Error;
@@ -74,12 +74,6 @@ impl GlueCli {
                 },
             } => {
                 let (analyzed_program, source) = Self::analyze(input.clone())?;
-                let codegen: Box<dyn CodeGenerator> = match mode {
-                    CodeGenMode::Python => Box::new(CodeGenPython::new()),
-                    CodeGenMode::JsonSchema => Box::new(CodeGenJsonSchema::new()),
-                    CodeGenMode::Rust => Box::new(CodeGenRust::new()),
-                    CodeGenMode::OpenApi => Box::new(CodeGenOpenAPI::new()),
-                };
                 let config = match config_path {
                     Some(path) => {
                         let config_contents = std::fs::read_to_string(path).map_err(CliError::Io)?;
@@ -93,7 +87,13 @@ impl GlueCli {
                     None => None,
                 };
 
-                let mut generated_code = match codegen.generate(analyzed_program, &source, config.clone()) {
+                let codegen_mode = match mode {
+                    CodeGenMode::JsonSchema => codegen::CodeGenMode::JsonSchema,
+                    CodeGenMode::OpenApi => codegen::CodeGenMode::OpenApi,
+                    CodeGenMode::Rust => codegen::CodeGenMode::Rust,
+                    CodeGenMode::Python => codegen::CodeGenMode::Python,
+                };
+                let mut generated_code = match CodeGen::generate(codegen_mode, analyzed_program, &source, config.clone()) {
                     Ok(code) => code,
                     Err(CodeGenError::GenerationErrors(diags)) => {
                         for diag in diags {

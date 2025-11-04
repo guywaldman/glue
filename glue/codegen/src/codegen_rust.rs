@@ -2,7 +2,7 @@ use config::GlueConfig;
 use convert_case::Casing;
 use lang::{AnalyzedProgram, AstNode, DiagnosticContext, Enum, EnumVariant, Field, LNode, LSyntaxKind, Model, PrimitiveType, SourceCodeMetadata, SymId, SymTable, Type, TypeAtom};
 
-use crate::{CodeGenError, CodeGenerator, codegen_utils::qualified_symbol_name_to_case, types::CodeGenResult};
+use crate::{CodeGenError, CodeGenerator, codegen::CodeGenResult, codegen_utils::qualified_symbol_name_to_case};
 
 pub struct CodeGenRust;
 

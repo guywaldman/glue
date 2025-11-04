@@ -1,7 +1,7 @@
 use config::GlueConfig;
 use lang::{AnalyzedProgram, DiagnosticContext, LNode, SourceCodeMetadata, SymTable};
 
-use crate::{CodeGenerator, types::CodeGenResult};
+use crate::{CodeGenError, CodeGenerator, codegen::CodeGenResult};
 
 pub struct CodeGenOpenAPI;
 

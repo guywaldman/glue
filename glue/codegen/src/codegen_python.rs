@@ -7,8 +7,8 @@ use lang::{
 
 use crate::{
     CodeGenError, CodeGenerator,
+    codegen::CodeGenResult,
     codegen_utils::{indent_lines, qualified_symbol_name_to_case},
-    types::CodeGenResult,
 };
 
 const BOOL_LITERAL_TRUE: &str = "True";
@@ -196,7 +196,12 @@ impl CodeGeneratorImpl {
                 }
 
                 output.push_str(&indent_lines(
-                    &format!("{}: Annotated[Field({})]\n", field_name.to_case(convert_case::Case::Snake), pydantic_field_args.join(", ")),
+                    &format!(
+                        "{}: Annotated[{}, Field({})]\n",
+                        field_name.to_case(convert_case::Case::Snake),
+                        field_type_code,
+                        pydantic_field_args.join(", ")
+                    ),
                     4,
                 ));
                 if let Some(docs) = field.docs() {

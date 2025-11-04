@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use config::GlueConfig;
 use lang::{AnalyzedProgram, AstNode, Decorator, DiagnosticContext, Enum, Field, LNode, LSyntaxKind, Model, PrimitiveType, SourceCodeMetadata, SymId, SymTable, Type, TypeAtom};
 
-use crate::{CodeGenError, CodeGenerator, types::CodeGenResult};
+use crate::{CodeGenError, CodeGenerator, codegen::CodeGenResult};
 
 pub struct CodeGenJsonSchema;
 
