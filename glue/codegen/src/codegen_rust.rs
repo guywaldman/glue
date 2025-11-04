@@ -418,6 +418,7 @@ mod tests {
                     }
                     panic!("Generation errors occurred");
                 }
+                e => panic!("Unexpected error: {:?}", e),
             })
             .unwrap();
 

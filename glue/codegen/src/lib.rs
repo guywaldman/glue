@@ -13,3 +13,5 @@ mod test_utils;
 
 pub use codegen::CodeGenerator;
 pub use codegen::{CodeGen, CodeGenError, CodeGenMode};
+pub use lang::SourceCodeMetadata;
+pub use lang::{generate_report, generate_reports, print_report};

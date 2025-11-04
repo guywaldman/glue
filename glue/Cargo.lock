@@ -1182,6 +1182,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasm"
+version = "0.1.0"
+dependencies = [
+ "codegen",
+ "config",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "wasm-bindgen"
 version = "0.2.105"
 source = "registry+https://github.com/rust-lang/crates.io-index"

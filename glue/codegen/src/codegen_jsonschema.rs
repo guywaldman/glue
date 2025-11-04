@@ -76,21 +76,55 @@ impl CodeGeneratorImpl {
     /// Generates the JSON Schema for the program.
     /// Returns the root model name and its JSON object, along with contributed definitions.
     pub fn generate(&mut self) -> CodeGenResult<(String, json::JsonValue)> {
-        let root_model = self
+        let models = self
             .ast
             .clone()
             .children_with_tokens()
-            .find(|n| n.kind() == LSyntaxKind::MODEL)
-            .map(|n| n.into_node().unwrap())
-            .filter(|model_node| {
-                Model::cast(model_node.clone())
-                    .map(|m| m.decorators().iter().any(|d: &Decorator| d.ident().as_deref() == Some("root")))
-                    .unwrap_or(false)
+            .filter(|n| n.kind() == LSyntaxKind::MODEL)
+            .filter_map(|n| n.into_node())
+            .collect::<Vec<LNode>>();
+
+        let root_models = models
+            .iter()
+            .filter(|m| {
+                let model = Model::cast((*m).clone()).expect("Expected model node");
+                model.decorators().iter().any(|d: &Decorator| d.ident().as_deref() == Some("root"))
             })
-            .expect("Expected root model");
+            .cloned()
+            .collect::<Vec<LNode>>();
+
+        let root_model = if !root_models.is_empty() {
+            if root_models.len() > 1 {
+                return Err(CodeGenError::GenerationError(self.diag.error(
+                    self.ast.text_range(),
+                    "Multiple root models found in the program. Only one root model is supported. Decorate only one model with `@root`.",
+                )));
+            }
+            root_models.first().cloned()
+        } else {
+            if models.len() > 1 {
+                let mut labels = Vec::new();
+                for m in models.iter() {
+                    let model = Model::cast(m.clone()).expect("Expected model node");
+                    if let Some(ident_token) = model.ident_token() {
+                        labels.push(self.diag.labeled_span(ident_token.text_range(), "Consider adding `@root` decorator to this model"));
+                    }
+                }
+                return Err(CodeGenError::GenerationError(self.diag.error_with_labels(
+                    self.ast.text_range(),
+                    "Multiple models found in the program, but no root model specified. Please decorate one model with `@root`.",
+                    Some("Add a `@root` decorator to one of the models."),
+                    None,
+                    labels,
+                )));
+            }
+            models.first().cloned()
+        }
+        .unwrap();
+
         let root_model_name = Model::cast(root_model.clone()).and_then(|m| m.ident()).expect("Expected root model to have ident");
 
-        let codegen_result = self.visit_model(root_model, None)?;
+        let codegen_result = self.visit_model(root_model.clone(), None)?;
         Ok((root_model_name, codegen_result.data.into()))
     }
 
@@ -344,6 +378,7 @@ mod tests {
                     }
                     panic!("Generation errors occurred");
                 }
+                e => panic!("Unexpected error: {:?}", e),
             })
             .unwrap();
 

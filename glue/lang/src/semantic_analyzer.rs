@@ -21,7 +21,7 @@ pub enum SemanticAnalyzerError {
 }
 
 impl SemanticAnalyzerError {
-    pub fn report(&self) -> &Report {
+    pub fn report(&self) -> &miette::Report {
         match self {
             SemanticAnalyzerError::DuplicateField(report) | SemanticAnalyzerError::UndefinedTypeReference(report) => report,
         }
@@ -132,7 +132,7 @@ impl SemanticAnalyzer {
                                 *variant_literal == curr_variant_name
                             });
                             if !variant_exists {
-                                let report_label = diag.labeled_span(enum_node.text_range(), format!("Enum '{}' defined here", enum_name_str));
+                                let report_label = diag.labeled_span(enum_node.text_range(), &format!("Enum '{}' defined here", enum_name_str));
                                 let report = diag.error_with_labels(
                                     field_default_value_node.text_range(),
                                     &format!("Enum variant '{}' does not exist in enum '{}'", variant_literal, enum_name_str),
@@ -174,7 +174,7 @@ impl SemanticAnalyzer {
                         let report = diag.error_with_help(
                             ident_token.text_range(),
                             &format!("Undefined type reference '{}'", type_name),
-                            format!("Did you mean '{}'?", suggested_name.0),
+                            &format!("Did you mean '{}'?", suggested_name.0),
                         );
                         errors.push(SemanticAnalyzerError::UndefinedTypeReference(report));
                         continue;
@@ -302,7 +302,7 @@ impl SemanticAnalyzer {
                             "Argument to decorator `@{}` has incorrect type (expected `{}` of type `{}` , received `{}`)",
                             decorator_name, expected_arg_def.id, expected_arg_def.ty, literal_value
                         ),
-                        builtin_decorator.doc().to_string(),
+                        &builtin_decorator.doc(),
                     );
                     errors.push(SemanticAnalyzerError::DuplicateField(report));
                     return;

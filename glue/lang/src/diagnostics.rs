@@ -22,20 +22,20 @@ impl DiagnosticContext {
         self.build(span, message, None, Severity::Error, None, Vec::new())
     }
 
-    pub fn error_with_help(&self, span: TextRange, message: &str, help: String) -> Report {
+    pub fn error_with_help(&self, span: TextRange, message: &str, help: &str) -> Report {
         self.build(span, message, Some(help), Severity::Error, None, Vec::new())
     }
 
-    pub fn error_with_labels(&self, span: TextRange, message: &str, help: Option<String>, primary_label: Option<String>, extra_labels: Vec<LabeledSpan>) -> Report {
+    pub fn error_with_labels(&self, span: TextRange, message: &str, help: Option<&str>, primary_label: Option<&str>, extra_labels: Vec<LabeledSpan>) -> Report {
         self.build(span, message, help, Severity::Error, primary_label, extra_labels)
     }
 
-    pub fn labeled_span(&self, span: TextRange, label: String) -> LabeledSpan {
+    pub fn labeled_span(&self, span: TextRange, label: &str) -> LabeledSpan {
         LabeledSpan::at(span.start().into()..span.end().into(), label)
     }
 
-    fn build(&self, span: TextRange, message: &str, help: Option<String>, severity: Severity, primary_label: Option<String>, mut labels: Vec<LabeledSpan>) -> Report {
-        let primary_label = primary_label.unwrap_or_else(|| message.to_string());
+    fn build(&self, span: TextRange, message: &str, help: Option<&str>, severity: Severity, primary_label: Option<&str>, mut labels: Vec<LabeledSpan>) -> Report {
+        let primary_label = primary_label.unwrap_or(message);
         labels.insert(0, LabeledSpan::at(span.start().into()..span.end().into(), primary_label));
         let diagnostic = diagnostic! {
             severity = severity,
@@ -49,10 +49,25 @@ impl DiagnosticContext {
 }
 
 pub fn print_report(report: &Report) -> Result<String, std::fmt::Error> {
+    let output = generate_report(report)?;
+    eprintln!("{}", output);
+    Ok(output)
+}
+
+pub fn generate_report(report: &Report) -> Result<String, std::fmt::Error> {
     let mut output = String::new();
     let graphic_report_handler = GraphicalReportHandler::new().with_context_lines(3);
     graphic_report_handler.render_report(&mut output, report.as_ref())?;
-    eprintln!("{output}");
+    Ok(output)
+}
+
+pub fn generate_reports(reports: &[&Report]) -> Result<String, std::fmt::Error> {
+    let mut output = String::new();
+    let graphic_report_handler = GraphicalReportHandler::new().with_context_lines(3);
+    for report in reports {
+        graphic_report_handler.render_report(&mut output, report.as_ref())?;
+        output.push_str("\n\n");
+    }
     Ok(output)
 }
 

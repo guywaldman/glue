@@ -73,7 +73,6 @@ impl GlueCli {
                     mode,
                 },
             } => {
-                let (analyzed_program, source) = Self::analyze(input.clone())?;
                 let config = match config_path {
                     Some(path) => {
                         let config_contents = std::fs::read_to_string(path).map_err(CliError::Io)?;
@@ -93,7 +92,8 @@ impl GlueCli {
                     CodeGenMode::Rust => codegen::CodeGenMode::Rust,
                     CodeGenMode::Python => codegen::CodeGenMode::Python,
                 };
-                let mut generated_code = match CodeGen::generate(codegen_mode, analyzed_program, &source, config.clone()) {
+                let source = Self::handle_file(input.clone())?;
+                let mut generated_code = match CodeGen::generate(codegen_mode, &source, config.clone()) {
                     Ok(code) => code,
                     Err(CodeGenError::GenerationErrors(diags)) => {
                         for diag in diags {

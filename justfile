@@ -4,6 +4,10 @@ config_schema := "assets/config_schema.glue"
 build:
 	cd glue && cargo build --workspace --all-features
 
+build-wasm:
+	cd glue/wasm && wasm-pack build --release --target web
+	# Then copy the `glue/wasm/pkg` folder to the frontend repo
+
 generate: build
 	#!/usr/bin/env bash
 
