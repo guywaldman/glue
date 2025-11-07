@@ -386,7 +386,6 @@ mod tests {
         let src = indoc! { r#"
 		// This is a great model
         model Foo {
-            @deprecated
             name: string
             id: string
             blah: BarEnu

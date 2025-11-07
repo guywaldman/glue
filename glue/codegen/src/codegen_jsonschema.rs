@@ -337,7 +337,6 @@ mod tests {
 				@root
 				model GlueConfigSchema {
 					/// Configuration for code generation (`glue gen [...]`)
-					@default
 					generation: Generation
 
 					model Generation {

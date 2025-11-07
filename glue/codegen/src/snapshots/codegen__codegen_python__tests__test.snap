@@ -15,7 +15,7 @@ class GlueConfigSchema(BaseModel):
     """Configuration for code generation (`glue gen [...]`)"""
 
 class GlueConfigSchemaGeneration(BaseModel):
-    watermark: Annotated["GlueConfigSchemaGenerationWatermark", Field()]
+    watermark: Annotated["GlueConfigSchemaGenerationWatermark", Field(default="short")]
     """Mode for the watermark at the top of the generated files"""
     rust_serde: Annotated["GlueConfigSchemaGenerationRustSerde", Field()]
     """Configurations for Rust code generation using Serde (`glue gen rust-serde [...]`)"""
@@ -23,10 +23,10 @@ class GlueConfigSchemaGeneration(BaseModel):
     """Configurations for Python code generation using Pydantic (`glue gen py-pydantic [...]`)"""
 
 class GlueConfigSchemaGenerationRustSerde(BaseModel):
-    include_yaml: Annotated[bool, Field()]
+    include_yaml: Annotated[bool, Field(default=False)]
 
 class GlueConfigSchemaGenerationPythonPydantic(BaseModel):
-    base_model: Annotated[str, Field()]
+    base_model: Annotated[str, Field(default="pydantic.BaseModel")]
     """The full import path for the base model class to inherit from (e.g., `pydantic.BaseModel` or `my.module.CustomBaseModel`)"""
 
 class GlueConfigSchemaGenerationWatermark(StrEnum):
