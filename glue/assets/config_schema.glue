@@ -1,4 +1,3 @@
-@root
 model GlueConfigSchema {
 	/// Configuration for code generation (`glue gen [...]`)
 	generation?: Generation

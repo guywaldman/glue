@@ -15,4 +15,4 @@ pub use diagnostics::{DiagnosticContext, generate_report, generate_reports, prin
 pub use metadata::SourceCodeMetadata;
 pub use semantic_analyzer::{AnalyzedProgram, SemanticAnalyzer, SemanticAnalyzerError};
 pub use symbols::{SymEntry, SymId, SymTable, symbol_name_to_parts};
-pub use syntax::{AstNode, Decorator, DecoratorArg, Enum, EnumVariant, Field, LNode, LSyntaxKind, Literal, LiteralExpr, Model, Parser, ParserError, PrimitiveType, Type, TypeAtom};
+pub use syntax::{AstNode, Decorator, DecoratorArg, Endpoint, Enum, EnumVariant, Field, LNode, LSyntaxKind, Literal, LiteralExpr, Model, Parser, ParserError, PrimitiveType, Type, TypeAtom};

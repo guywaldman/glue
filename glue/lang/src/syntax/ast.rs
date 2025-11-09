@@ -75,6 +75,37 @@ impl Model {
 }
 
 #[derive(Debug, Clone)]
+pub struct Endpoint(LNode);
+
+impl AstNode for Endpoint {
+    fn cast(n: LNode) -> Option<Self> {
+        (n.kind() == LSyntaxKind::ENDPOINT).then(|| Endpoint(n))
+    }
+
+    fn syntax(&self) -> &LNode {
+        &self.0
+    }
+}
+
+impl Endpoint {
+    pub fn endpoint_string_literal_node(&self) -> Option<StringLiteral> {
+        self.0
+            .children_with_tokens()
+            .find(|n| n.kind() == LSyntaxKind::STRING_LITERAL)
+            .and_then(|n| n.into_node())
+            .and_then(StringLiteral::cast)
+    }
+
+    pub fn ident_token(&self) -> Option<LToken> {
+        self.0.children_with_tokens().filter_map(|e| e.into_token()).find(|t| t.kind() == LSyntaxKind::IDENT)
+    }
+
+    pub fn ident(&self) -> Option<String> {
+        self.ident_token().map(|t| t.text().to_string())
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct EnumVariant(LNode);
 
 impl AstNode for EnumVariant {
@@ -247,20 +278,54 @@ impl Decorator {
 }
 
 #[derive(Debug, Clone)]
+pub struct StringLiteral(LNode);
+
+impl AstNode for StringLiteral {
+    fn cast(n: LNode) -> Option<Self> {
+        (n.kind() == LSyntaxKind::STRING_LITERAL).then(|| StringLiteral(n))
+    }
+
+    fn syntax(&self) -> &LNode {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for StringLiteral {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.value() {
+            Some(value) => write!(f, "\"{}\"", value),
+            None => write!(f, "\"\""),
+        }
+    }
+}
+
+impl StringLiteral {
+    pub fn value(&self) -> Option<String> {
+        self.0
+            .children_with_tokens()
+            .find(|n| n.kind() == LSyntaxKind::STRING_LITERAL_INNER)
+            .and_then(|n| n.into_token())
+            .map(|n| n.text().to_string())
+            .map(|s| s.trim().trim_start_matches('"').trim_end_matches('"').to_string())
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum Literal {
-    StringLiteral(String),
-    IntLiteral(i64),
-    FloatLiteral(f64),
-    BoolLiteral(bool),
+    StringLiteral(StringLiteral),
+    // TODO: Convert to use LNode inside
+    IntLiteral { value: i64, node: LNode },
+    FloatLiteral { value: f64, node: LNode },
+    BoolLiteral { value: bool, node: LNode },
 }
 
 impl std::fmt::Display for Literal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Literal::StringLiteral(s) => write!(f, "\"string ({s})\""),
-            Literal::IntLiteral(i) => write!(f, "\"int ({})\"", i),
-            Literal::FloatLiteral(fl) => write!(f, "\"float ({})\"", fl),
-            Literal::BoolLiteral(b) => write!(f, "\"bool ({})\"", b),
+            Literal::StringLiteral(string_literal) => write!(f, "\"string ({})\"", string_literal.value().unwrap_or_default()),
+            Literal::IntLiteral { value, .. } => write!(f, "\"int ({})\"", value),
+            Literal::FloatLiteral { value, .. } => write!(f, "\"float ({})\"", value),
+            Literal::BoolLiteral { value, .. } => write!(f, "\"bool ({})\"", value),
         }
     }
 }
@@ -288,34 +353,44 @@ impl LiteralExpr {
         })?;
 
         match child.kind() {
-            LSyntaxKind::STRING_LITERAL => Some(Literal::StringLiteral(
-                child.into_node().unwrap().text().to_string().trim().trim_start_matches("\"").trim_end_matches("\"").to_string(),
-            )),
+            LSyntaxKind::STRING_LITERAL => Some(Literal::StringLiteral(StringLiteral(child.into_node().unwrap()))),
             LSyntaxKind::BOOL_LITERAL => {
                 let bool_node = child.into_node().unwrap();
                 let inner_literal = bool_node.children_with_tokens().find(|n| matches!(n.kind(), LSyntaxKind::TRUE_LITERAL | LSyntaxKind::FALSE_LITERAL))?;
                 match inner_literal.kind() {
-                    LSyntaxKind::TRUE_LITERAL => Some(Literal::BoolLiteral(true)),
-                    LSyntaxKind::FALSE_LITERAL => Some(Literal::BoolLiteral(false)),
+                    LSyntaxKind::TRUE_LITERAL => Some(Literal::BoolLiteral { value: true, node: bool_node }),
+                    LSyntaxKind::FALSE_LITERAL => Some(Literal::BoolLiteral { value: false, node: bool_node }),
                     _ => None,
                 }
             }
             LSyntaxKind::INT_LITERAL => {
-                let text = child.into_token().unwrap().text().to_string();
+                let text = child.clone().into_token().unwrap().text().to_string();
                 if let Ok(int_value) = text.parse::<i64>() {
-                    Some(Literal::IntLiteral(int_value))
+                    Some(Literal::IntLiteral {
+                        value: int_value,
+                        node: child.into_node().unwrap(),
+                    })
                 } else if let Ok(float_value) = text.parse::<f64>() {
-                    Some(Literal::FloatLiteral(float_value))
+                    Some(Literal::FloatLiteral {
+                        value: float_value,
+                        node: child.into_node().unwrap(),
+                    })
                 } else {
                     None
                 }
             }
             LSyntaxKind::IDENT => {
-                let text = child.into_token().unwrap().text().to_string();
+                let text = child.clone().into_token().unwrap().text().to_string();
                 if let Ok(int_value) = text.parse::<i64>() {
-                    Some(Literal::IntLiteral(int_value))
+                    Some(Literal::IntLiteral {
+                        value: int_value,
+                        node: child.into_node().unwrap(),
+                    })
                 } else if let Ok(float_value) = text.parse::<f64>() {
-                    Some(Literal::FloatLiteral(float_value))
+                    Some(Literal::FloatLiteral {
+                        value: float_value,
+                        node: child.into_node().unwrap(),
+                    })
                 } else {
                     None
                 }

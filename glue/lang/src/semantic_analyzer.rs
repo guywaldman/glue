@@ -105,10 +105,10 @@ impl SemanticAnalyzer {
 
                 if let Some(primitive_type) = type_atom.as_primitive_type() {
                     match (primitive_type, default_value) {
-                        (PrimitiveType::Bool, Literal::BoolLiteral(_)) => {}
-                        (PrimitiveType::Int, Literal::IntLiteral(_)) => {}
-                        (PrimitiveType::Float, Literal::FloatLiteral(_)) => {}
-                        (PrimitiveType::String, Literal::StringLiteral(_)) => {}
+                        (PrimitiveType::Bool, Literal::BoolLiteral { .. }) => {}
+                        (PrimitiveType::Int, Literal::IntLiteral { .. }) => {}
+                        (PrimitiveType::Float, Literal::FloatLiteral { .. }) => {}
+                        (PrimitiveType::String, Literal::StringLiteral { .. }) => {}
                         _ => {
                             let report = diag.error(field_default_value_node.text_range(), "Type of default value does not match field type");
                             errors.push(SemanticAnalyzerError::DuplicateField(report));
@@ -121,11 +121,12 @@ impl SemanticAnalyzer {
                     let ref_entry = symbols.get(ref_sym).expect("Expected symbol entry to exist");
 
                     match (&ref_entry.data.kind(), &default_value) {
-                        (LSyntaxKind::ENUM, Literal::StringLiteral(variant_literal)) => {
+                        (LSyntaxKind::ENUM, Literal::StringLiteral(string_lit_node)) => {
                             let enum_node = ref_entry.data.clone();
                             let enum_model = Enum::cast(enum_node.clone()).unwrap();
                             let enum_ident_token = enum_model.ident_token().unwrap();
                             let enum_name_str = enum_ident_token.text().to_string();
+                            let variant_literal = string_lit_node.value().unwrap();
                             let variant_exists = enum_model.variant_nodes().iter().any(|curr_variant_node| {
                                 let curr_variant = EnumVariant::cast(curr_variant_node.clone()).unwrap();
                                 let curr_variant_name = curr_variant.value().unwrap();
@@ -134,7 +135,7 @@ impl SemanticAnalyzer {
                             if !variant_exists {
                                 let report_label = diag.labeled_span(enum_node.text_range(), &format!("Enum '{}' defined here", enum_name_str));
                                 let report = diag.error_with_labels(
-                                    field_default_value_node.text_range(),
+                                    string_lit_node.syntax().text_range(),
                                     &format!("Enum variant '{}' does not exist in enum '{}'", variant_literal, enum_name_str),
                                     None,
                                     None,
@@ -220,10 +221,10 @@ impl SemanticAnalyzer {
         fn compare_type(expected_type: PrimitiveType, literal_value: &Literal) -> bool {
             matches!(
                 (expected_type, literal_value),
-                (PrimitiveType::Bool, Literal::BoolLiteral(_))
-                    | (PrimitiveType::Int, Literal::IntLiteral(_))
-                    | (PrimitiveType::Float, Literal::FloatLiteral(_))
-                    | (PrimitiveType::String, Literal::StringLiteral(_))
+                (PrimitiveType::Bool, Literal::BoolLiteral { .. })
+                    | (PrimitiveType::Int, Literal::IntLiteral { .. })
+                    | (PrimitiveType::Float, Literal::FloatLiteral { .. })
+                    | (PrimitiveType::String, Literal::StringLiteral { .. })
             )
         }
 

@@ -156,14 +156,14 @@ impl CodeGeneratorImpl {
                 } else if let Some(default_literal_expr_node) = field.default_literal_expr_node() {
                     let default_value = LiteralExpr::cast(default_literal_expr_node).ok_or(CodeGenError::InternalError("Missing default literal expression".to_string()))?;
                     match default_value.value().expect("Expeced literal value") {
-                        Literal::BoolLiteral(v) => {
+                        Literal::BoolLiteral { value: v, .. } => {
                             default_value_code = Some(if v { BOOL_LITERAL_TRUE.to_string() } else { BOOL_LITERAL_FALSE.to_string() });
                         }
-                        Literal::IntLiteral(v) => {
+                        Literal::IntLiteral { value: v, .. } => {
                             default_value_code = Some(v.to_string());
                         }
-                        Literal::StringLiteral(v) => {
-                            default_value_code = Some(format!("\"{}\"", v));
+                        Literal::StringLiteral(node) => {
+                            default_value_code = Some(format!("\"{}\"", node.value().unwrap()));
                         }
                         _ => {}
                     }
@@ -319,7 +319,7 @@ mod tests {
     use insta::assert_snapshot;
     use lang::print_report;
 
-    use crate::{CodeGenError, CodeGenerator, test_utils::analyze_glue_file};
+    use crate::{CodeGenError, CodeGenerator, test_utils::analyze_test_glue_file};
 
     #[test]
     fn test() {
@@ -356,7 +356,7 @@ mod tests {
             }
 				"# };
 
-        let (program, source) = analyze_glue_file(src);
+        let (program, source) = analyze_test_glue_file(src);
 
         let codegen = CodeGenPython::new();
         let output = codegen

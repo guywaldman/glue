@@ -324,7 +324,7 @@ fn sort_json_keys(obj: &mut json::object::Object) {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::analyze_glue_file;
+    use crate::test_utils::analyze_test_glue_file;
     use indoc::indoc;
     use insta::assert_snapshot;
     use lang::print_report;
@@ -360,7 +360,7 @@ mod tests {
 				}
 				"# };
 
-        let (program, source) = analyze_glue_file(src);
+        let (program, source) = analyze_test_glue_file(src);
 
         let codegen = CodeGenJsonSchema::new();
         let output = codegen

@@ -50,6 +50,6 @@ model_body = { (field | model | enum_def)* }
 model = { doc_block? ~ decorator* ~ "model" ~ ident ~ "{" ~ model_body ~ "}" }
 anon_model = { "{" ~ model_body ~ "}" }
 
-endpoint = { doc_block? ~ decorator* ~ "endpoint" ~ ident ~ "{" ~ model_body ~ "}" }
+endpoint = { doc_block? ~ decorator* ~ "endpoint" ~ string_literal ~ ident? ~ "{" ~ model_body ~ "}" }
 
 program = _{ SOI ~ (model | endpoint | enum_def)+ ~ EOI }

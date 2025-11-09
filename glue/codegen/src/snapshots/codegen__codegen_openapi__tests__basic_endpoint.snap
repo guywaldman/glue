@@ -1,0 +1,5 @@
+---
+source: codegen/src/codegen_openapi.rs
+expression: result
+---
+

@@ -363,7 +363,7 @@ mod tests {
     use insta::assert_snapshot;
     use lang::print_report;
 
-    use crate::{CodeGenError, CodeGenerator, test_utils::analyze_glue_file};
+    use crate::{CodeGenError, CodeGenerator, test_utils::analyze_test_glue_file};
 
     #[test]
     fn test() {
@@ -401,7 +401,7 @@ mod tests {
             }
 				"# };
 
-        let (program, source) = analyze_glue_file(src);
+        let (program, source) = analyze_test_glue_file(src);
 
         let codegen = CodeGenRust::new();
         let output = codegen
