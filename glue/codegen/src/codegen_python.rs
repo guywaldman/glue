@@ -80,7 +80,7 @@ impl CodeGeneratorImpl {
         self.preludes.push(format!("from {} import {}", base_model_import_module, base_model_class));
         self.preludes.push("from pydantic import Field".to_string());
         self.preludes.push("from enum import StrEnum".to_string());
-        self.preludes.push("from typing import Annotated, Optional, Union".to_string());
+        self.preludes.push("from typing import Any, Annotated, Optional, Union".to_string());
 
         for node in self.ast.children() {
             match node.kind() {
@@ -136,7 +136,7 @@ impl CodeGeneratorImpl {
                 let field_type_atoms = field_type.type_atom_nodes();
                 let field_type_atom_codes = field_type_atoms
                     .into_iter()
-                    .map(|type_atom_node| self.emit_type_atom(type_atom_node, &field_name, Some(current_scope.id)))
+                    .map(|type_atom_node| self.emit_type_atom(type_atom_node, Some(current_scope.id)))
                     .collect::<Result<Vec<String>, CodeGenError>>()?;
                 let mut field_type_code = if field_type_atom_codes.len() == 1 {
                     field_type_atom_codes[0].clone()
@@ -256,19 +256,27 @@ impl CodeGeneratorImpl {
         Ok(output)
     }
 
-    fn emit_type_atom(&mut self, node: LNode, _field_name: &str, parent_scope: Option<SymId>) -> CodeGenResult<String> {
+    fn emit_type_atom(&mut self, node: LNode, parent_scope: Option<SymId>) -> CodeGenResult<String> {
         let type_atom = TypeAtom::cast(node.clone()).ok_or(CodeGenError::InternalError("Expected TypeAtom node".to_string()))?;
         // TODO: Support enums?
         let mut res = if let Some(primitive_type) = type_atom.as_primitive_type() {
             match primitive_type {
+                PrimitiveType::Any => "Any".to_string(),
                 PrimitiveType::Bool => "bool".to_string(),
                 PrimitiveType::Int => "int".to_string(),
                 PrimitiveType::Float => "float".to_string(),
                 PrimitiveType::String => "str".to_string(),
             }
+        } else if let Some(record_type) = type_atom.as_record_type() {
+            // Record
+            let src_type = record_type.src_type_node().ok_or(CodeGenError::InternalError("Record missing source type".to_string()))?;
+            let src_type_code = self.emit_type_atom(src_type, parent_scope)?;
+            let dest_type = record_type.dest_type_node().ok_or(CodeGenError::InternalError("Record missing destination type".to_string()))?;
+            let dest_type_code = self.emit_type_atom(dest_type, parent_scope)?;
+            format!("dict[{}, {}]", src_type_code, dest_type_code)
         } else {
             // Should be a reference to another model
-            let Some(type_ident_token) = type_atom.ident_token() else {
+            let Some(type_ident_token) = type_atom.as_ref_token() else {
                 if type_atom.as_anon_model().is_some() {
                     // TODO: Support anonymous models
                     // // Add a pseudo-symbol for the anonymous model

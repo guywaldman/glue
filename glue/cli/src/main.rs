@@ -134,10 +134,14 @@ impl GlueCli {
     }
 
     fn generate_watemark(config_path: &Option<PathBuf>, config: Option<GlueConfig>, source: &SourceCodeMetadata, output: &Option<PathBuf>, mode: &CodeGenMode) -> Result<Option<String>, CliError> {
-        let watermark_mode = config
+        let mut watermark_mode = config
             .and_then(|cfg| cfg.generation)
             .and_then(|gen_cfg| gen_cfg.watermark)
             .unwrap_or(GlueConfigSchemaGenerationWatermark::Short);
+        if mode == &CodeGenMode::OpenApi {
+            // We currently default to JSON for OpenAPI generation, and to avoid JSON comments we disable the watermark by default.
+            watermark_mode = GlueConfigSchemaGenerationWatermark::None;
+        }
         let timestamp = chrono::Utc::now().format("%Y-%m-%d").to_string();
         let source_relative_to_output = output
             .as_ref()
@@ -146,7 +150,8 @@ impl GlueCli {
                     .parent()
                     .and_then(|output_dir| {
                         let output_dir = std::fs::canonicalize(output_dir).ok()?;
-                        let source_path = std::fs::canonicalize(source.file_name).ok()?;
+                        let source_path = PathBuf::from(source.file_name);
+                        let source_path = std::fs::canonicalize(source_path).ok()?;
                         pathdiff::diff_paths(source_path, output_dir)
                     })
                     .map(|rel_path| rel_path.to_string_lossy().to_string())
@@ -168,8 +173,9 @@ impl GlueCli {
                             .parent()
                             .and_then(|output_dir| {
                                 let output_dir = std::fs::canonicalize(output_dir).ok()?;
-                                let config_path = std::fs::canonicalize(config_path).ok()?;
-                                pathdiff::diff_paths(config_path, output_dir)
+                                let source_path = PathBuf::from(source.file_name);
+                                let source_path = std::fs::canonicalize(source_path).ok()?;
+                                pathdiff::diff_paths(source_path, output_dir)
                             })
                             .map(|rel_path| rel_path.to_string_lossy().to_string())
                     })

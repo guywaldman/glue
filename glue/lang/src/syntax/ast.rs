@@ -1,6 +1,6 @@
 use crate::{
     builtin_decorators::{DecoratorArgDef, DecoratorDef},
-    syntax::parser::{LNode, LSyntaxKind, LToken},
+    syntax::parser::{LNode, LNodeOrToken, LSyntaxKind, LToken},
 };
 
 pub trait AstNode: Sized {
@@ -8,18 +8,24 @@ pub trait AstNode: Sized {
     fn syntax(&self) -> &LNode;
 }
 
-#[derive(Debug, Clone)]
-pub struct Model(LNode);
+macro_rules! ast_node {
+    ($name:ident, $($kind:expr)*) => {
+        #[derive(Debug, Clone)]
+        pub struct $name(LNode);
 
-impl AstNode for Model {
-    fn cast(n: LNode) -> Option<Self> {
-        (n.kind() == LSyntaxKind::MODEL).then(|| Model(n))
-    }
+        impl AstNode for $name {
+            fn cast(n: LNode) -> Option<Self> {
+                ($(n.kind() == $kind)||+).then(|| $name(n))
+            }
 
-    fn syntax(&self) -> &LNode {
-        &self.0
-    }
+            fn syntax(&self) -> &LNode {
+                &self.0
+            }
+        }
+    };
 }
+
+ast_node!(Model, LSyntaxKind::MODEL);
 
 impl Model {
     pub fn ident_token(&self) -> Option<LToken> {
@@ -74,26 +80,19 @@ impl Model {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Endpoint(LNode);
-
-impl AstNode for Endpoint {
-    fn cast(n: LNode) -> Option<Self> {
-        (n.kind() == LSyntaxKind::ENDPOINT).then(|| Endpoint(n))
-    }
-
-    fn syntax(&self) -> &LNode {
-        &self.0
-    }
-}
+ast_node!(Endpoint, LSyntaxKind::ENDPOINT);
 
 impl Endpoint {
-    pub fn endpoint_string_literal_node(&self) -> Option<StringLiteral> {
+    pub fn path_string_literal_node(&self) -> Option<StringLiteral> {
         self.0
             .children_with_tokens()
             .find(|n| n.kind() == LSyntaxKind::STRING_LITERAL)
             .and_then(|n| n.into_node())
             .and_then(StringLiteral::cast)
+    }
+
+    pub fn path_string(&self) -> Option<String> {
+        self.path_string_literal_node().and_then(|s| s.value())
     }
 
     pub fn ident_token(&self) -> Option<LToken> {
@@ -103,20 +102,37 @@ impl Endpoint {
     pub fn ident(&self) -> Option<String> {
         self.ident_token().map(|t| t.text().to_string())
     }
-}
 
-#[derive(Debug, Clone)]
-pub struct EnumVariant(LNode);
-
-impl AstNode for EnumVariant {
-    fn cast(n: LNode) -> Option<Self> {
-        (n.kind() == LSyntaxKind::ENUM_VARIANT).then(|| EnumVariant(n))
+    pub fn nested_model_nodes(&self) -> Vec<LNode> {
+        self.model_body()
+            .into_iter()
+            .flat_map(|model_body| model_body.children().filter(|n| n.kind() == LSyntaxKind::MODEL))
+            .collect()
     }
 
-    fn syntax(&self) -> &LNode {
-        &self.0
+    pub fn nested_enum_nodes(&self) -> Vec<LNode> {
+        self.model_body()
+            .into_iter()
+            .flat_map(|model_body| model_body.children().filter(|n| n.kind() == LSyntaxKind::ENUM))
+            .collect()
+    }
+
+    pub fn responses_field_node(&self) -> Option<LNode> {
+        self.model_body().and_then(|model_body| {
+            model_body
+                .children()
+                .filter(|n| n.kind() == LSyntaxKind::FIELD)
+                .find(|field| Field::cast(field.clone()).map(|f| f.ident().as_deref() == Some("responses")).unwrap_or(false))
+        })
+    }
+
+    // We reuse the model body production for endpoints - thus it makes sense to have such a convenience method
+    fn model_body(&self) -> Option<LNode> {
+        self.0.children().find(|n| n.kind() == LSyntaxKind::MODEL_BODY)
     }
 }
+
+ast_node!(EnumVariant, LSyntaxKind::ENUM_VARIANT);
 
 impl EnumVariant {
     pub fn value(&self) -> Option<String> {
@@ -139,18 +155,7 @@ impl EnumVariant {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Enum(LNode);
-
-impl AstNode for Enum {
-    fn cast(n: LNode) -> Option<Self> {
-        (n.kind() == LSyntaxKind::ENUM).then(|| Enum(n))
-    }
-
-    fn syntax(&self) -> &LNode {
-        &self.0
-    }
-}
+ast_node!(Enum, LSyntaxKind::RECORD);
 
 impl Enum {
     pub fn ident_token(&self) -> Option<LToken> {
@@ -179,31 +184,9 @@ impl Enum {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Decorator(LNode);
+ast_node!(Decorator, LSyntaxKind::DECORATOR);
 
-impl AstNode for Decorator {
-    fn cast(n: LNode) -> Option<Self> {
-        (n.kind() == LSyntaxKind::DECORATOR).then(|| Decorator(n))
-    }
-
-    fn syntax(&self) -> &LNode {
-        &self.0
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct DecoratorArg(LNode);
-
-impl AstNode for DecoratorArg {
-    fn cast(n: LNode) -> Option<Self> {
-        (n.kind() == LSyntaxKind::DECORATOR_NAMED_ARG || n.kind() == LSyntaxKind::DECORATOR_POSITIONAL_ARG).then(|| DecoratorArg(n))
-    }
-
-    fn syntax(&self) -> &LNode {
-        &self.0
-    }
-}
+ast_node!(DecoratorArg, LSyntaxKind::DECORATOR_NAMED_ARG LSyntaxKind::DECORATOR_POSITIONAL_ARG);
 
 impl DecoratorArg {
     pub fn ident_node(&self) -> Option<LNode> {
@@ -211,8 +194,9 @@ impl DecoratorArg {
     }
 
     pub fn ident(&self) -> Option<String> {
-        self.ident_node()
-            .and_then(|ident_node| ident_node.children_with_tokens().find(|n| n.kind() == LSyntaxKind::IDENT))
+        self.0
+            .children_with_tokens()
+            .find(|n| n.kind() == LSyntaxKind::IDENT)
             .and_then(|n| n.into_token())
             .map(|t| t.text().to_string())
     }
@@ -277,18 +261,7 @@ impl Decorator {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct StringLiteral(LNode);
-
-impl AstNode for StringLiteral {
-    fn cast(n: LNode) -> Option<Self> {
-        (n.kind() == LSyntaxKind::STRING_LITERAL).then(|| StringLiteral(n))
-    }
-
-    fn syntax(&self) -> &LNode {
-        &self.0
-    }
-}
+ast_node!(StringLiteral, LSyntaxKind::STRING_LITERAL);
 
 impl std::fmt::Display for StringLiteral {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -310,19 +283,69 @@ impl StringLiteral {
     }
 }
 
+ast_node!(ListLiteral, LSyntaxKind::LIST_LITERAL);
+
+impl ListLiteral {
+    pub fn values(&self) -> Vec<Literal> {
+        self.0
+            .children()
+            .filter(|n| n.kind() == LSyntaxKind::LITERAL)
+            .filter_map(LiteralExpr::cast)
+            .filter_map(|le| le.value())
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConstExprType {
+    String,
+    Int,
+    Float,
+    Bool,
+    List(&'static ConstExprType),
+    Record(&'static ConstExprType, &'static ConstExprType),
+}
+
+impl std::fmt::Display for ConstExprType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConstExprType::String => write!(f, "string"),
+            ConstExprType::Int => write!(f, "int"),
+            ConstExprType::Float => write!(f, "float"),
+            ConstExprType::Bool => write!(f, "bool"),
+            ConstExprType::List(inner) => write!(f, "list<{}>", inner),
+            ConstExprType::Record(key_type, value_type) => write!(f, "record<{}, {}>", key_type, value_type),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Literal {
     StringLiteral(StringLiteral),
+    ListLiteral(ListLiteral),
     // TODO: Convert to use LNode inside
     IntLiteral { value: i64, node: LNode },
     FloatLiteral { value: f64, node: LNode },
     BoolLiteral { value: bool, node: LNode },
 }
 
+impl Literal {
+    pub fn ty(&self) -> ConstExprType {
+        match self {
+            Literal::StringLiteral(_) => ConstExprType::String,
+            Literal::ListLiteral(_inner) => ConstExprType::List(&ConstExprType::String), // TODO: Any?
+            Literal::IntLiteral { .. } => ConstExprType::Int,
+            Literal::FloatLiteral { .. } => ConstExprType::Float,
+            Literal::BoolLiteral { .. } => ConstExprType::Bool,
+        }
+    }
+}
+
 impl std::fmt::Display for Literal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Literal::StringLiteral(string_literal) => write!(f, "\"string ({})\"", string_literal.value().unwrap_or_default()),
+            Literal::ListLiteral(list_literal) => write!(f, "\"list ({})\"", list_literal.syntax().text()),
             Literal::IntLiteral { value, .. } => write!(f, "\"int ({})\"", value),
             Literal::FloatLiteral { value, .. } => write!(f, "\"float ({})\"", value),
             Literal::BoolLiteral { value, .. } => write!(f, "\"bool ({})\"", value),
@@ -330,25 +353,20 @@ impl std::fmt::Display for Literal {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct LiteralExpr(LNode);
-
-impl AstNode for LiteralExpr {
-    fn cast(n: LNode) -> Option<Self> {
-        (n.kind() == LSyntaxKind::LITERAL).then(|| LiteralExpr(n))
-    }
-
-    fn syntax(&self) -> &LNode {
-        &self.0
-    }
-}
+ast_node!(LiteralExpr, LSyntaxKind::LITERAL);
 
 impl LiteralExpr {
     pub fn value(&self) -> Option<Literal> {
         let child = self.0.children_with_tokens().find(|n| {
             matches!(
                 n.kind(),
-                LSyntaxKind::STRING_LITERAL | LSyntaxKind::BOOL_LITERAL | LSyntaxKind::TRUE_LITERAL | LSyntaxKind::FALSE_LITERAL | LSyntaxKind::INT_LITERAL | LSyntaxKind::IDENT
+                LSyntaxKind::STRING_LITERAL
+                    | LSyntaxKind::BOOL_LITERAL
+                    | LSyntaxKind::TRUE_LITERAL
+                    | LSyntaxKind::FALSE_LITERAL
+                    | LSyntaxKind::INT_LITERAL
+                    | LSyntaxKind::LIST_LITERAL
+                    | LSyntaxKind::IDENT
             )
         })?;
 
@@ -379,6 +397,7 @@ impl LiteralExpr {
                     None
                 }
             }
+            LSyntaxKind::LIST_LITERAL => Some(Literal::ListLiteral(ListLiteral(child.into_node().unwrap()))),
             LSyntaxKind::IDENT => {
                 let text = child.clone().into_token().unwrap().text().to_string();
                 if let Ok(int_value) = text.parse::<i64>() {
@@ -400,29 +419,21 @@ impl LiteralExpr {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Field(LNode);
-
-impl AstNode for Field {
-    fn cast(n: LNode) -> Option<Self> {
-        (n.kind() == LSyntaxKind::FIELD).then(|| Field(n))
-    }
-
-    fn syntax(&self) -> &LNode {
-        &self.0
-    }
-}
+ast_node!(Field, LSyntaxKind::FIELD);
 
 impl Field {
-    pub fn ident_token(&self) -> Option<LToken> {
+    pub fn ident_node(&self) -> Option<LNodeOrToken> {
         self.0
             .children()
             .find(|n| n.kind() == LSyntaxKind::FIELD_NAME)
-            .and_then(|field_name| field_name.children_with_tokens().filter_map(|e| e.into_token()).find(|t| t.kind() == LSyntaxKind::IDENT))
+            .and_then(|field_name| field_name.children_with_tokens().find(|t| t.kind() == LSyntaxKind::IDENT || t.kind() == LSyntaxKind::STRING_LITERAL))
     }
 
     pub fn ident(&self) -> Option<String> {
-        self.ident_token().map(|t| t.text().to_string())
+        self.ident_node().map(|ident_node_or_token| match ident_node_or_token {
+            LNodeOrToken::Node(n) => n.text().to_string(),
+            LNodeOrToken::Token(tok) => tok.text().to_string(),
+        })
     }
 
     pub fn is_optional(&self) -> bool {
@@ -463,6 +474,7 @@ impl Field {
 
 #[derive(Debug, Clone, Copy)]
 pub enum PrimitiveType {
+    Any,
     String,
     Int,
     Float,
@@ -472,6 +484,7 @@ pub enum PrimitiveType {
 impl std::fmt::Display for PrimitiveType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
+            PrimitiveType::Any => "any",
             PrimitiveType::String => "string",
             PrimitiveType::Int => "int",
             PrimitiveType::Float => "float",
@@ -485,6 +498,7 @@ impl TryFrom<&str> for PrimitiveType {
     type Error = ();
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         match s.trim() {
+            "any" => Ok(PrimitiveType::Any),
             "string" => Ok(PrimitiveType::String),
             "int" => Ok(PrimitiveType::Int),
             "float" => Ok(PrimitiveType::Float),
@@ -494,17 +508,7 @@ impl TryFrom<&str> for PrimitiveType {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Type(LNode);
-
-impl AstNode for Type {
-    fn cast(n: LNode) -> Option<Self> {
-        (n.kind() == LSyntaxKind::TYPE).then(|| Type(n))
-    }
-    fn syntax(&self) -> &LNode {
-        &self.0
-    }
-}
+ast_node!(Type, LSyntaxKind::TYPE);
 
 impl Type {
     pub fn type_atom_nodes(&self) -> Vec<LNode> {
@@ -525,23 +529,23 @@ impl Type {
         if type_atom.as_primitive_type().is_some() {
             return None;
         }
-        let ident_token = type_atom.ident_token()?;
+        let ident_token = type_atom.as_ref_token()?;
         Some(ident_token.text().to_string())
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct TypeAtom(LNode);
+ast_node!(RecordType, LSyntaxKind::RECORD);
 
-impl AstNode for TypeAtom {
-    fn cast(n: LNode) -> Option<Self> {
-        (n.kind() == LSyntaxKind::TYPE_ATOM).then(|| TypeAtom(n))
+impl RecordType {
+    pub fn src_type_node(&self) -> Option<LNode> {
+        self.0.children().find(|n| n.kind() == LSyntaxKind::TYPE)
     }
-
-    fn syntax(&self) -> &LNode {
-        &self.0
+    pub fn dest_type_node(&self) -> Option<LNode> {
+        self.0.children().filter(|n| n.kind() == LSyntaxKind::TYPE).nth(1)
     }
 }
+
+ast_node!(TypeAtom, LSyntaxKind::TYPE_ATOM);
 
 impl TypeAtom {
     pub fn is_optional(&self) -> bool {
@@ -554,12 +558,16 @@ impl TypeAtom {
         modifiers.is_some_and(|m| m.to_string().contains("[]"))
     }
 
-    pub fn ident_token(&self) -> Option<LToken> {
+    pub fn as_ref_token(&self) -> Option<LToken> {
         self.0.children_with_tokens().find(|n| n.kind() == LSyntaxKind::IDENT).and_then(|ident_node| ident_node.into_token())
     }
 
     pub fn as_anon_model(&self) -> Option<LNode> {
         self.0.children().find(|n| n.kind() == LSyntaxKind::ANON_MODEL)
+    }
+
+    pub fn as_record_type(&self) -> Option<RecordType> {
+        self.0.children().find(|n| n.kind() == LSyntaxKind::RECORD).and_then(RecordType::cast)
     }
 
     // Note: Ignores modifiers
@@ -585,7 +593,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_temp() {
+    fn test_basic() {
         let src = indoc! { r#"
                 @root
 				model User {
@@ -621,7 +629,10 @@ mod tests {
 
             for field_node in &field_nodes {
                 let field = Field::cast(field_node.clone()).unwrap();
-                let field_ident = field.ident_token().unwrap().text().to_string();
+                let field_ident = match field.ident_node().unwrap() {
+                    LNodeOrToken::Node(n) => n.text().to_string(),
+                    LNodeOrToken::Token(tok) => tok.text().to_string(),
+                };
                 println!("  Field {}", field_ident);
                 let field_decorators = field.decorator_nodes();
                 for decorator_node in &field_decorators {

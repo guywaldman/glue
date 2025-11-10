@@ -1,6 +1,9 @@
 use config::GlueConfig;
 use convert_case::Casing;
-use lang::{AnalyzedProgram, AstNode, DiagnosticContext, Enum, EnumVariant, Field, LNode, LSyntaxKind, Model, PrimitiveType, SourceCodeMetadata, SymId, SymTable, Type, TypeAtom};
+use lang::{
+    AnalyzedProgram, AstNode, DiagnosticContext, Enum, EnumVariant, Field, LNode, LSyntaxKind, Literal, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG, Model, PrimitiveType,
+    SourceCodeMetadata, SymId, SymTable, Type, TypeAtom,
+};
 
 use crate::{CodeGenError, CodeGenerator, codegen::CodeGenResult, codegen_utils::qualified_symbol_name_to_case};
 
@@ -140,7 +143,11 @@ impl CodeGeneratorImpl {
         //     }
         // }
 
-        output.push_str("#[derive(Serialize, Deserialize, Debug, Clone)]\n");
+        if let Some(docs) = model.docs() {
+            output.push_str(&Self::emit_docs(docs, 0));
+        }
+        // TODO: Not all structs can derive Default
+        output.push_str("#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]\n");
         output.push_str(&format!("pub struct {} {{\n", qualified_model_name));
 
         for field_node in model.field_nodes() {
@@ -208,6 +215,7 @@ impl CodeGeneratorImpl {
         let field = Field::cast(node).ok_or(CodeGenError::InternalError("Expected Field node".to_string()))?;
         let field_name = field.ident().ok_or(CodeGenError::InternalError("Field missing ident".to_string()))?;
         let field_type_node = field.type_node().ok_or(CodeGenError::InternalError("Field missing type".to_string()))?;
+        let field_scope = self.syms.resolve(parent_scope, &field_name).map(|s| s.id);
 
         // TODO: Handle defaults
         // if let Some(field_default_value_node) = field.default_literal_expr_node() {
@@ -250,12 +258,39 @@ impl CodeGeneratorImpl {
             output.push_str(&Self::emit_docs(docs, 1));
         }
 
-        let mut field_type_code = self.visit_type(field_type_node.clone(), parent_scope)?;
+        let mut alias = None;
+        let decorators = field.decorators();
+        let field_decorator = decorators.iter().find(|dec| dec.ident() == Some(MODEL_FIELD_DECORATOR.id.to_owned()));
+        if let Some(field_decorator) = field_decorator
+            && let Some(alias_arg) = field_decorator.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_ALIAS_ARG)
+        {
+            let alias_value = alias_arg.literal().ok_or(CodeGenError::InternalError("Missing alias argument value".to_string()))?;
+            match alias_value {
+                Literal::StringLiteral(node) => {
+                    alias = Some(node.value().expect("Expected string literal value").to_string());
+                }
+                _ => {
+                    return Err(CodeGenError::InternalError("Alias argument must be a string literal".to_string()));
+                }
+            }
+        }
+        if let Some(alias) = alias {
+            output.push_str(&format!("    #[serde(rename = \"{}\")]\n", alias));
+        }
+
+        let mut field_type_code = self.visit_type(field_type_node.clone(), field_scope)?;
         if field.is_optional() {
+            output.push_str("    #[serde(skip_serializing_if = \"Option::is_none\")]\n");
             field_type_code = format!("Option<{}>", field_type_code);
         }
 
-        output.push_str(&format!("    pub {}: {},\n", field_name, field_type_code));
+        // Rust keyword escaping
+        let emitted_field_name = match field_name.as_str() {
+            "type" => "r#type",
+            "ref" => "r#ref",
+            other => other,
+        };
+        output.push_str(&format!("    pub {}: {},\n", emitted_field_name, field_type_code));
         Ok(output)
     }
 
@@ -264,31 +299,51 @@ impl CodeGeneratorImpl {
 
         let mut types = Vec::new();
         for atom_node in &ty.type_atom_nodes() {
-            let atom = TypeAtom::cast(atom_node.clone()).ok_or(CodeGenError::InternalError("Expected TypeAtom node".to_string()))?;
-            let type_atom_code = if let Some(primitive) = atom.as_primitive_type() {
-                match primitive {
-                    PrimitiveType::String => "String".to_string(),
-                    PrimitiveType::Int => "i64".to_string(),
-                    PrimitiveType::Float => "f64".to_string(),
-                    PrimitiveType::Bool => "bool".to_string(),
-                }
-            } else {
-                // Ref
-                let text = atom_node.text();
-                let text_string = text.to_string();
-                let ref_ident = text_string.trim();
-                let ref_sym = self
-                    .syms
-                    .resolve(parent_scope, ref_ident)
-                    .ok_or_else(|| CodeGenError::InternalError(format!("Unresolved type symbol for type: {}", ref_ident)))?;
-                let qualified_ref_name = qualified_symbol_name_to_case(&ref_sym.name, convert_case::Case::Pascal);
-                qualified_ref_name.to_string()
-            };
-
+            let type_atom_code = self.visit_type_atom(atom_node.clone(), parent_scope)?;
             types.push(type_atom_code);
         }
 
         Ok(types.join(" | "))
+    }
+
+    fn visit_type_atom(&mut self, node: LNode, parent_scope: Option<SymId>) -> CodeGenResult<String> {
+        let atom = TypeAtom::cast(node).ok_or(CodeGenError::InternalError("Expected TypeAtom node".to_string()))?;
+
+        if let Some(primitive) = atom.as_primitive_type() {
+            match primitive {
+                // TODO: Make `any` mapping configurable
+                PrimitiveType::Any => Ok("serde_json::Value".to_string()),
+                PrimitiveType::String => Ok("String".to_string()),
+                PrimitiveType::Int => Ok("i64".to_string()),
+                PrimitiveType::Float => Ok("f64".to_string()),
+                PrimitiveType::Bool => Ok("bool".to_string()),
+            }
+        } else if let Some(anon_model) = atom.as_anon_model() {
+            let Some(parent_scope_node) = self.syms.get(parent_scope.expect("Expected parent scope")) else {
+                return Err(CodeGenError::InternalError("Parent scope not found".to_string()));
+            };
+            let parent_scope_name = qualified_symbol_name_to_case(&parent_scope_node.name, convert_case::Case::Pascal);
+            let anon_model_name = parent_scope_name;
+            dbg!(&anon_model_name);
+            todo!();
+        } else if let Some(record_type) = atom.as_record_type() {
+            // Record
+            let src_type = record_type.src_type_node().ok_or(CodeGenError::InternalError("Record missing source type".to_string()))?;
+            let src_type_code = self.visit_type(src_type, parent_scope)?;
+            let dest_type = record_type.dest_type_node().ok_or(CodeGenError::InternalError("Record missing destination type".to_string()))?;
+            let dest_type_code = self.visit_type(dest_type, parent_scope)?;
+            Ok(format!("HashMap<{}, {}>", src_type_code, dest_type_code))
+        } else {
+            let ident_token = atom.as_ref_token().ok_or(CodeGenError::InternalError("TypeAtom missing ident".to_string()))?;
+            let text_string = ident_token.to_string();
+            let ref_ident = text_string.trim();
+            let ref_sym = self
+                .syms
+                .resolve(parent_scope, ref_ident)
+                .ok_or_else(|| CodeGenError::InternalError(format!("Unresolved type symbol for type: {}", ref_ident)))?;
+            let qualified_ref_name = qualified_symbol_name_to_case(&ref_sym.name, convert_case::Case::Pascal);
+            Ok(qualified_ref_name.to_string())
+        }
     }
 
     // fn emit_literal(&mut self, _scope: Option<SymId>, constexpr: LiteralExpr) -> CodeGenResult<String> {
@@ -353,7 +408,7 @@ impl CodeGeneratorImpl {
     //     Ok((true, has_enum))
     // }
 
-    const PRELUDES: [&'static str; 1] = ["use serde::{Serialize, Deserialize};"];
+    const PRELUDES: [&'static str; 1] = ["use std::collections::HashMap;"];
 }
 
 #[cfg(test)]
@@ -399,7 +454,7 @@ mod tests {
                     }
                 }
             }
-				"# };
+		"# };
 
         let (program, source) = analyze_test_glue_file(src);
 

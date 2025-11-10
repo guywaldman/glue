@@ -159,8 +159,7 @@ impl CodeGeneratorImpl {
         let field_nodes = model.field_nodes();
         for field_node in field_nodes {
             let field = Field::cast(field_node).ok_or(CodeGenError::InternalError("Expected field node".into()))?;
-            let field_name_token = field.ident_token().ok_or(CodeGenError::InternalError("Expected field to have ident token".into()))?;
-            let field_name = field_name_token.text().to_string();
+            let field_name = field.ident().ok_or(CodeGenError::InternalError("Expected field to have ident".into()))?;
             let field_type_node = field.type_node().ok_or(CodeGenError::InternalError("Expected field to have type node".into()))?;
             let mut field_type_json = self.visit_type(field_type_node.clone(), Some(current_scope))?;
             if let Some(docs) = field.docs() {
@@ -236,6 +235,7 @@ impl CodeGeneratorImpl {
 
         if let Some(primitive_type) = type_atom.as_primitive_type() {
             let primitive_type = match primitive_type {
+                PrimitiveType::Any => Ok("object".into()),
                 PrimitiveType::String => Ok("string".into()),
                 PrimitiveType::Int => Ok("integer".into()),
                 PrimitiveType::Float => Ok("number".into()),
@@ -254,7 +254,7 @@ impl CodeGeneratorImpl {
             Ok(type_obj.into())
         } else {
             let ref_name = type_atom
-                .ident_token()
+                .as_ref_token()
                 .ok_or(CodeGenError::InternalError("Expected type atom to have ident token".into()))?
                 .text()
                 .to_string();

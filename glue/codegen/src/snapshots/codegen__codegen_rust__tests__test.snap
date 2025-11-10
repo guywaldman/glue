@@ -2,9 +2,9 @@
 source: codegen/src/codegen_rust.rs
 expression: output
 ---
-use serde::{Serialize, Deserialize};
+use std::collections::HashMap;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct GlueConfigSchema {
     /// Configuration for code generation (`glue gen [...]`)
     pub generation: GlueConfigSchemaGeneration,
@@ -12,13 +12,13 @@ pub struct GlueConfigSchema {
 }
 
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct GlueConfigSchemaGenerationRustSerde {
     pub include_yaml: bool,
 }
 
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct GlueConfigSchemaGenerationPythonPydantic {
     /// The full import path for the base model class to inherit from (e.g., `pydantic.BaseModel` or `my.module.CustomBaseModel`)
     pub base_model: String,
@@ -39,7 +39,7 @@ pub enum GlueConfigSchemaGenerationWatermark {
     None,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct GlueConfigSchemaGeneration {
     /// Mode for the watermark at the top of the generated files
     pub watermark: GlueConfigSchemaGenerationWatermark,

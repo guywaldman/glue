@@ -1,6 +1,7 @@
 // TODO: Remove warning suppressions.
 #![allow(dead_code, unused_imports, clippy::new_without_default)]
 
+mod models;
 mod codegen;
 mod codegen_jsonschema;
 mod codegen_openapi;

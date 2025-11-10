@@ -21,8 +21,10 @@ pub enum LSyntaxKind {
     FALSE_LITERAL,
     BOOL_LITERAL,
     INT_LITERAL,
+    LIST_LITERAL,
     LITERAL,
     BUILTIN_TYPE,
+    RECORD,
     OPTIONAL_MODIFIER,
     DOC_COMMENT,
 
@@ -93,6 +95,7 @@ impl rowan::Language for Lang {
 
 pub type LNode = rowan::SyntaxNode<Lang>;
 pub type LToken = rowan::SyntaxToken<Lang>;
+pub type LNodeOrToken = rowan::SyntaxElement<Lang>;
 
 pub struct Parser;
 
@@ -148,12 +151,14 @@ impl Parser {
             Rule::endpoint => ENDPOINT,
             Rule::ident => IDENT,
             Rule::builtin_type => BUILTIN_TYPE,
+            Rule::record => RECORD,
             Rule::optional_modifier => OPTIONAL_MODIFIER,
             Rule::literal => LITERAL,
             Rule::bool_literal => BOOL_LITERAL,
             Rule::true_literal => TRUE_LITERAL,
             Rule::false_literal => FALSE_LITERAL,
             Rule::int_literal => INT_LITERAL,
+            Rule::list_literal => LIST_LITERAL,
             Rule::string_literal => STRING_LITERAL,
             Rule::string_literal_inner => STRING_LITERAL_INNER,
             Rule::char => CHAR,

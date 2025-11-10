@@ -6,11 +6,11 @@ use std::{
 use miette::Report;
 
 use crate::{
-    Decorator, DecoratorArg, EnumVariant, Literal, LiteralExpr, PrimitiveType, SourceCodeMetadata,
+    Decorator, DecoratorArg, Endpoint, EnumVariant, Literal, LiteralExpr, PrimitiveType, SourceCodeMetadata,
     builtin_decorators::{BUILTIN_DECORATORS, DecoratorDef},
     diagnostics::DiagnosticContext,
     symbols::{SymId, SymTable},
-    syntax::{AstNode, Enum, Field, LNode, LSyntaxKind, Model, ParsedProgram, Type, TypeAtom},
+    syntax::{AstNode, Enum, Field, LNode, LNodeOrToken, LSyntaxKind, Model, ParsedProgram, Type, TypeAtom},
     utils::fuzzy_match,
 };
 
@@ -116,7 +116,7 @@ impl SemanticAnalyzer {
                     }
                 } else {
                     // Not a literal type - must be a ref
-                    let ref_name = type_atom.ident_token().unwrap().text().to_string();
+                    let ref_name = type_atom.as_ref_token().unwrap().text().to_string();
                     let ref_sym = symbols.resolve_id(scope, &ref_name).expect("Expected referenced symbol to exist");
                     let ref_entry = symbols.get(ref_sym).expect("Expected symbol entry to exist");
 
@@ -159,7 +159,7 @@ impl SemanticAnalyzer {
         let type_atom_nodes = type_expr.type_atom_nodes();
         for type_atom_node in type_atom_nodes {
             let type_atom = TypeAtom::cast(type_atom_node.clone()).unwrap();
-            if let Some(ident_token) = type_atom.ident_token() {
+            if let Some(ident_token) = type_atom.as_ref_token() {
                 // Ident - could be a non-existent primitive type, or a ref
                 let type_name = ident_token.text().to_string();
                 if let Some(scope) = scope
@@ -218,16 +218,6 @@ impl SemanticAnalyzer {
             return;
         };
 
-        fn compare_type(expected_type: PrimitiveType, literal_value: &Literal) -> bool {
-            matches!(
-                (expected_type, literal_value),
-                (PrimitiveType::Bool, Literal::BoolLiteral { .. })
-                    | (PrimitiveType::Int, Literal::IntLiteral { .. })
-                    | (PrimitiveType::Float, Literal::FloatLiteral { .. })
-                    | (PrimitiveType::String, Literal::StringLiteral { .. })
-            )
-        }
-
         // Check that all required arguments are present.
         for required_arg_def in builtin_decorator.args().iter().filter(|arg| arg.required) {
             let expected_pos = builtin_decorator.positional_args.iter().position(|arg| arg.id == required_arg_def.id);
@@ -249,7 +239,7 @@ impl SemanticAnalyzer {
                 let effective_arg = DecoratorArg::cast(effective_arg_at_pos.unwrap().clone()).unwrap();
                 let literal_expr = effective_arg.literal_expr().unwrap();
                 let literal_value = literal_expr.value().unwrap();
-                if !compare_type(required_arg_def.ty, &literal_value) {
+                if required_arg_def.ty != literal_value.ty() {
                     let report = diag.error(
                         effective_arg_at_pos.unwrap().text_range(),
                         &format!("Argument '{}' to decorator '@{}' has incorrect type", required_arg_def.id, decorator_name),
@@ -277,7 +267,7 @@ impl SemanticAnalyzer {
                 let effective_arg = DecoratorArg::cast(effective_arg_with_name.unwrap().clone()).unwrap();
                 let literal_expr = effective_arg.literal_expr().unwrap();
                 let literal_value = literal_expr.value().unwrap();
-                if !compare_type(required_arg_def.ty, &literal_value) {
+                if required_arg_def.ty != literal_value.ty() {
                     let report = diag.error(
                         effective_arg_with_name.unwrap().text_range(),
                         &format!("Argument '{}' to decorator '@{}' has incorrect type", required_arg_def.id, decorator_name),
@@ -296,7 +286,7 @@ impl SemanticAnalyzer {
             if let Some(expected_arg_def) = expected_arg_def {
                 let literal_expr = effective_arg.literal_expr().unwrap();
                 let literal_value = literal_expr.value().unwrap();
-                if !compare_type(expected_arg_def.ty, &literal_value) {
+                if expected_arg_def.ty != literal_value.ty() {
                     let report = diag.error_with_help(
                         effective_arg_node.text_range(),
                         &format!(
@@ -348,6 +338,23 @@ impl SemanticAnalyzer {
                     let _ = Self::generate_symbol_table_walk(nested_enum_node, syms, Some(model_scope_id), errors, diag.clone());
                 }
             }
+            LSyntaxKind::ENDPOINT => {
+                let endpoint = Endpoint::cast(node.clone()).unwrap();
+                // We use the endpoint's string literal (the path e.g., "GET /users") as its name, since the friendly name is optional
+                let endpoint_name = endpoint.path_string_literal_node().unwrap().value().expect("Expected endpoint string literal");
+                if syms.resolve(parent_scope, &endpoint_name).is_some() {
+                    let report = diag.error(endpoint.syntax().text_range(), &format!("Duplicate endpoint name '{}'", endpoint_name));
+                    errors.push(SemanticAnalyzerError::DuplicateField(report));
+                    return Err(());
+                }
+                for nested_model_node in endpoint.nested_model_nodes() {
+                    let _ = Self::generate_symbol_table_walk(nested_model_node, syms, parent_scope, errors, diag.clone());
+                }
+                for nested_enum_node in endpoint.nested_enum_nodes() {
+                    let _ = Self::generate_symbol_table_walk(nested_enum_node, syms, parent_scope, errors, diag.clone());
+                }
+                syms.add_to_scope(parent_scope, &endpoint_name, node);
+            }
             LSyntaxKind::ENUM => {
                 let enum_model = Enum::cast(node.clone()).unwrap();
                 let ident_token = enum_model.ident_token().unwrap();
@@ -360,9 +367,12 @@ impl SemanticAnalyzer {
                 syms.add_to_scope(parent_scope, &enum_name, node);
             }
             LSyntaxKind::FIELD => {
-                let field = Field::cast(node.clone()).unwrap();
-                let ident_token = field.ident_token().unwrap();
-                let field_name = ident_token.text().to_string();
+                let field = Field::cast(node.clone()).expect("Expected Field node");
+                let ident_token = field.ident_node().expect("Expected field ident token");
+                let field_name = match ident_token.clone() {
+                    LNodeOrToken::Node(n) => n.text().to_string(),
+                    LNodeOrToken::Token(tok) => tok.text().to_string(),
+                };
                 if syms.resolve(parent_scope, &field_name).is_some() {
                     let report = diag.error(ident_token.text_range(), &format!("Duplicate field name '{}'", field_name));
                     errors.push(SemanticAnalyzerError::DuplicateField(report));
@@ -383,7 +393,29 @@ mod tests {
     use crate::{metadata::SourceCodeMetadata, semantic_analyzer::SemanticAnalyzer, syntax::Parser};
 
     #[test]
-    fn invalid_model_basic() {
+    fn test_valid_model_basic() {
+        let src = indoc! { r#"
+        model Graph {
+            nodes: Record<string, Node>
+            edges: Record<string, string>[]
+
+            model Node {
+                id: string
+                label: string
+            }
+        }
+        "# };
+        let metadata = SourceCodeMetadata {
+            file_name: "test.glue",
+            file_contents: src,
+        };
+        let parsed = Parser::new().parse(&metadata).unwrap();
+        let analyzed = SemanticAnalyzer::new().analyze(&parsed, &metadata);
+        assert!(analyzed.is_ok());
+    }
+
+    #[test]
+    fn test_invalid_model_basic() {
         let src = indoc! { r#"
 		// This is a great model
         model Foo {

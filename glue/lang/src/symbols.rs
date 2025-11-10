@@ -89,7 +89,8 @@ where
         let parent_entry = self.0.get(parent_id)?;
         let full_entry_name = Self::join_entries(&parent_entry.name, entry_name);
         for (_, sym_entry) in self.0.iter() {
-            if sym_entry.name == full_entry_name {
+            // TODO: Decide one way or the other...
+            if sym_entry.name == full_entry_name || sym_entry.name == entry_name {
                 return Some(sym_entry.id);
             }
         }

@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::PrimitiveType;
+use crate::{ConstExprType, PrimitiveType};
 
 /// Definition of argument for built-in decorator in Glue.
 #[derive(Debug, Clone)]
@@ -10,7 +10,7 @@ pub struct DecoratorArgDef {
     /// Documentation string for the argument.
     pub doc: &'static str,
     /// The type of the argument.
-    pub ty: PrimitiveType,
+    pub ty: ConstExprType,
     /// Whether the argument is required.
     pub required: bool,
     /// The expected position of the argument if it is positional (None if named).
@@ -76,15 +76,22 @@ pub const MODEL_FIELD_DECORATOR: &DecoratorDef = {
         id: "field",
         doc: "Decorator applied to model fields to provide additional metadata.",
         positional_args: &[MODEL_FIELD_DECORATOR_ALIAS_ARG],
-        named_args: &[MODEL_FIELD_DECORATOR_ALIAS_ARG],
+        named_args: &[MODEL_FIELD_DECORATOR_ALIAS_ARG, MODEL_FIELD_DECORATOR_EXAMPLE_ARG],
     }
 };
 pub const MODEL_FIELD_DECORATOR_ALIAS_ARG: DecoratorArgDef = DecoratorArgDef {
     id: "alias",
     doc: "Describes the alias for the a field",
-    ty: PrimitiveType::String,
+    ty: ConstExprType::String,
     required: true,
     expected_position: Some(0),
+};
+pub const MODEL_FIELD_DECORATOR_EXAMPLE_ARG: DecoratorArgDef = DecoratorArgDef {
+    id: "example",
+    doc: "Provides an example value for the field",
+    ty: ConstExprType::String,
+    required: false,
+    expected_position: None,
 };
 
 /// All built-in decorators available in Glue.
