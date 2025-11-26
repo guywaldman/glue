@@ -24,6 +24,14 @@ where
         Self(HopSlotMap::with_key())
     }
 
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     pub fn add<T: Into<String>>(&mut self, entry_name: T, data: TData) -> SymId {
         let entry = SymEntry {
             id: SymId::default(),
@@ -67,6 +75,7 @@ where
             }
         }
 
+        // TODO: Optimize
         for (_, sym_entry) in self.0.iter() {
             for candidate in &symbol_name_candidates {
                 if sym_entry.name == *candidate {

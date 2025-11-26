@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use log::debug;
 use miette::Report;
 
 use crate::{
@@ -49,13 +50,16 @@ impl SemanticAnalyzer {
         let targets: Vec<_> = root.children().filter(|n| n.kind() == LSyntaxKind::MODEL).map(|n| (n.kind(), n.text_range())).collect();
         let green_node = root.green();
 
+        debug!("Generating symbol table");
         let symbols = Self::generate_symbol_table(parsed, &mut errors, diagnostic_ctx.clone());
+        debug!("Symbol table generated with {} entries", symbols.len());
 
         // TODO: Parallelize
         targets.iter().for_each(|&(kind, range)| {
             let local_root: LNode = rowan::SyntaxNode::new_root(green_node.clone().into());
             let element = local_root.covering_element(range);
             let node = element.into_node().expect("expected node at range");
+            debug!("Analyzing model at range: {:?}", range);
             if kind == LSyntaxKind::MODEL {
                 // TODO: Remove clone for symbols
                 Self::check_model(node, &symbols, None, &mut errors, diagnostic_ctx.clone());
@@ -165,7 +169,7 @@ impl SemanticAnalyzer {
                 if let Some(scope) = scope
                     && symbols.resolve_id(Some(scope), &type_name).is_none()
                 {
-                    let mut candidates = vec!["string", "int", "float", "bool"];
+                    let mut candidates = vec!["string", "int", "float", "bool", "any"];
                     let symbol_entries = symbols.entries(Some(scope));
                     candidates.extend(symbol_entries.iter().map(|entry| entry.name.rsplit("::").nth(0).unwrap()));
                     let suggested_names = fuzzy_match(&type_name, &candidates, 1);
@@ -308,7 +312,7 @@ impl SemanticAnalyzer {
         let mut syms = SymTable::new();
         let top_level_nodes = root.children();
         for child in top_level_nodes {
-            if Self::generate_symbol_table_walk(child, &mut syms, None, errors, diag.clone()).is_err() {
+            if Self::generate_symbol_table_walk(child, &mut syms, None, errors, &diag).is_err() {
                 continue;
             }
         }
@@ -316,7 +320,13 @@ impl SemanticAnalyzer {
         syms
     }
 
-    fn generate_symbol_table_walk(node: LNode, syms: &mut SymTable<LNode>, parent_scope: Option<SymId>, errors: &mut Vec<SemanticAnalyzerError>, diag: DiagnosticContext) -> Result<Option<SymId>, ()> {
+    fn generate_symbol_table_walk(
+        node: LNode,
+        syms: &mut SymTable<LNode>,
+        parent_scope: Option<SymId>,
+        errors: &mut Vec<SemanticAnalyzerError>,
+        diag: &DiagnosticContext,
+    ) -> Result<Option<SymId>, ()> {
         match node.kind() {
             LSyntaxKind::MODEL => {
                 let model = Model::cast(node.clone()).unwrap();
@@ -329,13 +339,13 @@ impl SemanticAnalyzer {
                 }
                 let model_scope_id = syms.add_to_scope(parent_scope, &model_name, node);
                 for field_node in model.field_nodes() {
-                    let _ = Self::generate_symbol_table_walk(field_node, syms, Some(model_scope_id), errors, diag.clone());
+                    let _ = Self::generate_symbol_table_walk(field_node, syms, Some(model_scope_id), errors, diag);
                 }
                 for nested_model_node in model.nested_model_nodes() {
-                    let _ = Self::generate_symbol_table_walk(nested_model_node, syms, Some(model_scope_id), errors, diag.clone());
+                    let _ = Self::generate_symbol_table_walk(nested_model_node, syms, Some(model_scope_id), errors, diag);
                 }
                 for nested_enum_node in model.nested_enum_nodes() {
-                    let _ = Self::generate_symbol_table_walk(nested_enum_node, syms, Some(model_scope_id), errors, diag.clone());
+                    let _ = Self::generate_symbol_table_walk(nested_enum_node, syms, Some(model_scope_id), errors, diag);
                 }
             }
             LSyntaxKind::ENDPOINT => {
@@ -347,13 +357,16 @@ impl SemanticAnalyzer {
                     errors.push(SemanticAnalyzerError::DuplicateField(report));
                     return Err(());
                 }
+                let endpoint_scope_id = syms.add_to_scope(parent_scope, &endpoint_name, node);
+                for field_node in endpoint.field_nodes() {
+                    let _ = Self::generate_symbol_table_walk(field_node, syms, Some(endpoint_scope_id), errors, diag);
+                }
                 for nested_model_node in endpoint.nested_model_nodes() {
-                    let _ = Self::generate_symbol_table_walk(nested_model_node, syms, parent_scope, errors, diag.clone());
+                    let _ = Self::generate_symbol_table_walk(nested_model_node, syms, Some(endpoint_scope_id), errors, diag);
                 }
                 for nested_enum_node in endpoint.nested_enum_nodes() {
-                    let _ = Self::generate_symbol_table_walk(nested_enum_node, syms, parent_scope, errors, diag.clone());
+                    let _ = Self::generate_symbol_table_walk(nested_enum_node, syms, Some(endpoint_scope_id), errors, diag);
                 }
-                syms.add_to_scope(parent_scope, &endpoint_name, node);
             }
             LSyntaxKind::ENUM => {
                 let enum_model = Enum::cast(node.clone()).unwrap();

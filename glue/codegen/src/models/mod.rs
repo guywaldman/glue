@@ -1,3 +1,1 @@
-mod openapi;
-
-pub(crate) use openapi::*;
+pub(crate) mod openapi;

@@ -19,6 +19,8 @@ pub enum CodeGenMode {
     Rust,
     #[value(alias("python"))]
     Python,
+    #[value(alias("protobuf"))]
+    Protobuf,
 }
 
 #[derive(clap::Args)]

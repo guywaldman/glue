@@ -324,7 +324,6 @@ impl CodeGeneratorImpl {
             };
             let parent_scope_name = qualified_symbol_name_to_case(&parent_scope_node.name, convert_case::Case::Pascal);
             let anon_model_name = parent_scope_name;
-            dbg!(&anon_model_name);
             todo!();
         } else if let Some(record_type) = atom.as_record_type() {
             // Record

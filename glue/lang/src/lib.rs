@@ -16,5 +16,6 @@ pub use metadata::SourceCodeMetadata;
 pub use semantic_analyzer::{AnalyzedProgram, SemanticAnalyzer, SemanticAnalyzerError};
 pub use symbols::{SymEntry, SymId, SymTable, symbol_name_to_parts};
 pub use syntax::{
-    AstNode, ConstExprType, Decorator, DecoratorArg, Endpoint, Enum, EnumVariant, Field, LNode, LSyntaxKind, Literal, LiteralExpr, Model, Parser, ParserError, PrimitiveType, Type, TypeAtom,
+    AnonModel, AstNode, AstVisitor, ConstExprType, Decorator, DecoratorArg, Endpoint, Enum, EnumVariant, Field, LNode, LSyntaxKind, Literal, LiteralExpr, Model, Parser, ParserError, PrimitiveType,
+    RootNode, Type, TypeAtom,
 };

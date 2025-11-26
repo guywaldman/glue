@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{
     builtin_decorators::{DecoratorArgDef, DecoratorDef},
     syntax::parser::{LNode, LNodeOrToken, LSyntaxKind, LToken},
@@ -23,6 +25,35 @@ macro_rules! ast_node {
             }
         }
     };
+}
+
+ast_node!(RootNode, LSyntaxKind::PROGRAM);
+
+impl RootNode {
+    pub fn top_level_models(&self) -> Vec<Model> {
+        self.0.children().filter(|n| n.kind() == LSyntaxKind::MODEL).filter_map(Model::cast).collect()
+    }
+
+    pub fn top_level_endpoints(&self) -> Vec<Endpoint> {
+        self.0.children().filter(|n| n.kind() == LSyntaxKind::ENDPOINT).filter_map(Endpoint::cast).collect()
+    }
+
+    pub fn top_level_enums(&self) -> Vec<Enum> {
+        self.0.children().filter(|n| n.kind() == LSyntaxKind::ENUM).filter_map(Enum::cast).collect()
+    }
+}
+
+ast_node!(AnonModel, LSyntaxKind::ANON_MODEL);
+
+impl AnonModel {
+    pub fn field_nodes(&self) -> Vec<LNode> {
+        self.0
+            .children()
+            .find(|n| n.kind() == LSyntaxKind::MODEL_BODY)
+            .into_iter()
+            .flat_map(|model_body| model_body.children().filter(|n| n.kind() == LSyntaxKind::FIELD))
+            .collect()
+    }
 }
 
 ast_node!(Model, LSyntaxKind::MODEL);
@@ -53,6 +84,10 @@ impl Model {
             .collect()
     }
 
+    pub fn fields(&self) -> Vec<Field> {
+        self.field_nodes().into_iter().filter_map(Field::cast).collect()
+    }
+
     pub fn nested_model_nodes(&self) -> Vec<LNode> {
         self.0
             .children()
@@ -62,6 +97,10 @@ impl Model {
             .collect()
     }
 
+    pub fn nested_models(&self) -> Vec<Model> {
+        self.nested_model_nodes().into_iter().filter_map(Model::cast).collect()
+    }
+
     pub fn nested_enum_nodes(&self) -> Vec<LNode> {
         self.0
             .children()
@@ -69,6 +108,10 @@ impl Model {
             .into_iter()
             .flat_map(|model_body| model_body.children().filter(|n| n.kind() == LSyntaxKind::ENUM))
             .collect()
+    }
+
+    pub fn nested_enums(&self) -> Vec<Enum> {
+        self.nested_enum_nodes().into_iter().filter_map(Enum::cast).collect()
     }
 
     pub fn decorator_nodes(&self) -> Vec<LNode> {
@@ -103,6 +146,25 @@ impl Endpoint {
         self.ident_token().map(|t| t.text().to_string())
     }
 
+    pub fn docs(&self) -> Option<Vec<String>> {
+        self.0
+            .children_with_tokens()
+            .find(|t| t.kind() == LSyntaxKind::DOC_BLOCK)
+            .and_then(|doc_block_node| doc_block_node.into_token().map(|n| n.text().to_string()))
+            .map(|text| text.lines().map(|line| line.trim().trim_start_matches("///").trim().to_string()).collect())
+    }
+
+    pub fn field_nodes(&self) -> Vec<LNode> {
+        self.model_body()
+            .into_iter()
+            .flat_map(|model_body| model_body.children().filter(|n| n.kind() == LSyntaxKind::FIELD))
+            .collect()
+    }
+
+    pub fn fields(&self) -> Vec<Field> {
+        self.field_nodes().into_iter().filter_map(Field::cast).collect()
+    }
+
     pub fn nested_model_nodes(&self) -> Vec<LNode> {
         self.model_body()
             .into_iter()
@@ -110,11 +172,19 @@ impl Endpoint {
             .collect()
     }
 
+    pub fn nested_models(&self) -> Vec<Model> {
+        self.nested_model_nodes().into_iter().filter_map(Model::cast).collect()
+    }
+
     pub fn nested_enum_nodes(&self) -> Vec<LNode> {
         self.model_body()
             .into_iter()
             .flat_map(|model_body| model_body.children().filter(|n| n.kind() == LSyntaxKind::ENUM))
             .collect()
+    }
+
+    pub fn nested_enums(&self) -> Vec<Enum> {
+        self.nested_enum_nodes().into_iter().filter_map(Enum::cast).collect()
     }
 
     pub fn responses_field_node(&self) -> Option<LNode> {
@@ -155,7 +225,7 @@ impl EnumVariant {
     }
 }
 
-ast_node!(Enum, LSyntaxKind::RECORD);
+ast_node!(Enum, LSyntaxKind::ENUM);
 
 impl Enum {
     pub fn ident_token(&self) -> Option<LToken> {
@@ -181,6 +251,10 @@ impl Enum {
             .into_iter()
             .flat_map(|enum_variants| enum_variants.children().filter(|n| n.kind() == LSyntaxKind::ENUM_VARIANT))
             .collect()
+    }
+
+    pub fn variants(&self) -> Vec<EnumVariant> {
+        self.variant_nodes().into_iter().filter_map(EnumVariant::cast).collect()
     }
 }
 
@@ -469,6 +543,15 @@ impl Field {
 
     pub fn decorators(&self) -> Vec<Decorator> {
         self.decorator_nodes().into_iter().filter_map(Decorator::cast).collect()
+    }
+
+    pub fn extract_decorator_arg(&self, decorator_def: &DecoratorDef, arg_def: &DecoratorArgDef) -> Option<DecoratorArg> {
+        for decorator in self.decorators() {
+            if decorator.ident().as_deref() == Some(decorator_def.id) {
+                return decorator.arg(decorator_def, arg_def);
+            }
+        }
+        None
     }
 }
 

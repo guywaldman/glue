@@ -1,9 +1,10 @@
 use config::GlueConfig;
 use lang::{AnalyzedProgram, Parser, ParserError, SemanticAnalyzer, SemanticAnalyzerError, SourceCodeMetadata};
 
+use log::debug;
 use thiserror::Error;
 
-use crate::{codegen_jsonschema::CodeGenJsonSchema, codegen_openapi::CodeGenOpenAPI, codegen_python::CodeGenPython, codegen_rust::CodeGenRust};
+use crate::{codegen_jsonschema::CodeGenJsonSchema, codegen_openapi::CodeGenOpenAPI, codegen_protobuf::CodeGenProtobuf, codegen_python::CodeGenPython, codegen_rust::CodeGenRust};
 
 #[derive(Debug, Error)]
 pub enum CodeGenError {
@@ -31,6 +32,7 @@ pub enum CodeGenMode {
     OpenApi,
     Rust,
     Python,
+    Protobuf,
 }
 
 impl TryFrom<&str> for CodeGenMode {
@@ -42,6 +44,7 @@ impl TryFrom<&str> for CodeGenMode {
             "openapi" => Ok(CodeGenMode::OpenApi),
             "rust" => Ok(CodeGenMode::Rust),
             "python" => Ok(CodeGenMode::Python),
+            "protobuf" => Ok(CodeGenMode::Protobuf),
             _ => Err(CodeGenError::InternalError(format!("Unknown code generation mode: {}", value))),
         }
     }
@@ -52,14 +55,25 @@ pub struct CodeGen;
 
 impl CodeGen {
     pub fn generate(mode: CodeGenMode, source: &SourceCodeMetadata, config: Option<GlueConfig>) -> Result<String, CodeGenError> {
+        debug!("Parsing source code");
         let parsed_program = Parser::new().parse(source).map_err(CodeGenError::ParserError)?;
+        debug!("Parsed program successfully");
+
+        debug!("Starting semantic analysis");
         let analyzed_program = SemanticAnalyzer::new().analyze(&parsed_program, source).map_err(CodeGenError::SemanticAnalysisError)?;
+        debug!("Semantic analysis completed successfully");
+
         let codegen: Box<dyn CodeGenerator> = match mode {
             CodeGenMode::JsonSchema => Box::new(CodeGenJsonSchema::new()),
             CodeGenMode::OpenApi => Box::new(CodeGenOpenAPI::new()),
             CodeGenMode::Rust => Box::new(CodeGenRust::new()),
             CodeGenMode::Python => Box::new(CodeGenPython::new()),
+            CodeGenMode::Protobuf => Box::new(CodeGenProtobuf::new()),
         };
-        codegen.generate(analyzed_program, source, config)
+        debug!("Generating code");
+        let generated = codegen.generate(analyzed_program, source, config);
+        debug!("Code generation completed successfully");
+
+        generated
     }
 }
