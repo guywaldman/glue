@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["lang", "codegen", "config", "cli", "wasm"]
+members = ["lang", "codegen", "config", "cli", "lsp", "wasm"]
 
 [workspace.dependencies]
 anyhow = "1.0.100"

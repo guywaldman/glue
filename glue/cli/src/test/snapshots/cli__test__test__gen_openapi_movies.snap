@@ -1,0 +1,160 @@
+---
+source: cli/src/test/test.rs
+expression: generated_code
+---
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Generated API",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/movies": {
+      "get": {
+        "summary": "List all movies",
+        "description": "List all movies",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Movie"
+                  }
+                }
+              }
+            }
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Movie"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/movies/{movie_id}": {
+      "get": {
+        "summary": "Gets data for a specific movie by its ID",
+        "description": "Gets data for a specific movie by its ID",
+        "responses": {
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Movie"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Movie"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "description": "Represents an error response.",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "Error message."
+          },
+          "code": {
+            "type": "integer",
+            "description": "Error code."
+          }
+        }
+      },
+      "Movie": {
+        "type": "object",
+        "description": "Represents a movie entry.",
+        "required": [
+          "id",
+          "title",
+          "release_year",
+          "tags"
+        ],
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Title of the movie."
+          },
+          "releaseYear": {
+            "type": "integer",
+            "description": "Year the movie was released.",
+            "example": 1994
+          },
+          "id": {
+            "type": "string",
+            "description": "Unique identifier for the movie (GUIDv4)."
+          },
+          "tags": {
+            "type": "array",
+            "description": "List of tags associated with the movie.",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

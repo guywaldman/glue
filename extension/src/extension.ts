@@ -7,7 +7,6 @@ let client: LanguageClient | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
   const serverExecutable = process.platform === "win32" ? "lsp.exe" : "lsp";
-  // 1. Packaged location (inside extension install directory)
   const serverPath = path.join(context.extensionPath, "out", serverExecutable);
   console.log(`Glue LSP resolved path: ${serverPath}`);
   if (!fs.existsSync(serverPath)) {
@@ -42,6 +41,22 @@ export function activate(context: vscode.ExtensionContext) {
     .catch((err) => {
       vscode.window.showErrorMessage(`Failed to start Glue LSP: ${err}`);
     });
+
+  const restartCommand = vscode.commands.registerCommand("glue.restart", async () => {
+    if (client) {
+      await client.stop();
+      await client.start();
+      vscode.window.showInformationMessage("Glue LSP restarted");
+    }
+  });
+
+  const showLogsCommand = vscode.commands.registerCommand("glue.showLogs", async () => {
+    if (client) {
+      client.outputChannel.show();
+    }
+  });
+
+  context.subscriptions.push(restartCommand, showLogsCommand);
 }
 
 export function deactivate(): Thenable<void> | undefined {

@@ -2,7 +2,11 @@ use std::collections::HashMap;
 
 use config::GlueConfig;
 use convert_case::Case;
-use lang::{AnalyzedProgram, AnonModel, AstNode, AstVisitor, Endpoint, Field, LNode, Model, PrimitiveType, RootNode, SourceCodeMetadata, Type, TypeAtom};
+use lang::{
+    AnalyzedProgram, AnonModel, AstNode, AstVisitor, Endpoint, Field, LNode, Literal, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG, MODEL_FIELD_DECORATOR_EXAMPLE_ARG, Model, PrimitiveType,
+    RootNode, SourceCodeMetadata, Type, TypeAtom,
+};
+use serde_json::Number;
 
 use crate::codegen::CodeGenResult;
 use crate::models::openapi;
@@ -202,13 +206,55 @@ impl CodeGenOpenAPIImpl {
         fields
             .iter()
             .filter_map(|f| {
-                let name = f.ident()?;
+                let mut name = f.ident()?;
+                let mut example: Option<Literal> = None;
+
+                // Address decorator
+                let decorators = f.decorators();
+                if let Some(field_decorator) = decorators.iter().find(|d| d.ident().unwrap() == MODEL_FIELD_DECORATOR.id) {
+                    if let Some(alias_value) = field_decorator.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_ALIAS_ARG)
+                        && let Some(alias_value_lit) = alias_value.literal()
+                    {
+                        match alias_value_lit {
+                            Literal::StringLiteral(alias) => {
+                                name = alias.value().unwrap();
+                            }
+                            _ => {
+                                // TODO: Error handling for invalid alias type
+                            }
+                        }
+                    }
+
+                    if let Some(example_arg) = field_decorator.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_EXAMPLE_ARG)
+                        && let Some(example_value_lit) = example_arg.literal()
+                    {
+                        example = Some(example_value_lit.clone());
+                    }
+                }
                 let ty = f.ty()?;
                 let mut schema = self.type_to_schema(&ty);
 
                 // Add description from docs
                 if let (Some(docs), openapi::SchemaOrReference::Item(s)) = (f.docs(), &mut schema) {
                     s.description = Some(docs.join("\n"));
+                }
+                if let openapi::SchemaOrReference::Item(s) = &mut schema {
+                    // Add example if present
+                    if let Some(example_lit) = example {
+                        let mut example_json_value = None;
+                        match example_lit {
+                            Literal::StringLiteral(sl) => example_json_value = Some(serde_json::Value::String(sl.value().unwrap().to_string())),
+                            Literal::IntLiteral { value, .. } => example_json_value = Some(serde_json::Value::Number(Number::from_i128(value as i128).unwrap())),
+                            Literal::FloatLiteral { value, .. } => {
+                                example_json_value = Some(serde_json::Value::Number(serde_json::Number::from_f64(value).expect("failed to convert float to JSON number")))
+                            }
+                            Literal::BoolLiteral { value, .. } => example_json_value = Some(serde_json::Value::Bool(value)),
+                            _ => {
+                                // TODO: Handle other literal types or error
+                            }
+                        };
+                        s.example = example_json_value;
+                    }
                 }
 
                 Some((name, schema))
@@ -257,6 +303,14 @@ impl CodeGenOpenAPIImpl {
                 };
                 responses.insert(status_code, openapi::SchemaOrReference::Item(response));
             }
+        }
+
+        // If 2XX is present but not 200, duplicate it to 200 (it appears that several OpenAPI clients expects 200).
+        if responses.contains_key("2XX")
+            && !responses.contains_key("200")
+            && let Some(response) = responses.get("2XX").cloned()
+        {
+            responses.insert("200".to_string(), response);
         }
 
         responses

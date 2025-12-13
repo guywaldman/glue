@@ -41,7 +41,7 @@ fix-cli:
 	cd glue && cargo clippy --workspace --all --fix --allow-dirty --allow-staged
 
 extension-dev:
-	cd extension && npm install && npm run package && code --install-extension glue-*.vsix
+	cd extension && rm -rf out ./*.vsix && npm install && npm run package && code --install-extension glue-*.vsix
 
 extension-publish:
 	cd extension && npm install && npm test && npm run publish

@@ -189,7 +189,7 @@ impl CodeGeneratorImpl {
             output.push_str(&Self::emit_docs(docs, 0));
         }
 
-        output.push_str("#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]\n");
+        output.push_str("#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]\n");
         output.push_str(&format!("pub enum {} {{\n", qualified_enum_name));
 
         let variant_nodes = enum_model.variant_nodes();

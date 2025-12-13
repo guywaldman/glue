@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use miette::{Diagnostic, GraphicalReportHandler, LabeledSpan, NamedSource, Report, Severity, diagnostic};
+use miette::{GraphicalReportHandler, LabeledSpan, NamedSource, Report, Severity, diagnostic};
 use rowan::TextRange;
 
 #[derive(Clone)]
@@ -10,6 +10,36 @@ pub struct DiagnosticContext {
 
 unsafe impl Send for DiagnosticContext {}
 unsafe impl Sync for DiagnosticContext {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum DiagnosticSeverity {
+    Error,
+    Warning,
+    Info,
+    Hint,
+}
+
+/// A Glue diagnostic message with associated span and severity.
+#[derive(Debug)]
+pub struct Diagnostic {
+    /// The diagnostic message.
+    message: String,
+    /// The span in the source code that the diagnostic refers to.
+    span: TextRange,
+    /// The severity of the diagnostic.
+    severity: DiagnosticSeverity,
+    // TODO: Add diagnostic code, help message, etc.
+}
+
+impl Diagnostic {
+    pub fn new(message: impl Into<String>, span: TextRange, severity: DiagnosticSeverity) -> Self {
+        Self {
+            message: message.into(),
+            span,
+            severity,
+        }
+    }
+}
 
 impl DiagnosticContext {
     pub fn new(file_name: impl Into<String>, contents: impl Into<String>) -> Self {
@@ -72,7 +102,7 @@ pub fn generate_reports(reports: &[&Report]) -> Result<String, std::fmt::Error> 
 }
 
 #[allow(dead_code)]
-pub fn print_diagnostic(diag: &(dyn Diagnostic + Send + Sync)) -> Result<String, std::fmt::Error> {
+pub fn print_diagnostic(diag: &(dyn miette::Diagnostic + Send + Sync)) -> Result<String, std::fmt::Error> {
     let mut output = String::new();
     GraphicalReportHandler::new().render_report(&mut output, diag)?;
     Ok(output)

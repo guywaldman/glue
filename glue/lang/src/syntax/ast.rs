@@ -395,12 +395,12 @@ impl std::fmt::Display for ConstExprType {
 
 #[derive(Debug, Clone)]
 pub enum Literal {
+    // TODO: Align all types to contain node
     StringLiteral(StringLiteral),
     ListLiteral(ListLiteral),
-    // TODO: Convert to use LNode inside
-    IntLiteral { value: i64, node: LNode },
-    FloatLiteral { value: f64, node: LNode },
-    BoolLiteral { value: bool, node: LNode },
+    IntLiteral { value: i64, node: LNodeOrToken },
+    FloatLiteral { value: f64, node: LNodeOrToken },
+    BoolLiteral { value: bool, node: LNodeOrToken },
 }
 
 impl Literal {
@@ -450,8 +450,14 @@ impl LiteralExpr {
                 let bool_node = child.into_node().unwrap();
                 let inner_literal = bool_node.children_with_tokens().find(|n| matches!(n.kind(), LSyntaxKind::TRUE_LITERAL | LSyntaxKind::FALSE_LITERAL))?;
                 match inner_literal.kind() {
-                    LSyntaxKind::TRUE_LITERAL => Some(Literal::BoolLiteral { value: true, node: bool_node }),
-                    LSyntaxKind::FALSE_LITERAL => Some(Literal::BoolLiteral { value: false, node: bool_node }),
+                    LSyntaxKind::TRUE_LITERAL => Some(Literal::BoolLiteral {
+                        value: true,
+                        node: LNodeOrToken::Node(bool_node),
+                    }),
+                    LSyntaxKind::FALSE_LITERAL => Some(Literal::BoolLiteral {
+                        value: false,
+                        node: LNodeOrToken::Node(bool_node),
+                    }),
                     _ => None,
                 }
             }
@@ -460,12 +466,12 @@ impl LiteralExpr {
                 if let Ok(int_value) = text.parse::<i64>() {
                     Some(Literal::IntLiteral {
                         value: int_value,
-                        node: child.into_node().unwrap(),
+                        node: LNodeOrToken::Token(child.into_token().unwrap()),
                     })
                 } else if let Ok(float_value) = text.parse::<f64>() {
                     Some(Literal::FloatLiteral {
                         value: float_value,
-                        node: child.into_node().unwrap(),
+                        node: LNodeOrToken::Token(child.into_token().unwrap()),
                     })
                 } else {
                     None
@@ -477,12 +483,12 @@ impl LiteralExpr {
                 if let Ok(int_value) = text.parse::<i64>() {
                     Some(Literal::IntLiteral {
                         value: int_value,
-                        node: child.into_node().unwrap(),
+                        node: LNodeOrToken::Token(child.into_token().unwrap()),
                     })
                 } else if let Ok(float_value) = text.parse::<f64>() {
                     Some(Literal::FloatLiteral {
                         value: float_value,
-                        node: child.into_node().unwrap(),
+                        node: LNodeOrToken::Token(child.into_token().unwrap()),
                     })
                 } else {
                     None

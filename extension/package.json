@@ -39,6 +39,16 @@
         "scopeName": "source.glue",
         "path": "./syntaxes/glue.tmLanguage.json"
       }
+    ],
+    "commands": [
+      {
+        "command": "glue.restart",
+        "title": "Glue: Restart Language Server"
+      },
+      {
+        "command": "glue.showLogs",
+        "title": "Glue: Show Language Server Logs"
+      }
     ]
   },
   "scripts": {

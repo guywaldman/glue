@@ -132,6 +132,7 @@ pub struct Responses {
 /// Describes a single response from an operation.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct Response {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<HashMap<String, MediaType>>,

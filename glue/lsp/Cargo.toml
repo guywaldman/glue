@@ -1,0 +1,14 @@
+[package]
+name = "lsp"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+lang = { path = "../lang" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }
+tower-lsp = "0.20"
+log = { workspace = true }
+indoc = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+pretty_assertions = { workspace = true }

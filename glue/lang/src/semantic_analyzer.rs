@@ -284,15 +284,15 @@ impl SemanticAnalyzer {
         }
 
         // If there are positional args, check that they are in the correct order and have the correct types.
-        for (idx, effective_arg_node) in effective_arg_nodes.iter().enumerate() {
-            let effective_arg = DecoratorArg::cast(effective_arg_node.clone()).unwrap();
+        let positional_args = decorator.positional_args();
+        for (idx, effective_arg) in positional_args.iter().enumerate() {
             let expected_arg_def = builtin_decorator.positional_args.get(idx);
             if let Some(expected_arg_def) = expected_arg_def {
                 let literal_expr = effective_arg.literal_expr().unwrap();
                 let literal_value = literal_expr.value().unwrap();
                 if expected_arg_def.ty != literal_value.ty() {
                     let report = diag.error_with_help(
-                        effective_arg_node.text_range(),
+                        effective_arg.syntax().text_range(),
                         &format!(
                             "Argument to decorator `@{}` has incorrect type (expected `{}` of type `{}` , received `{}`)",
                             decorator_name, expected_arg_def.id, expected_arg_def.ty, literal_value
@@ -386,7 +386,18 @@ impl SemanticAnalyzer {
                     LNodeOrToken::Node(n) => n.text().to_string(),
                     LNodeOrToken::Token(tok) => tok.text().to_string(),
                 };
-                if syms.resolve(parent_scope, &field_name).is_some() {
+                
+                // Build the fully qualified name for this field in the current scope
+                let mut fully_qualified_name = field_name.clone();
+                if let Some(scope) = parent_scope
+                    && let Some(scope_entry) = syms.get(scope)
+                {
+                    fully_qualified_name = format!("{}::{}", scope_entry.name, field_name);
+                }
+                
+                // Check if this exact field already exists in the current scope
+                let already_exists = syms.entries(parent_scope).iter().any(|entry| entry.name == fully_qualified_name);
+                if already_exists {
                     let report = diag.error(ident_token.text_range(), &format!("Duplicate field name '{}'", field_name));
                     errors.push(SemanticAnalyzerError::DuplicateField(report));
                     return Err(());

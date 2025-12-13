@@ -112,7 +112,6 @@ impl CodeGenProtobufImpl {
                     self.imports.insert("import \"google/protobuf/any.proto\";".to_string());
                     Ok("google.protobuf.Any".to_string())
                 }
-                _ => Err(self.err(type_atom.syntax().clone(), &format!("Unsupported primitive type: {:?}", primitive))),
             }
         } else if let Some(ref_token) = type_atom.as_ref_token() {
             let ref_name = ref_token.to_string();

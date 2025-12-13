@@ -9,18 +9,36 @@ pub struct Cli {
     pub command: CliSubcommand,
 }
 
+pub const CODEGEN_MODE_JSONSCHEMA: &str = "jsonschema";
+pub const CODEGEN_MODE_OPENAPI: &str = "openapi";
+pub const CODEGEN_MODE_RUST: &str = "rust";
+pub const CODEGEN_MODE_PYTHON: &str = "python";
+pub const CODEGEN_MODE_PROTOBUF: &str = "protobuf";
+
 #[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
 pub enum CodeGenMode {
-    #[value(alias("jsonschema"))]
+    #[value(alias(CODEGEN_MODE_JSONSCHEMA))]
     JsonSchema,
-    #[value(alias("openapi"))]
+    #[value(alias(CODEGEN_MODE_OPENAPI))]
     OpenApi,
-    #[value(alias("rust"))]
+    #[value(alias(CODEGEN_MODE_RUST))]
     Rust,
-    #[value(alias("python"))]
+    #[value(alias(CODEGEN_MODE_PYTHON))]
     Python,
-    #[value(alias("protobuf"))]
+    #[value(alias(CODEGEN_MODE_PROTOBUF))]
     Protobuf,
+}
+
+impl From<CodeGenMode> for &str {
+    fn from(val: CodeGenMode) -> Self {
+        match val {
+            CodeGenMode::JsonSchema => CODEGEN_MODE_JSONSCHEMA,
+            CodeGenMode::OpenApi => CODEGEN_MODE_OPENAPI,
+            CodeGenMode::Rust => CODEGEN_MODE_RUST,
+            CodeGenMode::Python => CODEGEN_MODE_PYTHON,
+            CodeGenMode::Protobuf => CODEGEN_MODE_PROTOBUF,
+        }
+    }
 }
 
 #[derive(clap::Args)]

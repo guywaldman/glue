@@ -1,0 +1,354 @@
+---
+source: cli/src/test/test.rs
+expression: generated_code
+---
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Generated API",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/users/{user_id}": {
+      "get": {
+        "summary": "Gets data for a specific user by their ID",
+        "description": "Gets data for a specific user by their ID",
+        "responses": {
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/todos/{todo_id}": {
+      "get": {
+        "summary": "Gets data for a specific todo by its ID",
+        "description": "Gets data for a specific todo by its ID",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Todo"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Todo"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/todos": {
+      "get": {
+        "summary": "List all todos",
+        "description": "List all todos",
+        "responses": {
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Todo"
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Todo"
+                  }
+                }
+              }
+            }
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users": {
+      "get": {
+        "summary": "List all users",
+        "description": "List all users",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/User"
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/User"
+                  }
+                }
+              }
+            }
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "User": {
+        "type": "object",
+        "description": "Represents a user.",
+        "required": [
+          "id",
+          "name",
+          "username",
+          "email",
+          "address",
+          "phone",
+          "website",
+          "company"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "address": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "name": {
+            "type": "string"
+          },
+          "company": {
+            "$ref": "#/components/schemas/Company"
+          },
+          "username": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "website": {
+            "type": "string"
+          }
+        }
+      },
+      "Address": {
+        "type": "object",
+        "description": "Represents a user's address.",
+        "required": [
+          "street",
+          "suite",
+          "city",
+          "zipcode",
+          "geo"
+        ],
+        "properties": {
+          "geo": {
+            "$ref": "#/components/schemas/Geo"
+          },
+          "street": {
+            "type": "string"
+          },
+          "zipcode": {
+            "type": "string"
+          },
+          "suite": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          }
+        }
+      },
+      "Todo": {
+        "type": "object",
+        "description": "Represents a todo entry.",
+        "required": [
+          "id",
+          "title",
+          "completed",
+          "user_id"
+        ],
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Title of the todo."
+          },
+          "id": {
+            "type": "string",
+            "description": "Unique identifier for the todo (GUIDv4)."
+          },
+          "user_id": {
+            "type": "integer",
+            "description": "User ID associated with this todo."
+          },
+          "completed": {
+            "type": "boolean",
+            "description": "Whether the todo is completed."
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "description": "Represents an error response.",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "integer",
+            "description": "Error code."
+          },
+          "message": {
+            "type": "string",
+            "description": "Error message."
+          }
+        }
+      },
+      "Geo": {
+        "type": "object",
+        "description": "Represents geographic coordinates.",
+        "required": [
+          "lat",
+          "lng"
+        ],
+        "properties": {
+          "lat": {
+            "type": "string"
+          },
+          "lng": {
+            "type": "string"
+          }
+        }
+      },
+      "Company": {
+        "type": "object",
+        "description": "Represents a company.",
+        "required": [
+          "name",
+          "catchPhrase",
+          "bs"
+        ],
+        "properties": {
+          "bs": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "catchPhrase": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

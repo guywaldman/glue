@@ -1,0 +1,30 @@
+---
+source: cli/src/test/test.rs
+expression: generated_code
+---
+use std::collections::HashMap;
+
+/// Represents a movie entry.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
+pub struct Movie {
+    /// Unique identifier for the movie (GUIDv4).
+    pub id: String,
+    /// Title of the movie.
+    pub title: String,
+    /// Year the movie was released.
+    #[serde(rename = "releaseYear")]
+    pub release_year: i64,
+    /// List of tags associated with the movie.
+    pub tags: String,
+}
+
+
+/// Represents an error response.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
+pub struct Error {
+    /// Error message.
+    pub message: String,
+    /// Error code.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<i64>,
+}

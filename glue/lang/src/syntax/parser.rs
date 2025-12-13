@@ -1,8 +1,9 @@
 use log::debug;
 use miette::Report;
 use pest::{Parser as PestParser, iterators::Pair};
+use rowan::{TextRange, TextSize};
 
-use crate::metadata::SourceCodeMetadata;
+use crate::{DiagnosticSeverity, diagnostics::Diagnostic, metadata::SourceCodeMetadata};
 
 #[derive(pest_derive::Parser)]
 #[grammar = "syntax/grammar.pest"]
@@ -98,11 +99,15 @@ pub type LNode = rowan::SyntaxNode<Lang>;
 pub type LToken = rowan::SyntaxToken<Lang>;
 pub type LNodeOrToken = rowan::SyntaxElement<Lang>;
 
-pub struct Parser;
+#[derive(Default)]
+pub struct Parser {
+    pub diagnostics: Vec<Diagnostic>,
+}
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ParsedProgram {
     pub ast_root: LNode,
+    pub diagnostics: Vec<Diagnostic>,
 }
 
 #[derive(Debug)]
@@ -120,12 +125,15 @@ impl ParserError {
 
 impl Parser {
     pub fn new() -> Self {
-        Self
+        Self::default()
     }
 
-    pub fn parse(&self, metadata: &SourceCodeMetadata) -> Result<ParsedProgram, ParserError> {
-        let root = Self::parse_to_rowan(metadata.file_contents, metadata.file_name)?;
-        Ok(ParsedProgram { ast_root: root })
+    pub fn parse(&mut self, metadata: &SourceCodeMetadata) -> Result<ParsedProgram, ParserError> {
+        let root = self.parse_to_rowan(metadata.file_contents, metadata.file_name)?;
+        Ok(ParsedProgram {
+            ast_root: root,
+            diagnostics: Default::default(),
+        })
     }
 
     fn map_rule(r: Rule) -> LSyntaxKind {
@@ -169,8 +177,20 @@ impl Parser {
         }
     }
 
-    fn parse_to_rowan(src: &str, file_name: &str) -> Result<rowan::SyntaxNode<Lang>, ParserError> {
-        let pairs = P::parse(Rule::program, src).map_err(|e| ParserError::GeneralError(e.with_path(file_name).into_miette().into()))?;
+    fn parse_to_rowan(&mut self, src: &str, file_name: &str) -> Result<rowan::SyntaxNode<Lang>, ParserError> {
+        let pairs = P::parse(Rule::program, src).map_err(|e| {
+            let pos = match e.location {
+                pest::error::InputLocation::Pos(pos) => pos,
+                pest::error::InputLocation::Span((start, _end)) => start,
+            };
+            let diag = Diagnostic::new(
+                format!("Parsing error: {}", e.variant.message()),
+                TextRange::at(TextSize::from(pos as u32), TextSize::from(0)),
+                DiagnosticSeverity::Error,
+            );
+            self.diagnostics.push(diag);
+            ParserError::GeneralError(e.with_path(file_name).into_miette().into())
+        })?;
 
         let mut b = rowan::GreenNodeBuilder::new();
         b.start_node(LSyntaxKind::PROGRAM.into());

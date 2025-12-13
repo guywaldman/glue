@@ -83,7 +83,7 @@ pub const MODEL_FIELD_DECORATOR_ALIAS_ARG: DecoratorArgDef = DecoratorArgDef {
     id: "alias",
     doc: "Describes the alias for the a field",
     ty: ConstExprType::String,
-    required: true,
+    required: false,
     expected_position: Some(0),
 };
 pub const MODEL_FIELD_DECORATOR_EXAMPLE_ARG: DecoratorArgDef = DecoratorArgDef {
