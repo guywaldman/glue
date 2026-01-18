@@ -1,41 +1,21 @@
 use config::{GlueConfig, GlueConfigSchemaGenerationPythonPydantic};
-use convert_case::Casing;
+use convert_case::{Case, Casing};
 use lang::{
-    AnalyzedProgram, AstNode, DiagnosticContext, Enum, EnumVariant, Field, LNode, LSyntaxKind, Literal, LiteralExpr, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG, Model, PrimitiveType,
-    SourceCodeMetadata, SymId, SymTable, TypeAtom,
+    AnalyzedProgram, AstNode, Enum, Field, Literal, LiteralExpr, Model, SourceCodeMetadata, SymId,
+    Type, TypeAtom, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG,
 };
 
 use crate::{
     CodeGenError, CodeGenerator,
     codegen::CodeGenResult,
-    codegen_utils::{indent_lines, qualified_symbol_name_to_case},
+    context::{CodeGenContext, DocEmitter, EnumExt, EnumVariantExt, FieldExt, ModelExt, TypeMapper, indent},
 };
-
-const BOOL_LITERAL_TRUE: &str = "True";
-const BOOL_LITERAL_FALSE: &str = "False";
 
 pub struct CodeGenPython;
 
-// TODO: Refactor such that visitors also emit contributions, and similar refs are shared and not inlined
-impl CodeGenerator for CodeGenPython {
-    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, config: Option<GlueConfig>) -> Result<String, crate::CodeGenError> {
-        let ast = program.ast_root.clone();
-        let config = config
-            .and_then(|cfg| cfg.generation)
-            .and_then(|gen_cfg| gen_cfg.python_pydantic)
-            .unwrap_or(GlueConfigSchemaGenerationPythonPydantic {
-                base_model: Some("pydantic.BaseModel".to_string()),
-            });
-
-        let mut codegen = CodeGeneratorImpl::new(ast, program.symbols, source, config);
-        let output = codegen.generate()?;
-        Ok(output)
-    }
-}
-
 impl Default for CodeGenPython {
     fn default() -> Self {
-        Self::new()
+        Self
     }
 }
 
@@ -45,277 +25,236 @@ impl CodeGenPython {
     }
 }
 
-struct CodeGeneratorImpl {
-    #[allow(dead_code)]
-    diag: DiagnosticContext,
-    config: GlueConfigSchemaGenerationPythonPydantic,
-    ast: LNode,
-    syms: SymTable<LNode>,
-    preludes: Vec<String>,
+impl CodeGenerator for CodeGenPython {
+    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, config: Option<GlueConfig>) -> Result<String, CodeGenError> {
+        let pydantic_config = config
+            .and_then(|cfg| cfg.generation)
+            .and_then(|g| g.python_pydantic)
+            .unwrap_or(GlueConfigSchemaGenerationPythonPydantic {
+                base_model: Some("pydantic.BaseModel".to_string()),
+            });
+
+        let ctx = CodeGenContext::new(program.ast_root.clone(), program.symbols, source, None);
+        let mut generator = PythonGenerator::new(ctx, pydantic_config);
+        generator.generate()
+    }
 }
 
-impl CodeGeneratorImpl {
-    pub fn new(ast: LNode, syms: SymTable<LNode>, source: &SourceCodeMetadata, config: GlueConfigSchemaGenerationPythonPydantic) -> Self {
-        let diag = DiagnosticContext::new(source.file_name, source.file_contents);
-        Self {
-            diag,
-            ast,
-            syms,
-            preludes: Default::default(),
-            config,
-        }
+struct PythonGenerator<'a> {
+    ctx: CodeGenContext<'a>,
+    config: GlueConfigSchemaGenerationPythonPydantic,
+    output: String,
+}
+
+impl<'a> PythonGenerator<'a> {
+    fn new(ctx: CodeGenContext<'a>, config: GlueConfigSchemaGenerationPythonPydantic) -> Self {
+        Self { ctx, config, output: String::new() }
     }
 
-    pub fn generate(&mut self) -> CodeGenResult<String> {
-        let mut output = String::new();
+    fn generate(&mut self) -> CodeGenResult<String> {
+        // Build preludes
+        let base_model_import = self.config.base_model.clone().unwrap_or_else(|| "pydantic.BaseModel".to_string());
+        let (base_module, base_class) = base_model_import.rsplit_once('.')
+            .ok_or_else(|| CodeGenError::InternalError(format!("Invalid base model path: {}", base_model_import)))?;
 
-        let base_model_import = self.config.base_model.clone().unwrap_or("pydantic.BaseModel".to_string());
+        let preludes = vec![
+            "# pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring\n".to_string(),
+            format!("from {} import {}", base_module, base_class),
+            "from pydantic import Field".to_string(),
+            "from enum import StrEnum".to_string(),
+            "from typing import Any, Annotated, Optional, Union".to_string(),
+        ];
 
-        self.preludes
-            .push("# pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring\n\n".to_string());
-        let (base_model_import_module, base_model_class) = match base_model_import.rsplit_once('.') {
-            Some((module, class)) => (module, class),
-            None => return Err(CodeGenError::InternalError(format!("Invalid base model import path: {}", base_model_import))),
-        };
-        self.preludes.push(format!("from {} import {}", base_model_import_module, base_model_class));
-        self.preludes.push("from pydantic import Field".to_string());
-        self.preludes.push("from enum import StrEnum".to_string());
-        self.preludes.push("from typing import Any, Annotated, Optional, Union".to_string());
-
-        for node in self.ast.children() {
-            match node.kind() {
-                LSyntaxKind::MODEL => {
-                    let model_code = self.visit_model(node.clone(), None)?;
-                    output.push_str(&model_code);
-                }
-                LSyntaxKind::ENUM => {
-                    let enum_code = self.visit_enum(node.clone(), None)?;
-                    output.push_str(&enum_code);
-                }
-                _ => {}
-            }
+        // Generate models and enums
+        for model in self.ctx.top_level_models().collect::<Vec<_>>() {
+            let code = self.emit_model(&model, None)?;
+            self.output.push_str(&code);
         }
 
-        output = format!("{}\n{}", self.preludes.join("\n"), output);
+        for enum_ in self.ctx.top_level_enums().collect::<Vec<_>>() {
+            let code = self.emit_enum(&enum_, None)?;
+            self.output.push_str(&code);
+        }
 
-        Ok(output)
+        Ok(format!("{}\n{}", preludes.join("\n"), self.output))
     }
 
-    fn visit_model(&mut self, node: LNode, parent_scope: Option<SymId>) -> CodeGenResult<String> {
+    fn base_class_name(&self) -> &str {
+        self.config.base_model.as_ref()
+            .and_then(|s| s.rsplit_once('.'))
+            .map(|(_, class)| class)
+            .unwrap_or("BaseModel")
+    }
+
+    fn emit_model(&mut self, model: &Model, parent_scope: Option<SymId>) -> CodeGenResult<String> {
         let mut output = String::new();
 
-        let model = Model::cast(node).ok_or(CodeGenError::InternalError("Expected Model node".to_string()))?;
-        let model_name = model.ident().ok_or(CodeGenError::InternalError("Model missing ident".to_string()))?;
-        let current_scope = self
-            .syms
-            .resolve(parent_scope, &model_name)
-            .ok_or_else(|| CodeGenError::InternalError(format!("Unresolved model symbol for model: {}", model_name)))?;
-        let qualified_model_name = qualified_symbol_name_to_case(&current_scope.name, convert_case::Case::Pascal);
+        let scope_id = model.scope_id(&self.ctx, parent_scope)?;
+        let qualified_name = model.qualified_name(&self.ctx, parent_scope, Case::Pascal)?;
 
-        let base_model_qualified_import = &self.config.base_model.clone().unwrap();
-        let base_model_name = base_model_qualified_import
-            .split('.')
-            .next_back()
-            .ok_or(CodeGenError::InternalError(format!("Invalid base model import path: {}", base_model_qualified_import)))?;
-        output.push_str(&format!("\nclass {}({}):\n", qualified_model_name, base_model_name));
+        // Class declaration
+        output.push_str(&format!("\nclass {}({}):\n", qualified_name, self.base_class_name()));
 
+        // Docstring
         if let Some(docs) = model.docs() {
-            let docstring = self.emit_docstring(docs);
-            output.push_str(&indent_lines(&docstring, 4));
+            output.push_str(&indent(&DocEmitter::python_docstring(&docs), 4));
         }
 
-        let field_nodes = model.field_nodes();
-        if field_nodes.is_empty() && model.docs().is_none() {
-            output.push_str(&indent_lines("pass\n", 4));
+        // Fields
+        let fields = model.fields();
+        if fields.is_empty() && model.docs().is_none() {
+            output.push_str(&indent("pass\n", 4));
         } else {
-            for field_node in field_nodes {
-                let field = Field::cast(field_node).ok_or(CodeGenError::InternalError("Expected Field node".to_string()))?;
-                let field_name = field.ident().ok_or(CodeGenError::InternalError("Field missing ident".to_string()))?;
-                let field_type = field.ty().ok_or(CodeGenError::InternalError("Field missing type".to_string()))?;
-
-                let field_type_atoms = field_type.type_atom_nodes();
-                let field_type_atom_codes = field_type_atoms
-                    .into_iter()
-                    .map(|type_atom_node| self.emit_type_atom(type_atom_node, Some(current_scope.id)))
-                    .collect::<Result<Vec<String>, CodeGenError>>()?;
-                let mut field_type_code = if field_type_atom_codes.len() == 1 {
-                    field_type_atom_codes[0].clone()
-                } else {
-                    format!("Union[{}]", field_type_atom_codes.join(", "))
-                };
-
-                if field.is_optional() {
-                    field_type_code = format!("Optional[{}]", field_type_code);
-                }
-
-                let mut pydantic_field_args = vec![];
-
-                let mut default_value_code = None;
-                if field.is_optional() {
-                    default_value_code = Some("None".to_string());
-                } else if let Some(default_literal_expr_node) = field.default_literal_expr_node() {
-                    let default_value = LiteralExpr::cast(default_literal_expr_node).ok_or(CodeGenError::InternalError("Missing default literal expression".to_string()))?;
-                    match default_value.value().expect("Expeced literal value") {
-                        Literal::BoolLiteral { value: v, .. } => {
-                            default_value_code = Some(if v { BOOL_LITERAL_TRUE.to_string() } else { BOOL_LITERAL_FALSE.to_string() });
-                        }
-                        Literal::IntLiteral { value: v, .. } => {
-                            default_value_code = Some(v.to_string());
-                        }
-                        Literal::StringLiteral(node) => {
-                            default_value_code = Some(format!("\"{}\"", node.value().unwrap()));
-                        }
-                        _ => {}
-                    }
-                }
-                if let Some(default_value_code) = default_value_code {
-                    pydantic_field_args.push(format!("default={}", default_value_code));
-                }
-
-                // Check for `@field`` decorator
-                let decorators = field.decorators();
-                let field_decorator = decorators.iter().find(|dec| dec.ident() == Some(MODEL_FIELD_DECORATOR.id.to_owned()));
-                if let Some(field_decorator) = field_decorator
-                    && let Some(alias_arg) = field_decorator.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_ALIAS_ARG)
-                {
-                    let alias_value = alias_arg.literal().ok_or(CodeGenError::InternalError("Missing alias argument value".to_string()))?;
-                    match alias_value {
-                        Literal::StringLiteral(v) => {
-                            pydantic_field_args.push(format!("alias=\"{}\"", v));
-                        }
-                        _ => {
-                            return Err(CodeGenError::InternalError("Alias argument must be a string literal".to_string()));
-                        }
-                    }
-                } else {
-                    // By default, use the field name as alias in snake_case
-                    let alias_name = field_name.to_case(convert_case::Case::Snake);
-                    if alias_name != field_name {
-                        pydantic_field_args.push(format!("alias=\"{}\"", field_name));
-                    }
-                }
-
-                output.push_str(&indent_lines(
-                    &format!(
-                        "{}: Annotated[{}, Field({})]\n",
-                        field_name.to_case(convert_case::Case::Snake),
-                        field_type_code,
-                        pydantic_field_args.join(", ")
-                    ),
-                    4,
-                ));
-                if let Some(docs) = field.docs() {
-                    let docstring = self.emit_docstring(docs);
-                    output.push_str(&indent_lines(&docstring, 4));
-                }
+            for field in fields {
+                let field_code = self.emit_field(&field, Some(scope_id))?;
+                output.push_str(&field_code);
             }
         }
 
-        for nested_model_node in model.nested_model_nodes() {
-            let nested_model_code = self.visit_model(nested_model_node.clone(), Some(current_scope.id))?;
-            output.push_str(&nested_model_code);
+        // Nested types
+        for nested_model in model.nested_models() {
+            let code = self.emit_model(&nested_model, Some(scope_id))?;
+            output.push_str(&code);
         }
 
-        for nested_enum_node in model.nested_enum_nodes() {
-            let nested_enum_code = self.visit_enum(nested_enum_node.clone(), Some(current_scope.id))?;
-            output.push_str(&nested_enum_code);
+        for nested_enum in model.nested_enums() {
+            let code = self.emit_enum(&nested_enum, Some(scope_id))?;
+            output.push_str(&code);
         }
 
         Ok(output)
     }
 
-    fn visit_enum(&mut self, node: LNode, parent_scope: Option<SymId>) -> CodeGenResult<String> {
+    fn emit_field(&self, field: &Field, scope: Option<SymId>) -> CodeGenResult<String> {
         let mut output = String::new();
 
-        let enum_model = Enum::cast(node).ok_or(CodeGenError::InternalError("Expected Enum node".to_string()))?;
-        let enum_name = enum_model.ident().ok_or(CodeGenError::InternalError("Enum missing ident".to_string()))?;
-        let current_scope = self
-            .syms
-            .resolve(parent_scope, &enum_name)
-            .ok_or_else(|| CodeGenError::InternalError(format!("Unresolved enum symbol for enum: {}", enum_name)))?;
-        let qualified_enum_name = qualified_symbol_name_to_case(&current_scope.name, convert_case::Case::Pascal);
+        let field_name = field.name()?;
+        let field_type = field.field_type()?;
+        let py_field_name = field_name.to_case(Case::Snake);
 
-        output.push_str(&format!("\nclass {}(StrEnum):\n", qualified_enum_name));
-
-        if let Some(docs) = enum_model.docs() {
-            let docstring = self.emit_docstring(docs);
-            output.push_str(&indent_lines(&docstring, 4));
+        // Build type annotation
+        let mut type_code = self.emit_type(&field_type, scope)?;
+        if field.is_optional() {
+            type_code = format!("Optional[{}]", type_code);
         }
 
-        for variant_node in enum_model.variant_nodes() {
-            let variant = EnumVariant::cast(variant_node).ok_or(CodeGenError::InternalError("Expected EnumVariant node".to_string()))?;
-            let variant_value = variant.value().ok_or(CodeGenError::InternalError("EnumVariant missing ident".to_string()))?;
-            let variant_ident = variant_value.replace('-', "_").to_case(convert_case::Case::UpperSnake);
-            output.push_str(&indent_lines(&format!("{} = \"{}\"\n", variant_ident, variant_value), 4));
+        // Build Field() arguments
+        let mut field_args = vec![];
+
+        // Default value
+        if field.is_optional() {
+            field_args.push("default=None".to_string());
+        } else if let Some(default_node) = field.default_literal_expr_node() {
+            if let Some(default_expr) = LiteralExpr::cast(default_node) {
+                if let Some(lit) = default_expr.value() {
+                    let default_code = self.emit_literal(&lit);
+                    field_args.push(format!("default={}", default_code));
+                }
+            }
+        }
+
+        // Alias from @field decorator or auto-generate if names differ
+        let decorators = field.decorators();
+        let field_decorator = decorators.iter().find(|d| d.ident() == Some(MODEL_FIELD_DECORATOR.id.to_owned()));
+        if let Some(dec) = field_decorator {
+            if let Some(alias_arg) = dec.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_ALIAS_ARG) {
+                if let Some(Literal::StringLiteral(v)) = alias_arg.literal() {
+                    field_args.push(format!("alias=\"{}\"", v));
+                }
+            }
+        } else if py_field_name != field_name {
+            field_args.push(format!("alias=\"{}\"", field_name));
+        }
+
+        output.push_str(&indent(
+            &format!("{}: Annotated[{}, Field({})]\n", py_field_name, type_code, field_args.join(", ")),
+            4,
+        ));
+
+        // Field docstring
+        if let Some(docs) = field.docs() {
+            output.push_str(&indent(&DocEmitter::python_docstring(&docs), 4));
+        }
+
+        Ok(output)
+    }
+
+    fn emit_enum(&self, enum_: &Enum, parent_scope: Option<SymId>) -> CodeGenResult<String> {
+        let mut output = String::new();
+
+        let qualified_name = enum_.qualified_name(&self.ctx, parent_scope, Case::Pascal)?;
+
+        output.push_str(&format!("\nclass {}(StrEnum):\n", qualified_name));
+
+        // Docstring
+        if let Some(docs) = enum_.docs() {
+            output.push_str(&indent(&DocEmitter::python_docstring(&docs), 4));
+        }
+
+        // Variants
+        for variant in enum_.variants() {
+            let value = variant.variant_value()?;
+            let ident = value.replace('-', "_").to_case(Case::UpperSnake);
+            output.push_str(&indent(&format!("{} = \"{}\"\n", ident, value), 4));
+
             if let Some(docs) = variant.docs() {
-                let docstring = self.emit_docstring(docs);
-                output.push_str(&indent_lines(&docstring, 4));
+                output.push_str(&indent(&DocEmitter::python_docstring(&docs), 4));
             }
         }
 
         Ok(output)
     }
 
-    fn emit_type_atom(&mut self, node: LNode, parent_scope: Option<SymId>) -> CodeGenResult<String> {
-        let type_atom = TypeAtom::cast(node.clone()).ok_or(CodeGenError::InternalError("Expected TypeAtom node".to_string()))?;
-        // TODO: Support enums?
-        let mut res = if let Some(primitive_type) = type_atom.as_primitive_type() {
-            match primitive_type {
-                PrimitiveType::Any => "Any".to_string(),
-                PrimitiveType::Bool => "bool".to_string(),
-                PrimitiveType::Int => "int".to_string(),
-                PrimitiveType::Float => "float".to_string(),
-                PrimitiveType::String => "str".to_string(),
-            }
-        } else if let Some(record_type) = type_atom.as_record_type() {
-            // Record
-            let src_type = record_type.src_type_node().ok_or(CodeGenError::InternalError("Record missing source type".to_string()))?;
-            let src_type_code = self.emit_type_atom(src_type, parent_scope)?;
-            let dest_type = record_type.dest_type_node().ok_or(CodeGenError::InternalError("Record missing destination type".to_string()))?;
-            let dest_type_code = self.emit_type_atom(dest_type, parent_scope)?;
-            format!("dict[{}, {}]", src_type_code, dest_type_code)
+    fn emit_type(&self, ty: &Type, scope: Option<SymId>) -> CodeGenResult<String> {
+        let atoms = ty.type_atoms();
+
+        if atoms.len() == 1 {
+            self.emit_type_atom(&atoms[0], scope)
         } else {
-            // Should be a reference to another model
-            let Some(type_ident_token) = type_atom.as_ref_token() else {
-                if type_atom.as_anon_model().is_some() {
-                    // TODO: Support anonymous models
-                    // // Add a pseudo-symbol for the anonymous model
-                    // let parent_scope = self.syms.get(parent_scope.unwrap()).unwrap();
-                    // let anon_model_qualified_name = SymTable::<LNode>::join_entries(&parent_scope.name, field_name);
-                    // self.syms.add_to_scope(Some(parent_scope.id), anon_model_qualified_name, node.clone());
-                    return Err(CodeGenError::GenerationError(self.diag.error(node.text_range(), "Anonymous models are currently not supported")));
-                }
-                return Err(CodeGenError::InternalError("Expected TypeAtom to have ident for non-primitive type".to_string()));
-            };
-            let type_name = type_ident_token.text().to_string();
-            let sym = self
-                .syms
-                .resolve(parent_scope, &type_name)
-                .ok_or_else(|| CodeGenError::InternalError(format!("Unresolved type atom symbol for type: {}", type_name)))?;
-
-            // Wrap in quotes to support forward references
-            format!("\"{}\"", qualified_symbol_name_to_case(&sym.name, convert_case::Case::Pascal))
-        };
-
-        if type_atom.is_optional() {
-            res = format!("Optional[{}]", res);
+            let atom_codes: Vec<_> = atoms.iter()
+                .map(|a| self.emit_type_atom(a, scope))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(format!("Union[{}]", atom_codes.join(", ")))
         }
-        if type_atom.is_array() {
-            res = format!("list[{}]", res);
-        }
-        Ok(res)
     }
 
-    fn emit_docstring(&self, lines: Vec<String>) -> String {
-        if lines.len() == 1 {
-            format!("\"\"\"{}\"\"\"\n", lines[0].trim())
+    fn emit_type_atom(&self, atom: &TypeAtom, scope: Option<SymId>) -> CodeGenResult<String> {
+        let mut result = if let Some(primitive) = atom.as_primitive_type() {
+            TypeMapper::to_python(primitive).to_string()
+        } else if let Some(record) = atom.as_record_type() {
+            let src = record.src_type_node().ok_or_else(|| CodeGenContext::internal_error("Record missing src type"))?;
+            let dest = record.dest_type_node().ok_or_else(|| CodeGenContext::internal_error("Record missing dest type"))?;
+            let src_atom = TypeAtom::cast(src).ok_or_else(|| CodeGenContext::internal_error("Expected TypeAtom"))?;
+            let dest_atom = TypeAtom::cast(dest).ok_or_else(|| CodeGenContext::internal_error("Expected TypeAtom"))?;
+            format!("dict[{}, {}]", self.emit_type_atom(&src_atom, scope)?, self.emit_type_atom(&dest_atom, scope)?)
+        } else if let Some(ref_token) = atom.as_ref_token() {
+            let type_name = ref_token.text().to_string();
+            let sym = self.ctx.resolve(scope, &type_name)
+                .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved type: {}", type_name)))?;
+            let qualified = lang::symbol_name_to_parts(&sym.name).join("_").to_case(Case::Pascal);
+            format!("\"{}\"", qualified)  // Forward reference
+        } else if atom.as_anon_model().is_some() {
+            return Err(self.ctx.error(&atom.syntax(), "Anonymous models not supported"));
         } else {
-            let mut docstring = String::from("\"\"\"\n");
-            for line in lines {
-                docstring.push_str(&format!("{}\n", line.trim()));
-            }
-            docstring.push_str("\"\"\"\n");
-            docstring
+            return Err(CodeGenContext::internal_error("Unknown type atom kind"));
+        };
+
+        if atom.is_optional() {
+            result = format!("Optional[{}]", result);
+        }
+        if atom.is_array() {
+            result = format!("list[{}]", result);
+        }
+
+        Ok(result)
+    }
+
+    fn emit_literal(&self, lit: &Literal) -> String {
+        match lit {
+            Literal::BoolLiteral { value, .. } => if *value { "True" } else { "False" }.to_string(),
+            Literal::IntLiteral { value, .. } => value.to_string(),
+            Literal::StringLiteral(node) => format!("\"{}\"", node.value().unwrap_or_default()),
+            _ => "None".to_string(),
         }
     }
 }

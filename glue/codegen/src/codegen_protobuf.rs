@@ -164,6 +164,10 @@ mod tests {
                 None,
             )
             .unwrap();
-        assert_snapshot!(result);
+
+        // Prepend the original source code as a comment for reference
+        let result_with_source = format!("// Original source code:\n// {}\n\n{}", src.replace("\n", "\n// "), result);
+
+        assert_snapshot!(result_with_source);
     }
 }

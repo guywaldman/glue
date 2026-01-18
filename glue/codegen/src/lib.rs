@@ -8,6 +8,7 @@ mod codegen_protobuf;
 mod codegen_python;
 mod codegen_rust;
 mod codegen_utils;
+mod context;
 mod models;
 
 #[cfg(test)]

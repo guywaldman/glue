@@ -3,22 +3,18 @@ use std::collections::HashMap;
 use config::GlueConfig;
 use convert_case::Case;
 use lang::{
-    AnalyzedProgram, AnonModel, AstNode, AstVisitor, Endpoint, Field, LNode, Literal, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG, MODEL_FIELD_DECORATOR_EXAMPLE_ARG, Model, PrimitiveType,
-    RootNode, SourceCodeMetadata, Type, TypeAtom,
+    AnalyzedProgram, AnonModel, AstNode, Endpoint, Field, Literal, Model, SourceCodeMetadata,
+    Type, TypeAtom, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG,
+    MODEL_FIELD_DECORATOR_EXAMPLE_ARG,
 };
 use serde_json::Number;
 
 use crate::codegen::CodeGenResult;
+use crate::context::{CodeGenContext, ModelExt, TypeMapper};
 use crate::models::openapi;
-use crate::{CodeGenerator, codegen_utils::qualified_symbol_name_to_case};
+use crate::CodeGenerator;
 
 pub struct CodeGenOpenAPI;
-
-impl CodeGenOpenAPI {
-    pub fn new() -> Self {
-        Self
-    }
-}
 
 impl Default for CodeGenOpenAPI {
     fn default() -> Self {
@@ -26,10 +22,45 @@ impl Default for CodeGenOpenAPI {
     }
 }
 
+impl CodeGenOpenAPI {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
 impl CodeGenerator for CodeGenOpenAPI {
-    fn generate(&self, program: AnalyzedProgram, _source: &SourceCodeMetadata, _config: Option<GlueConfig>) -> CodeGenResult<String> {
-        let mut codegen = CodeGenOpenAPIImpl::default();
-        codegen.traverse(program.ast_root);
+    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, _config: Option<GlueConfig>) -> CodeGenResult<String> {
+        let ctx = CodeGenContext::new(program.ast_root.clone(), program.symbols, source, None);
+        let generator = OpenAPIGenerator::new(ctx);
+        generator.generate()
+    }
+}
+
+struct OpenAPIGenerator<'a> {
+    ctx: CodeGenContext<'a>,
+    schemas: HashMap<String, openapi::SchemaOrReference<openapi::Schema>>,
+    paths: HashMap<String, openapi::PathItem>,
+}
+
+impl<'a> OpenAPIGenerator<'a> {
+    fn new(ctx: CodeGenContext<'a>) -> Self {
+        Self {
+            ctx,
+            schemas: HashMap::new(),
+            paths: HashMap::new(),
+        }
+    }
+
+    fn generate(mut self) -> CodeGenResult<String> {
+        // Process all top-level models
+        for model in self.ctx.top_level_models().collect::<Vec<_>>() {
+            self.process_model(&model);
+        }
+
+        // Process all top-level endpoints
+        for endpoint in self.ctx.top_level_endpoints().collect::<Vec<_>>() {
+            self.process_endpoint(&endpoint);
+        }
 
         let openapi = openapi::OpenAPI {
             openapi: "3.0.0".to_string(),
@@ -38,9 +69,9 @@ impl CodeGenerator for CodeGenOpenAPI {
                 version: "1.0.0".to_string(),
                 ..Default::default()
             },
-            paths: Some(codegen.paths),
+            paths: Some(self.paths),
             components: Some(openapi::Components {
-                schemas: Some(codegen.schemas),
+                schemas: Some(self.schemas),
                 ..Default::default()
             }),
             ..Default::default()
@@ -48,21 +79,12 @@ impl CodeGenerator for CodeGenOpenAPI {
 
         Ok(serde_json::to_string_pretty(&openapi).expect("Failed to serialize OpenAPI"))
     }
-}
 
-#[derive(Default)]
-struct CodeGenOpenAPIImpl {
-    schemas: HashMap<String, openapi::SchemaOrReference<openapi::Schema>>,
-    paths: HashMap<String, openapi::PathItem>,
-}
+    fn process_model(&mut self, model: &Model) {
+        let Ok(name) = model.name() else { return };
+        let schema_name = model.qualified_name(&self.ctx, None, Case::Pascal).unwrap_or(name);
 
-// TODO: Remove AstVisitor. This was a bad idea for this :(
-impl AstVisitor for CodeGenOpenAPIImpl {
-    fn visit_model(&mut self, model: &Model, _parent: &impl AstNode) {
-        let Some(name) = model.ident() else { return };
-        let schema_name = qualified_symbol_name_to_case(&name, Case::Pascal);
-
-        let fields: Vec<_> = model.fields();
+        let fields = model.fields();
         let properties = self.fields_to_properties(&fields);
         let required: Vec<_> = fields.iter().filter(|f| !f.is_optional()).filter_map(|f| f.ident()).collect();
 
@@ -83,11 +105,10 @@ impl AstVisitor for CodeGenOpenAPIImpl {
         self.schemas.insert(schema_name, openapi::SchemaOrReference::Item(schema));
     }
 
-    fn visit_endpoint(&mut self, endpoint: &Endpoint, _parent: &impl AstNode) {
+    fn process_endpoint(&mut self, endpoint: &Endpoint) {
         let Some(path_str) = endpoint.path_string() else { return };
         let Some((method, path)) = Self::parse_endpoint_path(&path_str) else { return };
 
-        // Build responses from the `responses` field
         let responses = self.extract_responses(endpoint);
 
         let operation = openapi::Operation {
@@ -101,56 +122,33 @@ impl AstVisitor for CodeGenOpenAPIImpl {
         let path_item = self.paths.entry(path).or_default();
         path_item.operations.insert(method, operation);
     }
-}
 
-impl CodeGenOpenAPIImpl {
     fn type_to_schema(&self, ty: &Type) -> openapi::SchemaOrReference<openapi::Schema> {
         let atoms = ty.type_atoms();
         if atoms.len() != 1 {
-            // Union types not yet supported; return generic object
+            // Union types not yet supported
             return openapi::SchemaOrReference::Item(openapi::Schema {
                 schema_type: Some("object".to_string()),
                 ..Default::default()
             });
         }
-
-        let atom = &atoms[0];
-        self.type_atom_to_schema(atom)
+        self.type_atom_to_schema(&atoms[0])
     }
 
     fn type_atom_to_schema(&self, atom: &TypeAtom) -> openapi::SchemaOrReference<openapi::Schema> {
-        let nullable = if atom.is_optional() { Some(true) } else { None };
+        let nullable = atom.is_optional().then_some(true);
 
-        // Check for primitive types
         if let Some(primitive) = atom.as_primitive_type() {
-            let (schema_type, format) = match primitive {
-                PrimitiveType::Int => ("integer", None),
-                PrimitiveType::Float => ("number", Some("double")),
-                PrimitiveType::String => ("string", None),
-                PrimitiveType::Bool => ("boolean", None),
-                PrimitiveType::Any => ("object", None),
-            };
-
-            let base_schema = openapi::Schema {
+            let (schema_type, format) = TypeMapper::to_openapi(primitive);
+            let base = openapi::Schema {
                 schema_type: Some(schema_type.to_string()),
                 format: format.map(String::from),
                 nullable,
                 ..Default::default()
             };
-
-            return if atom.is_array() {
-                openapi::SchemaOrReference::Item(openapi::Schema {
-                    schema_type: Some("array".to_string()),
-                    items: Some(Box::new(openapi::SchemaOrReference::Item(base_schema))),
-                    nullable,
-                    ..Default::default()
-                })
-            } else {
-                openapi::SchemaOrReference::Item(base_schema)
-            };
+            return self.wrap_if_array(atom, openapi::SchemaOrReference::Item(base));
         }
 
-        // Check for anonymous model (inline object)
         if let Some(anon_model) = atom.as_anon_model().and_then(AnonModel::cast) {
             let properties: HashMap<_, _> = anon_model
                 .field_nodes()
@@ -159,39 +157,18 @@ impl CodeGenOpenAPIImpl {
                 .filter_map(|f| Some((f.ident()?, self.type_to_schema(&f.ty()?))))
                 .collect();
 
-            let base_schema = openapi::Schema {
+            let base = openapi::Schema {
                 schema_type: Some("object".to_string()),
                 properties: if properties.is_empty() { None } else { Some(properties) },
                 nullable,
                 ..Default::default()
             };
-
-            return if atom.is_array() {
-                openapi::SchemaOrReference::Item(openapi::Schema {
-                    schema_type: Some("array".to_string()),
-                    items: Some(Box::new(openapi::SchemaOrReference::Item(base_schema))),
-                    nullable,
-                    ..Default::default()
-                })
-            } else {
-                openapi::SchemaOrReference::Item(base_schema)
-            };
+            return self.wrap_if_array(atom, openapi::SchemaOrReference::Item(base));
         }
 
-        // Check for reference type
         if let Some(ref_token) = atom.as_ref_token() {
             let reference = format!("#/components/schemas/{}", ref_token.text());
-
-            return if atom.is_array() {
-                openapi::SchemaOrReference::Item(openapi::Schema {
-                    schema_type: Some("array".to_string()),
-                    items: Some(Box::new(openapi::SchemaOrReference::Reference { reference })),
-                    nullable,
-                    ..Default::default()
-                })
-            } else {
-                openapi::SchemaOrReference::Reference { reference }
-            };
+            return self.wrap_if_array(atom, openapi::SchemaOrReference::Reference { reference });
         }
 
         // Fallback
@@ -201,7 +178,19 @@ impl CodeGenOpenAPIImpl {
         })
     }
 
-    /// Build schema properties from fields.
+    fn wrap_if_array(&self, atom: &TypeAtom, schema: openapi::SchemaOrReference<openapi::Schema>) -> openapi::SchemaOrReference<openapi::Schema> {
+        if atom.is_array() {
+            openapi::SchemaOrReference::Item(openapi::Schema {
+                schema_type: Some("array".to_string()),
+                items: Some(Box::new(schema)),
+                nullable: atom.is_optional().then_some(true),
+                ..Default::default()
+            })
+        } else {
+            schema
+        }
+    }
+
     fn fields_to_properties(&self, fields: &[Field]) -> HashMap<String, openapi::SchemaOrReference<openapi::Schema>> {
         fields
             .iter()
@@ -209,52 +198,28 @@ impl CodeGenOpenAPIImpl {
                 let mut name = f.ident()?;
                 let mut example: Option<Literal> = None;
 
-                // Address decorator
-                let decorators = f.decorators();
-                if let Some(field_decorator) = decorators.iter().find(|d| d.ident().unwrap() == MODEL_FIELD_DECORATOR.id) {
-                    if let Some(alias_value) = field_decorator.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_ALIAS_ARG)
-                        && let Some(alias_value_lit) = alias_value.literal()
-                    {
-                        match alias_value_lit {
-                            Literal::StringLiteral(alias) => {
-                                name = alias.value().unwrap();
-                            }
-                            _ => {
-                                // TODO: Error handling for invalid alias type
-                            }
+                // Handle @field decorator
+                if let Some(dec) = f.decorators().iter().find(|d| d.ident().as_deref() == Some(MODEL_FIELD_DECORATOR.id)) {
+                    if let Some(alias_arg) = dec.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_ALIAS_ARG) {
+                        if let Some(Literal::StringLiteral(alias)) = alias_arg.literal() {
+                            name = alias.value()?;
                         }
                     }
-
-                    if let Some(example_arg) = field_decorator.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_EXAMPLE_ARG)
-                        && let Some(example_value_lit) = example_arg.literal()
-                    {
-                        example = Some(example_value_lit.clone());
+                    if let Some(example_arg) = dec.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_EXAMPLE_ARG) {
+                        example = example_arg.literal();
                     }
                 }
-                let ty = f.ty()?;
-                let mut schema = self.type_to_schema(&ty);
 
-                // Add description from docs
+                let mut schema = self.type_to_schema(&f.ty()?);
+
+                // Add description
                 if let (Some(docs), openapi::SchemaOrReference::Item(s)) = (f.docs(), &mut schema) {
                     s.description = Some(docs.join("\n"));
                 }
-                if let openapi::SchemaOrReference::Item(s) = &mut schema {
-                    // Add example if present
-                    if let Some(example_lit) = example {
-                        let mut example_json_value = None;
-                        match example_lit {
-                            Literal::StringLiteral(sl) => example_json_value = Some(serde_json::Value::String(sl.value().unwrap().to_string())),
-                            Literal::IntLiteral { value, .. } => example_json_value = Some(serde_json::Value::Number(Number::from_i128(value as i128).unwrap())),
-                            Literal::FloatLiteral { value, .. } => {
-                                example_json_value = Some(serde_json::Value::Number(serde_json::Number::from_f64(value).expect("failed to convert float to JSON number")))
-                            }
-                            Literal::BoolLiteral { value, .. } => example_json_value = Some(serde_json::Value::Bool(value)),
-                            _ => {
-                                // TODO: Handle other literal types or error
-                            }
-                        };
-                        s.example = example_json_value;
-                    }
+
+                // Add example
+                if let (Some(lit), openapi::SchemaOrReference::Item(s)) = (example, &mut schema) {
+                    s.example = Self::literal_to_json(&lit);
                 }
 
                 Some((name, schema))
@@ -262,15 +227,23 @@ impl CodeGenOpenAPIImpl {
             .collect()
     }
 
-    /// Extract HTTP method and path from endpoint path string (like "GET /users").
-    fn parse_endpoint_path(path_str: &str) -> Option<(String, String)> {
-        let parts: Vec<&str> = path_str.split_whitespace().collect();
-        if parts.len() == 2 { Some((parts[0].to_lowercase(), parts[1].to_string())) } else { None }
+    fn literal_to_json(lit: &Literal) -> Option<serde_json::Value> {
+        match lit {
+            Literal::StringLiteral(sl) => Some(serde_json::Value::String(sl.value()?.to_string())),
+            Literal::IntLiteral { value, .. } => Some(serde_json::Value::Number(Number::from(*value))),
+            Literal::FloatLiteral { value, .. } => serde_json::Number::from_f64(*value).map(serde_json::Value::Number),
+            Literal::BoolLiteral { value, .. } => Some(serde_json::Value::Bool(*value)),
+            _ => None,
+        }
     }
-}
 
-impl CodeGenOpenAPIImpl {
-    /// Extract responses from an endpoint's responses field.
+    fn parse_endpoint_path(path_str: &str) -> Option<(String, String)> {
+        let mut parts = path_str.split_whitespace();
+        let method = parts.next()?.to_lowercase();
+        let path = parts.next()?.to_string();
+        Some((method, path))
+    }
+
     fn extract_responses(&self, endpoint: &Endpoint) -> HashMap<String, openapi::SchemaOrReference<openapi::Response>> {
         let mut responses = HashMap::new();
 
@@ -279,24 +252,19 @@ impl CodeGenOpenAPIImpl {
         };
 
         for atom in ty.type_atoms() {
-            let Some(anon_model) = atom.as_anon_model().and_then(AnonModel::cast) else {
-                continue;
-            };
+            let Some(anon_model) = atom.as_anon_model().and_then(AnonModel::cast) else { continue };
 
             for field_node in anon_model.field_nodes() {
-                // TODO: Error handling
                 let Some(field) = Field::cast(field_node) else { continue };
                 let Some(status_code) = field.ident() else { continue };
                 let Some(response_ty) = field.ty() else { continue };
 
-                let schema = self.type_to_schema(&response_ty);
                 let response = openapi::Response {
                     description: field.docs().map(|d| d.join("\n")),
                     content: Some(HashMap::from([(
-                        // TODO: Extract MIME type from decorator
                         "application/json".to_string(),
                         openapi::MediaType {
-                            schema: Some(schema),
+                            schema: Some(self.type_to_schema(&response_ty)),
                             ..Default::default()
                         },
                     )])),
@@ -305,12 +273,11 @@ impl CodeGenOpenAPIImpl {
             }
         }
 
-        // If 2XX is present but not 200, duplicate it to 200 (it appears that several OpenAPI clients expects 200).
-        if responses.contains_key("2XX")
-            && !responses.contains_key("200")
-            && let Some(response) = responses.get("2XX").cloned()
-        {
-            responses.insert("200".to_string(), response);
+        // Duplicate 2XX to 200 if needed (some OpenAPI clients expect 200)
+        if responses.contains_key("2XX") && !responses.contains_key("200") {
+            if let Some(response) = responses.get("2XX").cloned() {
+                responses.insert("200".to_string(), response);
+            }
         }
 
         responses
@@ -321,7 +288,7 @@ impl CodeGenOpenAPIImpl {
 mod tests {
     use super::*;
     use indoc::indoc;
-    use insta::assert_snapshot;
+    use insta::{assert_json_snapshot, assert_snapshot};
     use lang::SourceCodeMetadata;
 
     use crate::{CodeGenerator, test_utils::analyze_test_glue_file};
@@ -353,6 +320,7 @@ mod tests {
                 None,
             )
             .unwrap();
-        assert_snapshot!(result);
+        let json_value: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert_json_snapshot!(json_value);
     }
 }

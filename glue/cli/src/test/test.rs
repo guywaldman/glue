@@ -1,45 +1,95 @@
 use anyhow::{Result, anyhow};
-use insta::assert_snapshot;
+use insta::{assert_json_snapshot, assert_snapshot};
+use std::cell::OnceCell;
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::{env::temp_dir, path::PathBuf};
 
 use crate::args::CodeGenMode;
 use crate::cli::GlueCli;
 
-#[test]
-fn test_rust() {
-    run_cli_integration_test(CodeGenMode::Rust);
+const MOVIES_FIXTURE_NAME: &str = "movies.glue";
+const TODOS_FIXTURE_NAME: &str = "todos.glue";
+
+thread_local! {
+    static FIXTURES: OnceCell<HashMap<String, PathBuf>> = OnceCell::new();
 }
 
 #[test]
-fn test_openapi() {
-    run_cli_integration_test(CodeGenMode::OpenApi);
+fn test_rust_movies_sample() {
+    let path = load_glue_fixture(MOVIES_FIXTURE_NAME).unwrap();
+    run_cli_integration_test(CodeGenMode::Rust, path);
 }
 
-fn run_cli_integration_test(codegen_mode: CodeGenMode) {
-    for input_path in load_glue_fixtures().unwrap() {
-        let snapshot_name = format!("gen_{}_{}", <&str>::from(codegen_mode), input_path.file_stem().unwrap().to_string_lossy());
-        let generated_code = generate_code(input_path, codegen_mode).unwrap();
-        assert_snapshot!(snapshot_name, generated_code);
+#[test]
+fn test_rust_todos_sample() {
+    let path = load_glue_fixture(TODOS_FIXTURE_NAME).unwrap();
+    run_cli_integration_test(CodeGenMode::Rust, path);
+}
+
+#[test]
+fn test_openapi_movies_sample() {
+    let path = load_glue_fixture(MOVIES_FIXTURE_NAME).unwrap();
+    run_cli_integration_test(CodeGenMode::OpenApi, path);
+}
+
+#[test]
+fn test_openapi_todos_sample() {
+    let path = load_glue_fixture(TODOS_FIXTURE_NAME).unwrap();
+    run_cli_integration_test(CodeGenMode::OpenApi, path);
+}
+
+#[test]
+fn test_python_movies_sample() {
+    let path = load_glue_fixture(MOVIES_FIXTURE_NAME).unwrap();
+    run_cli_integration_test(CodeGenMode::Python, path);
+}
+
+#[test]
+fn test_python_todos_sample() {
+    let path = load_glue_fixture(TODOS_FIXTURE_NAME).unwrap();
+    run_cli_integration_test(CodeGenMode::Python, path);
+}
+
+fn run_cli_integration_test(codegen_mode: CodeGenMode, fixture_path: PathBuf) {
+    let snapshot_name = format!("gen_{}_{}", <&str>::from(codegen_mode), fixture_path.file_stem().unwrap().to_string_lossy());
+    let generated_code = generate_code(fixture_path, codegen_mode).unwrap();
+    match codegen_mode {
+        CodeGenMode::OpenApi => {
+            let generated_json = serde_yaml::from_str::<serde_json::Value>(&generated_code).unwrap();
+            assert_json_snapshot!(snapshot_name, generated_json);
+        }
+        _ => {
+            assert_snapshot!(snapshot_name, generated_code);
+        }
     }
 }
 
 /// Read all files in the `/fixtures/glue` directory (same level as this file) and return their paths and contents.
-fn load_glue_fixtures() -> Result<Vec<PathBuf>> {
-    let mut fixtures = Vec::new();
-    let fixtures_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("test").join("fixtures");
-    if !fixtures_dir.exists() {
-        return Err(anyhow!("Fixtures directory does not exist: {}", fixtures_dir.to_string_lossy()));
-    }
-    if fixtures_dir.exists() && fixtures_dir.is_dir() {
-        for entry in std::fs::read_dir(fixtures_dir).map_err(|e| anyhow!("Failed to read fixtures directory: {}", e))? {
-            let entry = entry.map_err(|e| anyhow!("Failed to read directory entry: {}", e))?;
-            if entry.path().extension().and_then(|s| s.to_str()) != Some("glue") {
-                continue;
-            }
-            fixtures.push(entry.path());
+fn load_glue_fixture(fixture_name: &str) -> Result<PathBuf> {
+    let load_glue_fixtures_inner = || -> Result<HashMap<String, PathBuf>> {
+        let mut result = HashMap::new();
+        let fixtures_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("test").join("fixtures");
+        if !fixtures_dir.exists() {
+            return Err(anyhow!("Fixtures directory does not exist: {}", fixtures_dir.to_string_lossy()));
         }
-    }
-    Ok(fixtures)
+        if fixtures_dir.exists() && fixtures_dir.is_dir() {
+            for entry in std::fs::read_dir(fixtures_dir).map_err(|e| anyhow!("Failed to read fixtures directory: {}", e))? {
+                let entry = entry.map_err(|e| anyhow!("Failed to read directory entry: {}", e))?;
+                if entry.path().extension().and_then(|s| s.to_str()) != Some("glue") {
+                    continue;
+                }
+                let file_name = entry.file_name().into_string().map_err(|_| anyhow!("Invalid UTF-8 in file name"))?;
+                result.insert(file_name, entry.path());
+            }
+        }
+        Ok(result)
+    };
+    let path = FIXTURES.with(|f| {
+        let fixtures = f.get_or_init(move || load_glue_fixtures_inner().unwrap());
+        fixtures.get(fixture_name).ok_or_else(|| anyhow!("Fixture '{}' not found", fixture_name)).cloned()
+    })?;
+    Ok(path)
 }
 
 fn generate_code(input_path: PathBuf, codegen_mode: CodeGenMode) -> Result<String> {
