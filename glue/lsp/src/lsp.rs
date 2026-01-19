@@ -105,12 +105,12 @@ impl Lsp {
         while let Some(node) = current {
             if node.kind() == LSyntaxKind::MODEL {
                 // Found enclosing model - get its name and resolve to SymId
-                if let Some(model) = Model::cast(node.clone()) {
-                    if let Some(name) = model.ident() {
-                        // Try to find this model in the symbol table
-                        // We need to resolve it from global scope first
-                        return symbols.resolve_id(None, &name);
-                    }
+                if let Some(model) = Model::cast(node.clone())
+                    && let Some(name) = model.ident()
+                {
+                    // Try to find this model in the symbol table
+                    // We need to resolve it from global scope first
+                    return symbols.resolve_id(None, &name);
                 }
             }
             current = node.parent();
