@@ -52,13 +52,14 @@
     ]
   },
   "scripts": {
-    "clean": "rimraf dist lsp lsp.exe",
+    "clean": "rimraf out lsp lsp.exe",
     "compile": "tsc -p .",
     "build:lsp": "cargo build -p lsp --release --manifest-path ../glue/Cargo.toml",
     "postbuild:lsp": "cp ../glue/target/release/lsp out/lsp && chmod +x out/lsp",
     "watch": "tsc -p . -w",
     "lint": "echo \"(add lint script)\"",
-    "test": "exit 0",
+    "pretest": "npm run compile && npm run build:lsp",
+    "test": "node ./out/test/runTest.js",
     "package": "npm run compile && npm run build:lsp && vsce package",
     "publish": "npm run compile && npm run build:lsp && vsce publish"
   },
@@ -67,8 +68,12 @@
   },
   "private": true,
   "devDependencies": {
+    "@types/mocha": "^10.0.10",
     "@types/node": "^24.5.2",
     "@types/vscode": "^1.104.0",
+    "@vscode/test-electron": "^2.4.1",
+    "glob": "^11.0.0",
+    "mocha": "^11.1.0",
     "typescript": "^5.9.2"
   }
 }
