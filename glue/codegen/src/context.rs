@@ -244,6 +244,16 @@ impl TypeMapper {
             PrimitiveType::Bool => "bool",
         }
     }
+
+    pub fn to_go(primitive: PrimitiveType) -> &'static str {
+        match primitive {
+            PrimitiveType::Any => "interface{}",
+            PrimitiveType::String => "string",
+            PrimitiveType::Int => "int64",
+            PrimitiveType::Float => "float64",
+            PrimitiveType::Bool => "bool",
+        }
+    }
 }
 
 /// Indent multi-line text by a given number of spaces

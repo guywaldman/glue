@@ -1,0 +1,10 @@
+---
+source: codegen/src/codegen_go.rs
+expression: gen_go(src)
+---
+package models
+
+type Item struct {
+	Id string `json:"item_id"`
+	Name string `json:"display_name"`
+}

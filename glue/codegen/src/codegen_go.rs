@@ -1,0 +1,431 @@
+use config::GlueConfig;
+use convert_case::{Case, Casing};
+use lang::{AnalyzedProgram, AstNode, Enum, Field, Literal, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
+
+use crate::{
+    CodeGenError, CodeGenerator,
+    codegen::CodeGenResult,
+    context::{CodeGenContext, EnumExt, FieldExt, ModelExt, TypeMapper},
+};
+
+pub struct CodeGenGo;
+
+impl Default for CodeGenGo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl CodeGenGo {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl CodeGenerator for CodeGenGo {
+    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, config: Option<GlueConfig>) -> Result<String, CodeGenError> {
+        let ctx = CodeGenContext::new(program.ast_root.clone(), program.symbols, source, config.as_ref());
+        let mut generator = GoGenerator::new(ctx);
+        generator.generate()
+    }
+}
+
+struct GoGenerator<'a> {
+    ctx: CodeGenContext<'a>,
+    output: String,
+    postludes: Vec<String>,
+}
+
+impl<'a> GoGenerator<'a> {
+    fn new(ctx: CodeGenContext<'a>) -> Self {
+        Self {
+            ctx,
+            output: String::new(),
+            postludes: Vec::new(),
+        }
+    }
+
+    fn generate(&mut self) -> CodeGenResult<String> {
+        // Package declaration
+        self.output.push_str("package models\n\n");
+
+        // Top-level models
+        for model in self.ctx.top_level_models().collect::<Vec<_>>() {
+            let code = self.emit_model(&model, None)?;
+            self.output.push_str(&code);
+        }
+
+        // Top-level enums
+        for enum_ in self.ctx.top_level_enums().collect::<Vec<_>>() {
+            let code = self.emit_enum(&enum_, None)?;
+            self.output.push_str(&code);
+        }
+
+        // Append postludes (nested types)
+        for postlude in &self.postludes {
+            self.output.push_str(postlude);
+        }
+
+        Ok(self.output.clone())
+    }
+
+    fn emit_model(&mut self, model: &Model, parent_scope: Option<SymId>) -> CodeGenResult<String> {
+        let mut output = String::new();
+
+        let scope_id = model.scope_id(&self.ctx, parent_scope)?;
+        let qualified_name = model.qualified_name(&self.ctx, parent_scope, Case::Pascal)?;
+
+        // Documentation
+        if let Some(docs) = model.docs() {
+            output.push_str(&Self::emit_go_docs(&docs, &qualified_name));
+        }
+
+        // Struct declaration
+        output.push_str(&format!("type {} struct {{\n", qualified_name));
+
+        // Fields
+        for field in model.fields() {
+            let field_code = self.emit_field(&field, Some(scope_id))?;
+            output.push_str(&field_code);
+        }
+
+        output.push_str("}\n\n");
+
+        // Queue nested types for postludes
+        for nested_model in model.nested_models() {
+            let nested_code = self.emit_model(&nested_model, Some(scope_id))?;
+            self.postludes.push(nested_code);
+        }
+
+        for nested_enum in model.nested_enums() {
+            let nested_code = self.emit_enum(&nested_enum, Some(scope_id))?;
+            self.postludes.push(nested_code);
+        }
+
+        Ok(output)
+    }
+
+    fn emit_enum(&mut self, enum_: &Enum, parent_scope: Option<SymId>) -> CodeGenResult<String> {
+        let mut output = String::new();
+
+        let qualified_name = enum_.qualified_name(&self.ctx, parent_scope, Case::Pascal)?;
+
+        // Documentation
+        if let Some(docs) = enum_.docs() {
+            output.push_str(&Self::emit_go_docs(&docs, &qualified_name));
+        }
+
+        // Type alias
+        output.push_str(&format!("type {} string\n\n", qualified_name));
+
+        // Constants for enum values
+        output.push_str("const (\n");
+
+        for (i, variant) in enum_.variants().iter().enumerate() {
+            let variant_value = variant.value().ok_or_else(|| CodeGenContext::internal_error("Enum variant missing value"))?;
+            let variant_name = format!("{}{}", qualified_name, variant_value.to_case(Case::Pascal));
+
+            if let Some(docs) = variant.docs() {
+                for line in docs {
+                    output.push_str(&format!("\t// {}\n", line.trim()));
+                }
+            }
+
+            if i == 0 {
+                output.push_str(&format!("\t{} {} = \"{}\"\n", variant_name, qualified_name, variant_value));
+            } else {
+                output.push_str(&format!("\t{} = \"{}\"\n", variant_name, variant_value));
+            }
+        }
+
+        output.push_str(")\n\n");
+
+        Ok(output)
+    }
+
+    fn emit_field(&mut self, field: &Field, parent_scope: Option<SymId>) -> CodeGenResult<String> {
+        let mut output = String::new();
+
+        let field_name = field.name()?;
+        let field_type = field.field_type()?;
+
+        // Go field names are PascalCase for exported fields
+        let go_field_name = field_name.to_case(Case::Pascal);
+
+        // Build type string
+        let type_atoms = field_type.type_atoms();
+        let type_strs: Vec<String> = type_atoms.iter().map(|atom| self.emit_type_atom(atom, parent_scope)).collect::<Result<Vec<_>, _>>()?;
+
+        let mut type_code = if type_strs.len() > 1 {
+            // Union types become interface{} in Go
+            "interface{}".to_string()
+        } else {
+            type_strs.first().cloned().unwrap_or_else(|| "interface{}".to_string())
+        };
+
+        // Handle optional fields (use pointer)
+        if field.is_optional() {
+            type_code = format!("*{}", type_code);
+        }
+
+        // Build JSON tag
+        let alias = self.extract_field_alias(field)?;
+        let json_name = alias.unwrap_or_else(|| field_name.clone());
+        let mut json_tag = json_name.clone();
+        if field.is_optional() {
+            json_tag.push_str(",omitempty");
+        }
+
+        // Documentation as inline comment
+        if let Some(docs) = field.docs() {
+            let doc_text = docs.join(" ").trim().to_string();
+            output.push_str(&format!("\t{} {} `json:\"{}\"` // {}\n", go_field_name, type_code, json_tag, doc_text));
+        } else {
+            output.push_str(&format!("\t{} {} `json:\"{}\"`\n", go_field_name, type_code, json_tag));
+        }
+
+        Ok(output)
+    }
+
+    fn emit_type_atom(&self, atom: &TypeAtom, parent_scope: Option<SymId>) -> CodeGenResult<String> {
+        let is_array = atom.is_array();
+
+        let base_type = self.emit_base_type(atom, parent_scope)?;
+
+        // Wrap in slice if array
+        if is_array {
+            Ok(format!("[]{}", base_type))
+        } else {
+            Ok(base_type)
+        }
+    }
+
+    fn emit_base_type(&self, atom: &TypeAtom, parent_scope: Option<SymId>) -> CodeGenResult<String> {
+        // Primitive type
+        if let Some(primitive) = atom.as_primitive_type() {
+            return Ok(TypeMapper::to_go(primitive).to_string());
+        }
+
+        // Record type (map)
+        if let Some(record_type) = atom.as_record_type() {
+            let src_type = record_type.src_type_node().ok_or_else(|| CodeGenContext::internal_error("Record missing source type"))?;
+            let dest_type = record_type.dest_type_node().ok_or_else(|| CodeGenContext::internal_error("Record missing destination type"))?;
+
+            let src_atoms = Type::cast(src_type).map(|t: Type| t.type_atoms()).unwrap_or_default();
+            let dest_atoms = Type::cast(dest_type).map(|t: Type| t.type_atoms()).unwrap_or_default();
+
+            let src_str = src_atoms.first().map(|a| self.emit_type_atom(a, parent_scope)).transpose()?.unwrap_or_else(|| "string".to_string());
+            let dest_str = dest_atoms
+                .first()
+                .map(|a| self.emit_type_atom(a, parent_scope))
+                .transpose()?
+                .unwrap_or_else(|| "interface{}".to_string());
+
+            return Ok(format!("map[{}]{}", src_str, dest_str));
+        }
+
+        // Reference to another type
+        if let Some(ref_token) = atom.as_ref_token() {
+            let ref_name = ref_token.text().trim();
+            let resolved = self
+                .ctx
+                .qualified_name(parent_scope, ref_name, Case::Pascal)
+                .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved type: {}", ref_name)))?;
+            return Ok(resolved);
+        }
+
+        // Anonymous model - not yet supported
+        if atom.as_anon_model().is_some() {
+            return Err(CodeGenContext::internal_error("Anonymous models not yet supported in Go codegen"));
+        }
+
+        Err(CodeGenContext::internal_error("Unknown type atom"))
+    }
+
+    fn extract_field_alias(&self, field: &Field) -> CodeGenResult<Option<String>> {
+        let decorators = field.decorators();
+        let field_dec = decorators.iter().find(|d| d.ident().as_deref() == Some(MODEL_FIELD_DECORATOR.id));
+
+        if let Some(dec) = field_dec
+            && let Some(alias_arg) = dec.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_ALIAS_ARG)
+            && let Some(Literal::StringLiteral(s)) = alias_arg.literal()
+        {
+            return Ok(s.value());
+        }
+
+        Ok(None)
+    }
+
+    fn emit_go_docs(docs: &[String], name: &str) -> String {
+        let mut output = String::new();
+        for (i, line) in docs.iter().enumerate() {
+            if i == 0 {
+                output.push_str(&format!("// {} {}\n", name, line.trim()));
+            } else {
+                output.push_str(&format!("// {}\n", line.trim()));
+            }
+        }
+        output
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use indoc::indoc;
+    use insta::assert_snapshot;
+    use lang::print_report;
+
+    use crate::test_utils::analyze_test_glue_file;
+
+    fn gen_go(src: &str) -> String {
+        let (program, source) = analyze_test_glue_file(src);
+        let codegen = CodeGenGo::new();
+        codegen
+            .generate(program, &source, None)
+            .map_err(|e| {
+                if let CodeGenError::GenerationError(report) = &e {
+                    let _ = print_report(report);
+                }
+                e
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn test_simple_model() {
+        let src = indoc! {r#"
+            /// A simple user model
+            model User {
+                /// User's unique identifier
+                id: string
+                /// User's display name
+                name: string
+                /// User's age
+                age: int
+            }
+        "#};
+        assert_snapshot!(gen_go(src));
+    }
+
+    #[test]
+    fn test_model_with_optional_fields() {
+        let src = indoc! {r#"
+            model Config {
+                /// Required field
+                name: string
+                /// Optional description
+                description?: string
+                /// Optional count
+                count?: int
+            }
+        "#};
+        assert_snapshot!(gen_go(src));
+    }
+
+    #[test]
+    fn test_enum() {
+        let src = indoc! {r#"
+            /// User status enum
+            enum Status: "active" | "inactive" | "pending"
+        "#};
+        assert_snapshot!(gen_go(src));
+    }
+
+    #[test]
+    fn test_model_with_enum_field() {
+        let src = indoc! {r#"
+            model User {
+                name: string
+                status: Status
+            }
+
+            enum Status: "active" | "inactive"
+        "#};
+        assert_snapshot!(gen_go(src));
+    }
+
+    #[test]
+    fn test_nested_model() {
+        let src = indoc! {r#"
+            model Parent {
+                name: string
+                child: Child
+
+                model Child {
+                    value: int
+                }
+            }
+        "#};
+        assert_snapshot!(gen_go(src));
+    }
+
+    #[test]
+    fn test_field_alias() {
+        let src = indoc! {r#"
+            model Item {
+                @field("item_id")
+                id: string
+                @field("display_name")
+                name: string
+            }
+        "#};
+        assert_snapshot!(gen_go(src));
+    }
+
+    #[test]
+    fn test_record_type() {
+        let src = indoc! {r#"
+            model Data {
+                /// A map of string to any
+                metadata: Record<string, any>
+                /// A map of string to int
+                counts: Record<string, int>
+            }
+        "#};
+        assert_snapshot!(gen_go(src));
+    }
+
+    #[test]
+    fn test_model_reference() {
+        let src = indoc! {r#"
+            model Order {
+                id: string
+                user: User
+                items: Item
+            }
+
+            model User {
+                name: string
+            }
+
+            model Item {
+                sku: string
+                quantity: int
+            }
+        "#};
+        assert_snapshot!(gen_go(src));
+    }
+
+    #[test]
+    fn test_array_types() {
+        let src = indoc! {r#"
+            model User {
+                /// List of tags
+                tags: string[]
+                /// List of scores
+                scores: int[]
+                /// List of addresses
+                addresses: Address[]
+                /// Optional list of nicknames
+                nicknames?: string[]
+            }
+
+            model Address {
+                street: string
+                city: string
+            }
+        "#};
+        assert_snapshot!(gen_go(src));
+    }
+}

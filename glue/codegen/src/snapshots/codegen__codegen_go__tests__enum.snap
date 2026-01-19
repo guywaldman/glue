@@ -1,0 +1,14 @@
+---
+source: codegen/src/codegen_go.rs
+expression: gen_go(src)
+---
+package models
+
+// Status User status enum
+type Status string
+
+const (
+	StatusActive Status = "active"
+	StatusInactive = "inactive"
+	StatusPending = "pending"
+)

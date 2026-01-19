@@ -128,10 +128,8 @@ fn e2e_python_pydantic_todos() -> Result<()> {
     let fixture = GlueTestFixture::new("python_todos", "todos.glue")?;
     let output_path = fixture.generate_python()?;
 
-    // Validate Python syntax
     validate_python_syntax(&output_path)?;
 
-    // Run Python type checker (mypy) if available
     if command_exists("mypy") {
         validate_python_types(&output_path)?;
     }
@@ -180,9 +178,9 @@ try:
     # Test Error model
     error = Error(message="test error")
     assert error.message == "test error"
-    print("✓ Error model works")
+    print("SUCCESS")
 except Exception as e:
-    print(f"✗ Error model failed: {{e}}")
+    print(f"ERROR: Error model failed: {{e}}")
     sys.exit(1)
 
 print("All Python E2E tests passed!")

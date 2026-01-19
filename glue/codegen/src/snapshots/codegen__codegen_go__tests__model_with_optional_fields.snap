@@ -1,0 +1,11 @@
+---
+source: codegen/src/codegen_go.rs
+expression: gen_go(src)
+---
+package models
+
+type Config struct {
+	Name string `json:"name"` // Required field
+	Description *string `json:"description,omitempty"` // Optional description
+	Count *int64 `json:"count,omitempty"` // Optional count
+}

@@ -1,0 +1,20 @@
+---
+source: codegen/src/codegen_go.rs
+expression: gen_go(src)
+---
+package models
+
+type Order struct {
+	Id string `json:"id"`
+	User User `json:"user"`
+	Items Item `json:"items"`
+}
+
+type User struct {
+	Name string `json:"name"`
+}
+
+type Item struct {
+	Sku string `json:"sku"`
+	Quantity int64 `json:"quantity"`
+}

@@ -1,0 +1,17 @@
+---
+source: codegen/src/codegen_go.rs
+expression: gen_go(src)
+---
+package models
+
+type User struct {
+	Name string `json:"name"`
+	Status Status `json:"status"`
+}
+
+type Status string
+
+const (
+	StatusActive Status = "active"
+	StatusInactive = "inactive"
+)

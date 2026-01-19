@@ -8,7 +8,9 @@ pub fn generate(mode: &str, code: &str) -> String {
         file_contents: code,
     };
     let Ok(mode) = mode.try_into() else {
-        return "Error: Unknown code generation mode".to_string();
+        // We return an error string directly since we cannot return Result types.
+        // TODO: Find an idiomatic way to return structured errors from wasm functions.
+        return format!("ERROR: Unknown code generation mode: {}", mode);
     };
     CodeGen::generate(mode, source, None).unwrap_or_else(|e| match e {
         CodeGenError::GenerationError(diag) => generate_report(&diag).unwrap_or_else(|_| "Error generating report".to_string()),

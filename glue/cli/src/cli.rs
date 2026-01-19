@@ -86,6 +86,7 @@ impl GlueCli {
                     CodeGenMode::Rust => codegen::CodeGenMode::Rust,
                     CodeGenMode::Python => codegen::CodeGenMode::Python,
                     CodeGenMode::Protobuf => codegen::CodeGenMode::Protobuf,
+                    CodeGenMode::Go => codegen::CodeGenMode::Go,
                 };
                 let source = Self::handle_file(input.clone())?;
                 let mut generated_code = match CodeGen::generate(codegen_mode, &source, config.clone()) {
@@ -192,6 +193,7 @@ impl GlueCli {
             CodeGenMode::Rust => "//",
             CodeGenMode::OpenApi => "//",
             CodeGenMode::Protobuf => "//",
+            CodeGenMode::Go => "//",
         };
         if !watermark_lines.is_empty() {
             watermark.push_str(&format!("{} {}\n", comment_prefix, Self::WATERMARK_SEPERATOR));

@@ -4,7 +4,7 @@ use lang::{AnalyzedProgram, Parser, ParserError, SemanticAnalyzer, SemanticAnaly
 use log::debug;
 use thiserror::Error;
 
-use crate::{codegen_jsonschema::CodeGenJsonSchema, codegen_openapi::CodeGenOpenAPI, codegen_protobuf::CodeGenProtobuf, codegen_python::CodeGenPython, codegen_rust::CodeGenRust};
+use crate::{codegen_go::CodeGenGo, codegen_jsonschema::CodeGenJsonSchema, codegen_openapi::CodeGenOpenAPI, codegen_protobuf::CodeGenProtobuf, codegen_python::CodeGenPython, codegen_rust::CodeGenRust};
 
 #[derive(Debug, Error)]
 pub enum CodeGenError {
@@ -33,6 +33,7 @@ pub enum CodeGenMode {
     Rust,
     Python,
     Protobuf,
+    Go,
 }
 
 impl TryFrom<&str> for CodeGenMode {
@@ -45,6 +46,7 @@ impl TryFrom<&str> for CodeGenMode {
             "rust" => Ok(CodeGenMode::Rust),
             "python" => Ok(CodeGenMode::Python),
             "protobuf" => Ok(CodeGenMode::Protobuf),
+            "go" => Ok(CodeGenMode::Go),
             _ => Err(CodeGenError::InternalError(format!("Unknown code generation mode: {}", value))),
         }
     }
@@ -69,6 +71,7 @@ impl CodeGen {
             CodeGenMode::Rust => Box::new(CodeGenRust::new()),
             CodeGenMode::Python => Box::new(CodeGenPython::new()),
             CodeGenMode::Protobuf => Box::new(CodeGenProtobuf::new()),
+            CodeGenMode::Go => Box::new(CodeGenGo::new()),
         };
         debug!("Generating code");
         let generated = codegen.generate(analyzed_program, source, config);

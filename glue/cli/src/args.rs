@@ -14,6 +14,7 @@ pub const CODEGEN_MODE_OPENAPI: &str = "openapi";
 pub const CODEGEN_MODE_RUST: &str = "rust";
 pub const CODEGEN_MODE_PYTHON: &str = "python";
 pub const CODEGEN_MODE_PROTOBUF: &str = "protobuf";
+pub const CODEGEN_MODE_GO: &str = "go";
 
 #[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
 pub enum CodeGenMode {
@@ -27,6 +28,8 @@ pub enum CodeGenMode {
     Python,
     #[value(alias(CODEGEN_MODE_PROTOBUF))]
     Protobuf,
+    #[value(alias(CODEGEN_MODE_GO))]
+    Go,
 }
 
 impl From<CodeGenMode> for &str {
@@ -37,6 +40,7 @@ impl From<CodeGenMode> for &str {
             CodeGenMode::Rust => CODEGEN_MODE_RUST,
             CodeGenMode::Python => CODEGEN_MODE_PYTHON,
             CodeGenMode::Protobuf => CODEGEN_MODE_PROTOBUF,
+            CodeGenMode::Go => CODEGEN_MODE_GO,
         }
     }
 }

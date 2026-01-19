@@ -1,0 +1,14 @@
+---
+source: codegen/src/codegen_go.rs
+expression: gen_go(src)
+---
+package models
+
+type Parent struct {
+	Name string `json:"name"`
+	Child ParentChild `json:"child"`
+}
+
+type ParentChild struct {
+	Value int64 `json:"value"`
+}
