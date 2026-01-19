@@ -1,9 +1,6 @@
 use config::GlueConfig;
 use convert_case::{Case, Casing};
-use lang::{
-    AnalyzedProgram, AstNode, Enum, Field, Literal, Model, SourceCodeMetadata, SymId, Type, TypeAtom,
-    MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG,
-};
+use lang::{AnalyzedProgram, AstNode, Enum, Field, Literal, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
@@ -12,7 +9,6 @@ use crate::{
 };
 
 pub struct CodeGenRust;
-
 
 impl Default for CodeGenRust {
     fn default() -> Self {
@@ -124,8 +120,7 @@ impl<'a> RustGenerator<'a> {
 
         // Handle enum literals (variants)
         for variant in enum_.variants() {
-            let variant_value = variant.value()
-                .ok_or_else(|| CodeGenContext::internal_error("Enum variant missing value"))?;
+            let variant_value = variant.value().ok_or_else(|| CodeGenContext::internal_error("Enum variant missing value"))?;
             let variant_name = variant_value.to_case(Case::Pascal);
 
             if let Some(docs) = variant.docs() {
@@ -159,10 +154,7 @@ impl<'a> RustGenerator<'a> {
 
         // Build type string
         let type_atoms = field_type.type_atoms();
-        let type_strs: Vec<String> = type_atoms
-            .iter()
-            .map(|atom| self.emit_type_atom(atom, parent_scope))
-            .collect::<Result<Vec<_>, _>>()?;
+        let type_strs: Vec<String> = type_atoms.iter().map(|atom| self.emit_type_atom(atom, parent_scope)).collect::<Result<Vec<_>, _>>()?;
 
         let mut type_code = type_strs.join(" | ");
 
@@ -194,19 +186,15 @@ impl<'a> RustGenerator<'a> {
 
         // Record type (HashMap)
         if let Some(record_type) = atom.as_record_type() {
-            let src_type = record_type.src_type_node()
-                .ok_or_else(|| CodeGenContext::internal_error("Record missing source type"))?;
-            let dest_type = record_type.dest_type_node()
-                .ok_or_else(|| CodeGenContext::internal_error("Record missing destination type"))?;
+            let src_type = record_type.src_type_node().ok_or_else(|| CodeGenContext::internal_error("Record missing source type"))?;
+            let dest_type = record_type.dest_type_node().ok_or_else(|| CodeGenContext::internal_error("Record missing destination type"))?;
 
             let src_atoms = Type::cast(src_type).map(|t: Type| t.type_atoms()).unwrap_or_default();
             let dest_atoms = Type::cast(dest_type).map(|t: Type| t.type_atoms()).unwrap_or_default();
 
-            let src_str = src_atoms.first()
-                .map(|a| self.emit_type_atom(a, parent_scope))
-                .transpose()?
-                .unwrap_or_else(|| "String".to_string());
-            let dest_str = dest_atoms.first()
+            let src_str = src_atoms.first().map(|a| self.emit_type_atom(a, parent_scope)).transpose()?.unwrap_or_else(|| "String".to_string());
+            let dest_str = dest_atoms
+                .first()
                 .map(|a| self.emit_type_atom(a, parent_scope))
                 .transpose()?
                 .unwrap_or_else(|| "serde_json::Value".to_string());
@@ -217,7 +205,9 @@ impl<'a> RustGenerator<'a> {
         // Reference to another type
         if let Some(ref_token) = atom.as_ref_token() {
             let ref_name = ref_token.text().trim();
-            let resolved = self.ctx.qualified_name(parent_scope, ref_name, Case::Pascal)
+            let resolved = self
+                .ctx
+                .qualified_name(parent_scope, ref_name, Case::Pascal)
                 .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved type: {}", ref_name)))?;
             return Ok(resolved);
         }
@@ -236,9 +226,10 @@ impl<'a> RustGenerator<'a> {
 
         if let Some(dec) = field_dec
             && let Some(alias_arg) = dec.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_ALIAS_ARG)
-                && let Some(Literal::StringLiteral(s)) = alias_arg.literal() {
-                    return Ok(s.value());
-                }
+            && let Some(Literal::StringLiteral(s)) = alias_arg.literal()
+        {
+            return Ok(s.value());
+        }
 
         Ok(None)
     }

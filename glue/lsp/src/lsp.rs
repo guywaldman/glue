@@ -63,7 +63,10 @@ impl Lsp {
         for (i, line) in state.source.lines().enumerate() {
             let line_len = line.len() as u32 + 1;
             if current + line_len > offset {
-                return lsp::Position { line: i as u32, character: offset - current };
+                return lsp::Position {
+                    line: i as u32,
+                    character: offset - current,
+                };
             }
             current += line_len;
         }

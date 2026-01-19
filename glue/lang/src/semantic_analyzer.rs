@@ -386,7 +386,7 @@ impl SemanticAnalyzer {
                     LNodeOrToken::Node(n) => n.text().to_string(),
                     LNodeOrToken::Token(tok) => tok.text().to_string(),
                 };
-                
+
                 // Build the fully qualified name for this field in the current scope
                 let mut fully_qualified_name = field_name.clone();
                 if let Some(scope) = parent_scope
@@ -394,7 +394,7 @@ impl SemanticAnalyzer {
                 {
                     fully_qualified_name = format!("{}::{}", scope_entry.name, field_name);
                 }
-                
+
                 // Check if this exact field already exists in the current scope
                 let already_exists = syms.entries(parent_scope).iter().any(|entry| entry.name == fully_qualified_name);
                 if already_exists {

@@ -3,16 +3,14 @@ use std::collections::HashMap;
 use config::GlueConfig;
 use convert_case::Case;
 use lang::{
-    AnalyzedProgram, AnonModel, AstNode, Endpoint, Field, Literal, Model, SourceCodeMetadata,
-    Type, TypeAtom, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG,
-    MODEL_FIELD_DECORATOR_EXAMPLE_ARG,
+    AnalyzedProgram, AnonModel, AstNode, Endpoint, Field, Literal, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG, MODEL_FIELD_DECORATOR_EXAMPLE_ARG, Model, SourceCodeMetadata, Type, TypeAtom,
 };
 use serde_json::Number;
 
+use crate::CodeGenerator;
 use crate::codegen::CodeGenResult;
 use crate::context::{CodeGenContext, ModelExt, TypeMapper};
 use crate::models::openapi;
-use crate::CodeGenerator;
 
 pub struct CodeGenOpenAPI;
 
@@ -201,9 +199,10 @@ impl<'a> OpenAPIGenerator<'a> {
                 // Handle @field decorator
                 if let Some(dec) = f.decorators().iter().find(|d| d.ident().as_deref() == Some(MODEL_FIELD_DECORATOR.id)) {
                     if let Some(alias_arg) = dec.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_ALIAS_ARG)
-                        && let Some(Literal::StringLiteral(alias)) = alias_arg.literal() {
-                            name = alias.value()?;
-                        }
+                        && let Some(Literal::StringLiteral(alias)) = alias_arg.literal()
+                    {
+                        name = alias.value()?;
+                    }
                     if let Some(example_arg) = dec.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_EXAMPLE_ARG) {
                         example = example_arg.literal();
                     }
@@ -273,10 +272,12 @@ impl<'a> OpenAPIGenerator<'a> {
         }
 
         // Duplicate 2XX to 200 if needed (some OpenAPI clients expect 200)
-        if responses.contains_key("2XX") && !responses.contains_key("200")
-            && let Some(response) = responses.get("2XX").cloned() {
-                responses.insert("200".to_string(), response);
-            }
+        if responses.contains_key("2XX")
+            && !responses.contains_key("200")
+            && let Some(response) = responses.get("2XX").cloned()
+        {
+            responses.insert("200".to_string(), response);
+        }
 
         responses
     }

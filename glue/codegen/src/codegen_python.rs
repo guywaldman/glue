@@ -1,9 +1,6 @@
 use config::{GlueConfig, GlueConfigSchemaGenerationPythonPydantic};
 use convert_case::{Case, Casing};
-use lang::{
-    AnalyzedProgram, AstNode, Enum, Field, Literal, LiteralExpr, Model, SourceCodeMetadata, SymId,
-    Type, TypeAtom, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG,
-};
+use lang::{AnalyzedProgram, AstNode, Enum, Field, Literal, LiteralExpr, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
@@ -54,14 +51,17 @@ impl<'a> PythonGenerator<'a> {
     fn generate(&mut self) -> CodeGenResult<String> {
         // Build preludes
         let base_model_import = self.config.base_model.clone().unwrap_or_else(|| "pydantic.BaseModel".to_string());
-        let (base_module, base_class) = base_model_import.rsplit_once('.')
+        let (base_module, base_class) = base_model_import
+            .rsplit_once('.')
             .ok_or_else(|| CodeGenError::InternalError(format!("Invalid base model path: {}", base_model_import)))?;
 
-        let preludes = ["# pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring\n".to_string(),
+        let preludes = [
+            "# pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring\n".to_string(),
             format!("from {} import {}", base_module, base_class),
             "from pydantic import Field".to_string(),
             "from enum import StrEnum".to_string(),
-            "from typing import Any, Annotated, Optional, Union".to_string()];
+            "from typing import Any, Annotated, Optional, Union".to_string(),
+        ];
 
         // Generate models and enums
         for model in self.ctx.top_level_models().collect::<Vec<_>>() {
@@ -78,10 +78,7 @@ impl<'a> PythonGenerator<'a> {
     }
 
     fn base_class_name(&self) -> &str {
-        self.config.base_model.as_ref()
-            .and_then(|s| s.rsplit_once('.'))
-            .map(|(_, class)| class)
-            .unwrap_or("BaseModel")
+        self.config.base_model.as_ref().and_then(|s| s.rsplit_once('.')).map(|(_, class)| class).unwrap_or("BaseModel")
     }
 
     fn emit_model(&mut self, model: &Model, parent_scope: Option<SymId>) -> CodeGenResult<String> {
@@ -144,10 +141,11 @@ impl<'a> PythonGenerator<'a> {
             field_args.push("default=None".to_string());
         } else if let Some(default_node) = field.default_literal_expr_node()
             && let Some(default_expr) = LiteralExpr::cast(default_node)
-                && let Some(lit) = default_expr.value() {
-                    let default_code = self.emit_literal(&lit);
-                    field_args.push(format!("default={}", default_code));
-                }
+            && let Some(lit) = default_expr.value()
+        {
+            let default_code = self.emit_literal(&lit);
+            field_args.push(format!("default={}", default_code));
+        }
 
         // Alias from @field decorator or auto-generate if names differ
         let decorators = field.decorators();
@@ -155,17 +153,15 @@ impl<'a> PythonGenerator<'a> {
         if let Some(dec) = field_decorator {
             if let Some(alias_arg) = dec.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_ALIAS_ARG)
                 && let Some(Literal::StringLiteral(v)) = alias_arg.literal()
-                    && let Some(alias_value) = v.value() {
-                        field_args.push(format!("alias=\"{}\"", alias_value));
-                    }
+                && let Some(alias_value) = v.value()
+            {
+                field_args.push(format!("alias=\"{}\"", alias_value));
+            }
         } else if py_field_name != field_name {
             field_args.push(format!("alias=\"{}\"", field_name));
         }
 
-        output.push_str(&indent(
-            &format!("{}: Annotated[{}, Field({})]\n", py_field_name, type_code, field_args.join(", ")),
-            4,
-        ));
+        output.push_str(&indent(&format!("{}: Annotated[{}, Field({})]\n", py_field_name, type_code, field_args.join(", ")), 4));
 
         // Field docstring
         if let Some(docs) = field.docs() {
@@ -207,9 +203,7 @@ impl<'a> PythonGenerator<'a> {
         if atoms.len() == 1 {
             self.emit_type_atom(&atoms[0], scope)
         } else {
-            let atom_codes: Vec<_> = atoms.iter()
-                .map(|a| self.emit_type_atom(a, scope))
-                .collect::<Result<Vec<_>, _>>()?;
+            let atom_codes: Vec<_> = atoms.iter().map(|a| self.emit_type_atom(a, scope)).collect::<Result<Vec<_>, _>>()?;
             Ok(format!("Union[{}]", atom_codes.join(", ")))
         }
     }
@@ -228,10 +222,12 @@ impl<'a> PythonGenerator<'a> {
             format!("dict[{}, {}]", src_str, dest_str)
         } else if let Some(ref_token) = atom.as_ref_token() {
             let type_name = ref_token.text().to_string();
-            let sym = self.ctx.resolve(scope, &type_name)
+            let sym = self
+                .ctx
+                .resolve(scope, &type_name)
                 .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved type: {}", type_name)))?;
             let qualified = lang::symbol_name_to_parts(&sym.name).join("_").to_case(Case::Pascal);
-            format!("\"{}\"", qualified)  // Forward reference
+            format!("\"{}\"", qualified) // Forward reference
         } else if atom.as_anon_model().is_some() {
             return Err(self.ctx.error(atom.syntax(), "Anonymous models not supported"));
         } else {

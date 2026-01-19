@@ -1,9 +1,6 @@
 use config::GlueConfig;
 use convert_case::{Case, Casing};
-use lang::{
-    AstNode, DiagnosticContext, Enum, EnumVariant, Field, LNode, LSyntaxKind, Literal, Model,
-    PrimitiveType, SourceCodeMetadata, SymId, SymTable, Type, TypeAtom,
-};
+use lang::{AstNode, DiagnosticContext, Enum, EnumVariant, Field, LNode, LSyntaxKind, Literal, Model, PrimitiveType, SourceCodeMetadata, SymId, SymTable, Type, TypeAtom};
 
 use crate::CodeGenError;
 
@@ -34,49 +31,34 @@ impl<'a> CodeGenContext<'a> {
 
     /// Get the qualified name for a symbol, formatted in a specific case
     pub fn qualified_name(&self, scope: Option<SymId>, name: &str, case: Case) -> Option<String> {
-        self.resolve(scope, name)
-            .map(|entry| lang::symbol_name_to_parts(&entry.name).join("_").to_case(case))
+        self.resolve(scope, name).map(|entry| lang::symbol_name_to_parts(&entry.name).join("_").to_case(case))
     }
 
     /// Iterate over all top-level models
     pub fn top_level_models(&self) -> impl Iterator<Item = Model> + '_ {
-        self.ast
-            .children()
-            .filter(|n| n.kind() == LSyntaxKind::MODEL)
-            .filter_map(Model::cast)
+        self.ast.children().filter(|n| n.kind() == LSyntaxKind::MODEL).filter_map(Model::cast)
     }
 
     /// Iterate over all top-level enums
     pub fn top_level_enums(&self) -> impl Iterator<Item = Enum> + '_ {
-        self.ast
-            .children()
-            .filter(|n| n.kind() == LSyntaxKind::ENUM)
-            .filter_map(Enum::cast)
+        self.ast.children().filter(|n| n.kind() == LSyntaxKind::ENUM).filter_map(Enum::cast)
     }
 
     /// Iterate over all top-level endpoints
     pub fn top_level_endpoints(&self) -> impl Iterator<Item = lang::Endpoint> + '_ {
-        self.ast
-            .children()
-            .filter(|n| n.kind() == LSyntaxKind::ENDPOINT)
-            .filter_map(lang::Endpoint::cast)
+        self.ast.children().filter(|n| n.kind() == LSyntaxKind::ENDPOINT).filter_map(lang::Endpoint::cast)
     }
 
     /// Find the root model (decorated with @root), or the single model if only one exists
     pub fn root_model(&self) -> Result<Model, CodeGenError> {
         let models: Vec<_> = self.top_level_models().collect();
-        
-        let root_models: Vec<_> = models
-            .iter()
-            .filter(|m| m.decorators().iter().any(|d| d.ident().as_deref() == Some("root")))
-            .cloned()
-            .collect();
+
+        let root_models: Vec<_> = models.iter().filter(|m| m.decorators().iter().any(|d| d.ident().as_deref() == Some("root"))).cloned().collect();
 
         if root_models.len() > 1 {
-            return Err(CodeGenError::GenerationError(self.diag.error(
-                self.ast.text_range(),
-                "Multiple root models found. Only one model should have the @root decorator.",
-            )));
+            return Err(CodeGenError::GenerationError(
+                self.diag.error(self.ast.text_range(), "Multiple root models found. Only one model should have the @root decorator."),
+            ));
         }
 
         if let Some(root) = root_models.into_iter().next() {
@@ -87,10 +69,10 @@ impl<'a> CodeGenContext<'a> {
             return Ok(models.into_iter().next().unwrap());
         }
 
-        Err(CodeGenError::GenerationError(self.diag.error(
-            self.ast.text_range(),
-            "Multiple models found but none marked with @root. Please add @root to one model.",
-        )))
+        Err(CodeGenError::GenerationError(
+            self.diag
+                .error(self.ast.text_range(), "Multiple models found but none marked with @root. Please add @root to one model."),
+        ))
     }
 
     pub fn error(&self, node: &LNode, message: &str) -> CodeGenError {
@@ -186,9 +168,7 @@ impl DocEmitter {
     /// Emit documentation as Rust-style doc comments (/// ...)
     pub fn rust_docs(docs: &[String], indent: usize) -> String {
         let indent_str = " ".repeat(indent * 4);
-        docs.iter()
-            .map(|line| format!("{}/// {}\n", indent_str, line.trim()))
-            .collect()
+        docs.iter().map(|line| format!("{}/// {}\n", indent_str, line.trim())).collect()
     }
 
     /// Emit documentation as Python docstring
@@ -270,13 +250,7 @@ impl TypeMapper {
 pub fn indent(text: &str, spaces: usize) -> String {
     let indent_str = " ".repeat(spaces);
     text.lines()
-        .map(|line| {
-            if line.is_empty() {
-                String::new()
-            } else {
-                format!("{}{}", indent_str, line)
-            }
-        })
+        .map(|line| if line.is_empty() { String::new() } else { format!("{}{}", indent_str, line) })
         .collect::<Vec<_>>()
         .join("\n")
         + if text.ends_with('\n') { "\n" } else { "" }
