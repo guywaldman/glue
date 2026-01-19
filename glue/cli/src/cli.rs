@@ -28,6 +28,12 @@ pub enum CliError {
 
 pub struct GlueCli {}
 
+impl Default for GlueCli {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GlueCli {
     pub fn new() -> Self {
         Self {}
@@ -128,8 +134,9 @@ impl GlueCli {
             .and_then(|cfg| cfg.generation)
             .and_then(|gen_cfg| gen_cfg.watermark)
             .unwrap_or(GlueConfigSchemaGenerationWatermark::Short);
-        if mode == &CodeGenMode::OpenApi {
-            // We currently default to JSON for OpenAPI generation, and to avoid JSON comments we disable the watermark by default.
+        if mode == &CodeGenMode::OpenApi || mode == &CodeGenMode::JsonSchema {
+            // JSON files don't always support comments - don't add a watermark
+            // TODO: jsonc?
             watermark_mode = GlueConfigSchemaGenerationWatermark::None;
         }
         let timestamp = chrono::Utc::now().format("%Y-%m-%d").to_string();

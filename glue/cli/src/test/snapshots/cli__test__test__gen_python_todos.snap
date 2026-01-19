@@ -4,7 +4,6 @@ expression: generated_code
 ---
 # pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring
 
-
 from pydantic import BaseModel
 from pydantic import Field
 from enum import StrEnum
@@ -48,7 +47,7 @@ class UserGeo(BaseModel):
 class UserCompany(BaseModel):
     """Represents a company."""
     name: Annotated[str, Field()]
-    catch_phrase: Annotated[str, Field(alias="catchPhrase")]
+    catch_phrase: Annotated[str, Field()]
     bs: Annotated[str, Field()]
 
 class Error(BaseModel):

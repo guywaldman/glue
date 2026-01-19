@@ -18,7 +18,6 @@ pub struct Movie {
     pub tags: String,
 }
 
-
 /// Represents an error response.
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
 pub struct Error {

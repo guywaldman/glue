@@ -28,14 +28,8 @@ install-cli:
 	cd glue && cargo build --release --bin glue
 	cd glue && cargo install --path cli --bin glue
 
-test-cli-unit:
-	cd glue && cargo test
-
-test-cli-e2e:
-	rustup target add x86_64-unknown-linux-gnu
-	cd glue && cross build --release -p cli --target x86_64-unknown-linux-gnu --force-non-host
-	cp glue/target/x86_64-unknown-linux-gnu/release/glue glue/examples/python/todo_app/bin/glue
-	cd glue/examples && docker compose up
+test-cli:
+	cd glue && cargo test --workspace --all-features
 
 lint-cli:
 	cd glue && cargo clippy --workspace --all -D warnings

@@ -1,0 +1,12 @@
+---
+source: codegen/src/codegen_rust.rs
+expression: output
+---
+use std::collections::HashMap;
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
+pub struct Config {
+    /// Optional map of settings
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub settings: Option<HashMap<String, String>>,
+}

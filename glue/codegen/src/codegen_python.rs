@@ -57,13 +57,11 @@ impl<'a> PythonGenerator<'a> {
         let (base_module, base_class) = base_model_import.rsplit_once('.')
             .ok_or_else(|| CodeGenError::InternalError(format!("Invalid base model path: {}", base_model_import)))?;
 
-        let preludes = vec![
-            "# pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring\n".to_string(),
+        let preludes = ["# pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring\n".to_string(),
             format!("from {} import {}", base_module, base_class),
             "from pydantic import Field".to_string(),
             "from enum import StrEnum".to_string(),
-            "from typing import Any, Annotated, Optional, Union".to_string(),
-        ];
+            "from typing import Any, Annotated, Optional, Union".to_string()];
 
         // Generate models and enums
         for model in self.ctx.top_level_models().collect::<Vec<_>>() {
@@ -144,24 +142,22 @@ impl<'a> PythonGenerator<'a> {
         // Default value
         if field.is_optional() {
             field_args.push("default=None".to_string());
-        } else if let Some(default_node) = field.default_literal_expr_node() {
-            if let Some(default_expr) = LiteralExpr::cast(default_node) {
-                if let Some(lit) = default_expr.value() {
+        } else if let Some(default_node) = field.default_literal_expr_node()
+            && let Some(default_expr) = LiteralExpr::cast(default_node)
+                && let Some(lit) = default_expr.value() {
                     let default_code = self.emit_literal(&lit);
                     field_args.push(format!("default={}", default_code));
                 }
-            }
-        }
 
         // Alias from @field decorator or auto-generate if names differ
         let decorators = field.decorators();
         let field_decorator = decorators.iter().find(|d| d.ident() == Some(MODEL_FIELD_DECORATOR.id.to_owned()));
         if let Some(dec) = field_decorator {
-            if let Some(alias_arg) = dec.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_ALIAS_ARG) {
-                if let Some(Literal::StringLiteral(v)) = alias_arg.literal() {
-                    field_args.push(format!("alias=\"{}\"", v));
-                }
-            }
+            if let Some(alias_arg) = dec.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_ALIAS_ARG)
+                && let Some(Literal::StringLiteral(v)) = alias_arg.literal()
+                    && let Some(alias_value) = v.value() {
+                        field_args.push(format!("alias=\"{}\"", alias_value));
+                    }
         } else if py_field_name != field_name {
             field_args.push(format!("alias=\"{}\"", field_name));
         }
@@ -224,9 +220,12 @@ impl<'a> PythonGenerator<'a> {
         } else if let Some(record) = atom.as_record_type() {
             let src = record.src_type_node().ok_or_else(|| CodeGenContext::internal_error("Record missing src type"))?;
             let dest = record.dest_type_node().ok_or_else(|| CodeGenContext::internal_error("Record missing dest type"))?;
-            let src_atom = TypeAtom::cast(src).ok_or_else(|| CodeGenContext::internal_error("Expected TypeAtom"))?;
-            let dest_atom = TypeAtom::cast(dest).ok_or_else(|| CodeGenContext::internal_error("Expected TypeAtom"))?;
-            format!("dict[{}, {}]", self.emit_type_atom(&src_atom, scope)?, self.emit_type_atom(&dest_atom, scope)?)
+            // src and dest are TYPE nodes, need to get the Type and emit it
+            let src_type = Type::cast(src).ok_or_else(|| CodeGenContext::internal_error("Expected Type for record src"))?;
+            let dest_type = Type::cast(dest).ok_or_else(|| CodeGenContext::internal_error("Expected Type for record dest"))?;
+            let src_str = self.emit_type(&src_type, scope)?;
+            let dest_str = self.emit_type(&dest_type, scope)?;
+            format!("dict[{}, {}]", src_str, dest_str)
         } else if let Some(ref_token) = atom.as_ref_token() {
             let type_name = ref_token.text().to_string();
             let sym = self.ctx.resolve(scope, &type_name)
@@ -234,7 +233,7 @@ impl<'a> PythonGenerator<'a> {
             let qualified = lang::symbol_name_to_parts(&sym.name).join("_").to_case(Case::Pascal);
             format!("\"{}\"", qualified)  // Forward reference
         } else if atom.as_anon_model().is_some() {
-            return Err(self.ctx.error(&atom.syntax(), "Anonymous models not supported"));
+            return Err(self.ctx.error(atom.syntax(), "Anonymous models not supported"));
         } else {
             return Err(CodeGenContext::internal_error("Unknown type atom kind"));
         };
@@ -267,6 +266,28 @@ mod tests {
     use lang::print_report;
 
     use crate::{CodeGenError, CodeGenerator, test_utils::analyze_test_glue_file};
+
+    fn gen_python(src: &str) -> String {
+        let (program, source) = analyze_test_glue_file(src);
+        let codegen = CodeGenPython::new();
+        codegen
+            .generate(program, &source, None)
+            .map_err(|e| match e {
+                CodeGenError::InternalError(msg) => panic!("Internal error: {}", msg),
+                CodeGenError::GenerationError(diag) => {
+                    print_report(&diag).expect("Failed to print diagnostic");
+                    panic!("Generation error occurred");
+                }
+                CodeGenError::GenerationErrors(diags) => {
+                    for diag in diags {
+                        print_report(&diag).expect("Failed to print diagnostic");
+                    }
+                    panic!("Generation errors occurred");
+                }
+                e => panic!("Unexpected error: {:?}", e),
+            })
+            .unwrap()
+    }
 
     #[test]
     fn test() {
@@ -303,27 +324,81 @@ mod tests {
             }
 				"# };
 
-        let (program, source) = analyze_test_glue_file(src);
+        assert_snapshot!(gen_python(src));
+    }
 
-        let codegen = CodeGenPython::new();
-        let output = codegen
-            .generate(program, &source, None)
-            .map_err(|e| match e {
-                CodeGenError::InternalError(msg) => msg,
-                CodeGenError::GenerationError(diag) => {
-                    print_report(&diag).expect("Failed to print diagnostic");
-                    panic!("Generation error occurred");
-                }
-                CodeGenError::GenerationErrors(diags) => {
-                    for diag in diags {
-                        print_report(&diag).expect("Failed to print diagnostic");
-                    }
-                    panic!("Generation errors occurred");
-                }
-                e => panic!("Unexpected error: {:?}", e),
-            })
-            .unwrap();
+    #[test]
+    fn test_record_string_to_any() {
+        let src = indoc! { r#"
+            model Item {
+                /// A map of string keys to any values
+                raw_data: Record<string, any>
+            }
+        "# };
 
+        let output = gen_python(src);
+        assert!(output.contains("dict[str, Any]"), "Expected dict[str, Any] in output:\n{}", output);
+        assert_snapshot!(output);
+    }
+
+    #[test]
+    fn test_record_string_to_int() {
+        let src = indoc! { r#"
+            model Scores {
+                /// Player scores by name
+                scores: Record<string, int>
+            }
+        "# };
+
+        let output = gen_python(src);
+        assert!(output.contains("dict[str, int]"), "Expected dict[str, int] in output:\n{}", output);
+        assert_snapshot!(output);
+    }
+
+    #[test]
+    fn test_record_nested_in_model() {
+        let src = indoc! { r#"
+            model Container {
+                inner: Inner
+                
+                model Inner {
+                    /// Nested map field
+                    data: Record<string, any>
+                }
+            }
+        "# };
+
+        let output = gen_python(src);
+        assert!(output.contains("dict[str, Any]"), "Expected dict[str, Any] in output:\n{}", output);
+        assert_snapshot!(output);
+    }
+
+    #[test]
+    fn test_record_optional() {
+        let src = indoc! { r#"
+            model Config {
+                /// Optional map of settings
+                settings?: Record<string, string>
+            }
+        "# };
+
+        let output = gen_python(src);
+        assert!(output.contains("Optional[dict[str, str]]"), "Expected Optional[dict[str, str]] in output:\n{}", output);
+        assert_snapshot!(output);
+    }
+
+    #[test]
+    fn test_record_array() {
+        let src = indoc! { r#"
+            model MultiConfig {
+                /// List of config maps
+                configs: Record<string, int>[]
+            }
+        "# };
+
+        let output = gen_python(src);
+        // Note: Record<K,V>[] - check actual output for list wrapping
+        assert!(output.contains("dict[str, int]"), "Expected dict in output:\n{}", output);
         assert_snapshot!(output);
     }
 }

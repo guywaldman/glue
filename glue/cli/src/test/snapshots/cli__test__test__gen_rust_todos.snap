@@ -17,7 +17,6 @@ pub struct Todo {
     pub user_id: i64,
 }
 
-
 /// Represents a user.
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
 pub struct User {
@@ -29,11 +28,7 @@ pub struct User {
     pub phone: String,
     pub website: String,
     pub company: UserCompany,
-
-
-
 }
-
 
 /// Represents an error response.
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
@@ -45,7 +40,6 @@ pub struct Error {
     pub code: Option<i64>,
 }
 
-
 /// Represents a user's address.
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
 pub struct UserAddress {
@@ -56,14 +50,12 @@ pub struct UserAddress {
     pub geo: UserGeo,
 }
 
-
 /// Represents geographic coordinates.
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
 pub struct UserGeo {
     pub lat: String,
     pub lng: String,
 }
-
 
 /// Represents a company.
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]

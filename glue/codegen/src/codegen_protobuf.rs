@@ -21,7 +21,7 @@ impl Default for CodeGenProtobuf {
 }
 
 impl CodeGenerator for CodeGenProtobuf {
-    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, config: Option<GlueConfig>) -> Result<String, crate::CodeGenError> {
+    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, _config: Option<GlueConfig>) -> Result<String, crate::CodeGenError> {
         let mut codegen = CodeGenProtobufImpl::new(program, source);
         let output = codegen.generate()?;
         Ok(output)
@@ -68,7 +68,7 @@ impl CodeGenProtobufImpl {
         Ok(output)
     }
 
-    fn visit_model(&mut self, model: &Model, parent: &impl AstNode) -> CodeGenResult<String> {
+    fn visit_model(&mut self, model: &Model, _parent: &impl AstNode) -> CodeGenResult<String> {
         let mut output = String::new();
 
         for (i, field) in model.fields().iter().enumerate() {
@@ -84,7 +84,7 @@ impl CodeGenProtobufImpl {
         Ok(output)
     }
 
-    fn visit_enum(&mut self, enum_: &lang::Enum, parent: &impl AstNode) -> CodeGenResult<String> {
+    fn visit_enum(&mut self, enum_: &lang::Enum, _parent: &impl AstNode) -> CodeGenResult<String> {
         let mut output = String::new();
 
         for (i, variant) in enum_.variants().iter().enumerate() {

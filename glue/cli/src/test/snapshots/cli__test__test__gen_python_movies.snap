@@ -4,7 +4,6 @@ expression: generated_code
 ---
 # pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring
 
-
 from pydantic import BaseModel
 from pydantic import Field
 from enum import StrEnum
@@ -16,7 +15,7 @@ class Movie(BaseModel):
     """Unique identifier for the movie (GUIDv4)."""
     title: Annotated[str, Field()]
     """Title of the movie."""
-    release_year: Annotated[int, Field(alias=""releaseYear"")]
+    release_year: Annotated[int, Field(alias="releaseYear")]
     """Year the movie was released."""
     tags: Annotated[list[str], Field()]
     """List of tags associated with the movie."""

@@ -234,13 +234,11 @@ impl<'a> RustGenerator<'a> {
         let decorators = field.decorators();
         let field_dec = decorators.iter().find(|d| d.ident().as_deref() == Some(MODEL_FIELD_DECORATOR.id));
 
-        if let Some(dec) = field_dec {
-            if let Some(alias_arg) = dec.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_ALIAS_ARG) {
-                if let Some(Literal::StringLiteral(s)) = alias_arg.literal() {
+        if let Some(dec) = field_dec
+            && let Some(alias_arg) = dec.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_ALIAS_ARG)
+                && let Some(Literal::StringLiteral(s)) = alias_arg.literal() {
                     return Ok(s.value());
                 }
-            }
-        }
 
         Ok(None)
     }
@@ -254,6 +252,28 @@ mod tests {
     use lang::print_report;
 
     use crate::test_utils::analyze_test_glue_file;
+
+    fn gen_rust(src: &str) -> String {
+        let (program, source) = analyze_test_glue_file(src);
+        let codegen = CodeGenRust::new();
+        codegen
+            .generate(program, &source, None)
+            .map_err(|e| match e {
+                CodeGenError::InternalError(msg) => panic!("Internal error: {}", msg),
+                CodeGenError::GenerationError(diag) => {
+                    print_report(&diag).expect("Failed to print diagnostic");
+                    panic!("Generation error occurred");
+                }
+                CodeGenError::GenerationErrors(diags) => {
+                    for diag in diags {
+                        print_report(&diag).expect("Failed to print diagnostic");
+                    }
+                    panic!("Generation errors occurred");
+                }
+                e => panic!("Unexpected error: {:?}", e),
+            })
+            .unwrap()
+    }
 
     #[test]
     fn test() {
@@ -291,27 +311,81 @@ mod tests {
             }
         "# };
 
-        let (program, source) = analyze_test_glue_file(src);
+        assert_snapshot!(gen_rust(src));
+    }
 
-        let codegen = CodeGenRust::new();
-        let output = codegen
-            .generate(program, &source, None)
-            .map_err(|e| match e {
-                CodeGenError::InternalError(msg) => msg,
-                CodeGenError::GenerationError(diag) => {
-                    print_report(&diag).expect("Failed to print diagnostic");
-                    panic!("Generation error occurred");
-                }
-                CodeGenError::GenerationErrors(diags) => {
-                    for diag in diags {
-                        print_report(&diag).expect("Failed to print diagnostic");
-                    }
-                    panic!("Generation errors occurred");
-                }
-                e => panic!("Unexpected error: {:?}", e),
-            })
-            .unwrap();
+    #[test]
+    fn test_record_string_to_any() {
+        let src = indoc! { r#"
+            model Item {
+                /// A map of string keys to any values
+                raw_data: Record<string, any>
+            }
+        "# };
 
+        let output = gen_rust(src);
+        assert!(output.contains("HashMap<String, serde_json::Value>"), "Expected HashMap in output:\n{}", output);
+        assert_snapshot!(output);
+    }
+
+    #[test]
+    fn test_record_string_to_int() {
+        let src = indoc! { r#"
+            model Scores {
+                /// Player scores by name
+                scores: Record<string, int>
+            }
+        "# };
+
+        let output = gen_rust(src);
+        assert!(output.contains("HashMap<String, i64>"), "Expected HashMap<String, i64> in output:\n{}", output);
+        assert_snapshot!(output);
+    }
+
+    #[test]
+    fn test_record_nested_in_model() {
+        let src = indoc! { r#"
+            model Container {
+                inner: Inner
+                
+                model Inner {
+                    /// Nested map field
+                    data: Record<string, any>
+                }
+            }
+        "# };
+
+        let output = gen_rust(src);
+        assert!(output.contains("HashMap<String, serde_json::Value>"), "Expected HashMap in output:\n{}", output);
+        assert_snapshot!(output);
+    }
+
+    #[test]
+    fn test_record_optional() {
+        let src = indoc! { r#"
+            model Config {
+                /// Optional map of settings
+                settings?: Record<string, string>
+            }
+        "# };
+
+        let output = gen_rust(src);
+        assert!(output.contains("Option<HashMap<String, String>>"), "Expected Option<HashMap> in output:\n{}", output);
+        assert_snapshot!(output);
+    }
+
+    #[test]
+    fn test_record_array() {
+        let src = indoc! { r#"
+            model MultiConfig {
+                /// List of config maps
+                configs: Record<string, int>[]
+            }
+        "# };
+
+        let output = gen_rust(src);
+        // Note: Record<K,V>[] syntax may need Vec wrapping - check actual output
+        assert!(output.contains("HashMap<String, i64>"), "Expected HashMap in output:\n{}", output);
         assert_snapshot!(output);
     }
 }

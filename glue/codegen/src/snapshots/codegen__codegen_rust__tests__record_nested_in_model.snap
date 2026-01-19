@@ -1,0 +1,16 @@
+---
+source: codegen/src/codegen_rust.rs
+expression: output
+---
+use std::collections::HashMap;
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
+pub struct Container {
+    pub inner: ContainerInner,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
+pub struct ContainerInner {
+    /// Nested map field
+    pub data: HashMap<String, serde_json::Value>,
+}

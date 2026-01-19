@@ -1,0 +1,14 @@
+---
+source: codegen/src/codegen_python.rs
+expression: output
+---
+# pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring
+
+from pydantic import BaseModel
+from pydantic import Field
+from enum import StrEnum
+from typing import Any, Annotated, Optional, Union
+
+class MultiConfig(BaseModel):
+    configs: Annotated[list[dict[str, int]], Field()]
+    """List of config maps"""
