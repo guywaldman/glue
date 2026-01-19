@@ -54,3 +54,40 @@ precommit:
 
 precommit-staged:
 	pre-commit run
+
+# Release - bumps extension and crate versions, tags and pushes
+# Requires: cargo install cargo-edit
+release bump:
+	#!/usr/bin/env bash
+	set -e
+
+	# Bump the extension version
+	cd extension
+	npm version {{bump}} --no-git-tag-version
+	NEW_VERSION=$(node -p "require('./package.json').version")
+	cd ..
+
+	echo "Bumped extension to version $NEW_VERSION"
+
+	# Bump all Rust crate versions using cargo-edit
+	cd glue
+	cargo set-version --workspace "$NEW_VERSION"
+	cd ..
+
+	echo "Bumped all crates to version $NEW_VERSION"
+
+	# Stage and commit
+	git add extension/package.json glue/*/Cargo.toml
+	git commit -m "Release: v$NEW_VERSION"
+	git tag "v$NEW_VERSION"
+
+	echo ""
+	echo "Created commit and tag v$NEW_VERSION"
+	echo ""
+	read -p "Push commit and tag to origin? [y/N] " confirm
+	if [[ "$confirm" =~ ^[Yy]$ ]]; then
+		git push && git push --tags
+		echo "Pushed to origin"
+	else
+		echo "Aborted. You can push manually with: git push && git push --tags"
+	fi

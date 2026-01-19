@@ -6,6 +6,6 @@ Please feel free to submit a PR, though I would ask that you please open an issu
 
 ## CLI
 
-To contribute to the CLI, make sure you have the prerequisites.
+To contribute to the CLI, make sure you have the prerequisites:
 
 ...
