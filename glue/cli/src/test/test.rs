@@ -93,8 +93,10 @@ fn load_glue_fixture(fixture_name: &str) -> Result<PathBuf> {
 }
 
 fn generate_code(input_path: PathBuf, codegen_mode: CodeGenMode) -> Result<String> {
+    // Use a unique temp directory per test to avoid race conditions when tests run in parallel
+    let unique_id: u64 = rand::random();
     let mut output_file_path = temp_dir();
-    output_file_path.push("glue_test");
+    output_file_path.push(format!("glue_test_{}", unique_id));
     let config_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("test").join("fixtures").join(".gluerc.yaml");
     std::fs::create_dir_all(&output_file_path).map_err(|e| anyhow!("Failed to create temp directory: {}", e))?;
 
@@ -106,9 +108,6 @@ fn generate_code(input_path: PathBuf, codegen_mode: CodeGenMode) -> Result<Strin
         CodeGenMode::Protobuf => "proto",
     };
     output_file_path.push(format!("output.{}", ext));
-
-    // Clean up old file if it exists
-    let _ = std::fs::remove_file(&output_file_path);
 
     let mode_str: &str = codegen_mode.into();
     let cli = GlueCli::new();
