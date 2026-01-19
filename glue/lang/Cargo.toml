@@ -1,0 +1,20 @@
+[package]
+name = "lang"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pest = { version = "2.8.3", features = ["miette-error"] }
+pest_derive = { version = "2.8.3", features = ["grammar-extras"] }
+
+colored = { workspace = true }
+indoc = { workspace = true }
+log = { workspace = true }
+miette = { workspace = true, features = ["fancy"] }
+pretty_assertions = { workspace = true, features = ["unstable"] }
+pretty_env_logger = { workspace = true }
+rayon = { workspace = true }
+regex = { workspace = true }
+rowan = { version = "0.16.1" }
+slotmap = { workspace = true }
+thiserror = { workspace = true }

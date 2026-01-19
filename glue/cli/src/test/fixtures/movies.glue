@@ -1,0 +1,49 @@
+/// List all movies
+endpoint "GET /movies" {
+		responses: {
+				2XX: Movie[]
+				4XX: Error
+				5XX: Error
+		}
+
+		headers: {
+			/// An optional unique request identifier for tracing.
+			"X-Request-ID"?: string
+		}
+}
+
+/// Gets data for a specific movie by its ID
+endpoint "GET /movies/{movie_id}" {
+		responses: {
+				2XX: Movie
+				4XX: Error
+				5XX: Error
+		}
+
+		headers: {
+			/// An optional unique request identifier for tracing.
+			"X-Request-ID"?: string
+		}
+}
+
+/// Represents a movie entry.
+model Movie {
+	/// Unique identifier for the movie (GUIDv4).
+	id: string
+	/// Title of the movie.
+	title: string
+	/// Year the movie was released.
+	@field(alias="releaseYear", example=1994)
+	release_year: int
+
+	/// List of tags associated with the movie.
+	tags: string[]
+}
+
+/// Represents an error response.
+model Error {
+	/// Error message.
+	message: string
+	/// Error code.
+	code?: int
+}

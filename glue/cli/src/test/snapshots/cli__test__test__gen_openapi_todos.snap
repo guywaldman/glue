@@ -1,0 +1,300 @@
+---
+source: cli/src/test/test.rs
+expression: generated_json
+---
+{
+  "components": {
+    "schemas": {
+      "Error": {
+        "description": "Represents an error response.",
+        "properties": {
+          "code": {
+            "description": "Error code.",
+            "type": "integer"
+          },
+          "message": {
+            "description": "Error message.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "type": "object"
+      },
+      "Todo": {
+        "description": "Represents a todo entry.",
+        "properties": {
+          "completed": {
+            "description": "Whether the todo is completed.",
+            "example": false,
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier for the todo (GUIDv4).",
+            "example": "550e8400-e29b-41d4-a716-446655440000",
+            "type": "string"
+          },
+          "title": {
+            "description": "Title of the todo.",
+            "example": "delectus aut autem",
+            "type": "string"
+          },
+          "user_id": {
+            "description": "User ID associated with this todo.",
+            "example": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "completed",
+          "user_id"
+        ],
+        "type": "object"
+      },
+      "User": {
+        "description": "Represents a user.",
+        "properties": {
+          "address": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "company": {
+            "$ref": "#/components/schemas/Company"
+          },
+          "email": {
+            "example": "Sincere@april.biz",
+            "type": "string"
+          },
+          "id": {
+            "example": 1,
+            "type": "integer"
+          },
+          "name": {
+            "example": "Leanne Graham",
+            "type": "string"
+          },
+          "phone": {
+            "example": "1-770-736-8031 x56442",
+            "type": "string"
+          },
+          "username": {
+            "example": "Bret",
+            "type": "string"
+          },
+          "website": {
+            "example": "hildegard.org",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "username",
+          "email",
+          "address",
+          "phone",
+          "website",
+          "company"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Generated API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.0.0",
+  "paths": {
+    "/todos": {
+      "get": {
+        "description": "List all todos",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Todo"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Todo"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "summary": "List all todos"
+      }
+    },
+    "/todos/{todo_id}": {
+      "get": {
+        "description": "Gets data for a specific todo by its ID",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Todo"
+                }
+              }
+            }
+          },
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Todo"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Gets data for a specific todo by its ID"
+      }
+    },
+    "/users": {
+      "get": {
+        "description": "List all users",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/User"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/User"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "summary": "List all users"
+      }
+    },
+    "/users/{user_id}": {
+      "get": {
+        "description": "Gets data for a specific user by their ID",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "2XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Gets data for a specific user by their ID"
+      }
+    }
+  }
+}

@@ -1,0 +1,38 @@
+---
+source: codegen/src/codegen_python.rs
+expression: output
+---
+# pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring
+
+from pydantic import BaseModel
+from pydantic import Field
+from enum import StrEnum
+from typing import Any, Annotated, Optional, Union
+
+class GlueConfigSchema(BaseModel):
+    generation: Annotated["GlueConfigSchemaGeneration", Field()]
+    """Configuration for code generation (`glue gen [...]`)"""
+
+class GlueConfigSchemaGeneration(BaseModel):
+    watermark: Annotated["GlueConfigSchemaGenerationWatermark", Field(default="short")]
+    """Mode for the watermark at the top of the generated files"""
+    rust_serde: Annotated["GlueConfigSchemaGenerationRustSerde", Field()]
+    """Configurations for Rust code generation using Serde (`glue gen rust-serde [...]`)"""
+    python_pydantic: Annotated["GlueConfigSchemaGenerationPythonPydantic", Field()]
+    """Configurations for Python code generation using Pydantic (`glue gen py-pydantic [...]`)"""
+
+class GlueConfigSchemaGenerationRustSerde(BaseModel):
+    include_yaml: Annotated[bool, Field(default=False)]
+
+class GlueConfigSchemaGenerationPythonPydantic(BaseModel):
+    base_model: Annotated[str, Field(default="pydantic.BaseModel")]
+    """The full import path for the base model class to inherit from (e.g., `pydantic.BaseModel` or `my.module.CustomBaseModel`)"""
+
+class GlueConfigSchemaGenerationWatermark(StrEnum):
+    """Watermark modes for generated files"""
+    FULL = "full"
+    """Includes full watermark with generation command and timestamp"""
+    SHORT = "short"
+    """Includes short watermark with just generation command"""
+    NONE = "none"
+    """No watermark included"""

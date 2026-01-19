@@ -1,9 +1,8 @@
+mod args;
 mod cli;
-mod codegen;
-
-use anyhow::Result;
 
 use crate::cli::GlueCli;
+use anyhow::Result;
 
 fn main() -> Result<()> {
     pretty_env_logger::init();

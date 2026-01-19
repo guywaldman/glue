@@ -1,0 +1,110 @@
+// This mimics the API of https://jsonplaceholder.typicode.com/
+
+/// List all todos
+endpoint "GET /todos" {
+	responses: {
+		2XX: Todo[]
+		4XX: Error
+		5XX: Error
+	}
+}
+
+/// Gets data for a specific todo by its ID
+endpoint "GET /todos/{todo_id}" {
+	responses: {
+		2XX: Todo
+		4XX: Error
+		5XX: Error
+	}
+}
+
+/// List all users
+endpoint "GET /users" {
+	responses: {
+		2XX: User[]
+		4XX: Error
+		5XX: Error
+	}
+}
+
+/// Gets data for a specific user by their ID
+endpoint "GET /users/{user_id}" {
+	responses: {
+		2XX: User
+		4XX: Error
+		5XX: Error
+	}
+}
+
+/// Represents a todo entry.
+model Todo {
+	/// Unique identifier for the todo (GUIDv4).
+	@field(example="550e8400-e29b-41d4-a716-446655440000")
+	id: string
+	/// Title of the todo.
+	@field(example="delectus aut autem")
+	title: string
+	/// Whether the todo is completed.
+	@field(example=false)
+	completed: bool
+	/// User ID associated with this todo.
+	@field(example=1)
+	user_id: int
+}
+
+/// Represents a user.
+model User {
+	@field(example=1)
+	id: int
+	@field(example="Leanne Graham")
+	name: string
+	@field(example="Bret")
+	username: string
+	@field(example="Sincere@april.biz")
+	email: string
+	address: Address
+	@field(example="1-770-736-8031 x56442")
+	phone: string
+	@field(example="hildegard.org")
+	website: string
+	company: Company
+
+	/// Represents a user's address.
+	model Address {
+		@field(example="Kulas Light")
+		street: string
+		@field(example="Apt. 556")
+		suite: string
+		@field(example="Gwenborough")
+		city: string
+		@field(example="92998-3874")
+		zipcode: string
+		geo: Geo
+	}
+
+	/// Represents geographic coordinates.
+	model Geo {
+		@field(example="-37.3159")
+		lat: string
+		@field(example="81.1496")
+		lng: string
+	}
+
+	/// Represents a company.
+	model Company {
+		@field(example="Romaguera-Crona")
+		name: string
+		@field(example="Multi-layered client-server neural-net")
+		catchPhrase: string
+		@field(example="harness real-time e-markets")
+		bs: string
+	}
+}
+
+/// Represents an error response.
+model Error {
+	/// Error message.
+	message: string
+	/// Error code.
+	code?: int
+}

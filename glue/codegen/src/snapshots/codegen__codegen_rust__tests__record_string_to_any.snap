@@ -1,0 +1,11 @@
+---
+source: codegen/src/codegen_rust.rs
+expression: output
+---
+use std::collections::HashMap;
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
+pub struct Item {
+    /// A map of string keys to any values
+    pub raw_data: HashMap<String, serde_json::Value>,
+}

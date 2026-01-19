@@ -1,0 +1,28 @@
+---
+source: cli/src/test/test.rs
+expression: generated_code
+---
+# pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring
+
+from pydantic import BaseModel
+from pydantic import Field
+from enum import StrEnum
+from typing import Any, Annotated, Optional, Union
+
+class Movie(BaseModel):
+    """Represents a movie entry."""
+    id: Annotated[str, Field()]
+    """Unique identifier for the movie (GUIDv4)."""
+    title: Annotated[str, Field()]
+    """Title of the movie."""
+    release_year: Annotated[int, Field(alias="releaseYear")]
+    """Year the movie was released."""
+    tags: Annotated[list[str], Field()]
+    """List of tags associated with the movie."""
+
+class Error(BaseModel):
+    """Represents an error response."""
+    message: Annotated[str, Field()]
+    """Error message."""
+    code: Annotated[Optional[int], Field(default=None)]
+    """Error code."""

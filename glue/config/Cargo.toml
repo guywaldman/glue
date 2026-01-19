@@ -1,0 +1,14 @@
+[package]
+name = "config"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+indoc = "2.0.6"
+log = "0.4.28"
+pretty_assertions = { version = "1.4.1", features = ["unstable"] }
+pretty_env_logger = "0.5.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+serde_yaml = "0.9.34"
+thiserror = "2.0.16"

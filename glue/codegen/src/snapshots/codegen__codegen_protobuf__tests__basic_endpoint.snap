@@ -1,0 +1,19 @@
+---
+source: codegen/src/codegen_protobuf.rs
+expression: result_with_source
+---
+// Original source code:
+// model User {
+//     id: int
+//     name: string
+// }
+// 
+
+syntax = "proto3";
+
+package glue;
+
+message User {
+    int32 id = 1;
+    string name = 2;
+}

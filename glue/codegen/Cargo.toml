@@ -1,0 +1,28 @@
+[package]
+name = "codegen"
+version = "0.1.0"
+edition = "2024"
+
+
+[dependencies]
+lang = { path = "../lang" }
+config = { path = "../config" }
+anyhow = "1.0.100"
+chrono = "0.4.42"
+clap = { workspace = true, features = ["derive"] }
+indoc = { workspace = true }
+json = { workspace = true }
+log = { workspace = true }
+miette = { workspace = true, features = ["fancy"] }
+pretty_env_logger = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+thiserror = { workspace = true }
+convert_case = { workspace = true }
+insta = { workspace = true, features = ["colors", "console", "json"] }
+
+[dev-dependencies]
+indoc.workspace = true
+insta.workspace = true
+rand.workspace = true

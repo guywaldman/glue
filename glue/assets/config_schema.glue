@@ -1,25 +1,25 @@
-@root
 model GlueConfigSchema {
 	/// Configuration for code generation (`glue gen [...]`)
-	@default
-	generation: Generation
+	generation?: Generation
 
 	model Generation {
-		/// Mode for the watermark at the top of the generated files
-		watermark: Watermark = "short"
-		enum Watermark: "full" | "short" | "none"
+		/// Mode for the watermark at the top of the generated files. Defaults to "short" if not specified.
+		watermark?: Watermark
 
-		/// Configurations for Rust code generation using Serde (`glue gen rust-serde [...]`)
-		rust_serde: RustSerde
-		model RustSerde {
-			include_yaml: bool = false
-		}
+		/// Mode for generating the watermark comment at the top of generated files
+		enum Watermark: 
+			/// Includes full details including generation timestamp, Glue version, source file, etc.
+			"full" |
+			/// Includes minimal details such as the the timestamp and source file
+			"short" |
+			/// No watermark comment is included
+			"none"
 
 		/// Configurations for Python code generation using Pydantic (`glue gen py-pydantic [...]`)
-		python_pydantic: PythonPydantic
+		python_pydantic?: PythonPydantic
 		model PythonPydantic {
-			/// The full import path for the base model class to inherit from (e.g., `pydantic.BaseModel` or `my.module.CustomBaseModel`)
-			base_model: string = "pydantic.BaseModel"
+			/// The full import path for the base model class to inherit from. Defaults to `pydantic.BaseModel` if not specified.
+			base_model?: string
 		}
 	}
 }

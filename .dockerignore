@@ -1,0 +1,49 @@
+__pycache__/
+*.py[cod]
+*$py.class
+# Distribution / packaging
+build/
+dist/
+.eggs/
+*.egg-info/
+.installed.cfg
+*.egg
+# Virtual environments
+.venv/
+venv/
+env/
+# Generated models
+*_generated.py
+# Rust
+**/target/
+glue/target/
+# Node modules
+node_modules/
+ui/node_modules/
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+# OS
+.DS_Store
+Thumbs.db
+.AppleDouble
+# Git
+.git/
+.github/
+# Docker
+Dockerfile
+docker-compose.yml
+docker-compose.yaml
+.dockerignore
+# CI/CD logs and cache
+*.log
+.cache/
+.pytest_cache/
+.cargo/registry/
+.cargo/git/
+# Coverage
+coverage/
+lcov.info

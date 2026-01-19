@@ -1,0 +1,58 @@
+---
+source: cli/src/test/test.rs
+expression: generated_code
+---
+# pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring
+
+from pydantic import BaseModel
+from pydantic import Field
+from enum import StrEnum
+from typing import Any, Annotated, Optional, Union
+
+class Todo(BaseModel):
+    """Represents a todo entry."""
+    id: Annotated[str, Field()]
+    """Unique identifier for the todo (GUIDv4)."""
+    title: Annotated[str, Field()]
+    """Title of the todo."""
+    completed: Annotated[bool, Field()]
+    """Whether the todo is completed."""
+    user_id: Annotated[int, Field()]
+    """User ID associated with this todo."""
+
+class User(BaseModel):
+    """Represents a user."""
+    id: Annotated[int, Field()]
+    name: Annotated[str, Field()]
+    username: Annotated[str, Field()]
+    email: Annotated[str, Field()]
+    address: Annotated["UserAddress", Field()]
+    phone: Annotated[str, Field()]
+    website: Annotated[str, Field()]
+    company: Annotated["UserCompany", Field()]
+
+class UserAddress(BaseModel):
+    """Represents a user's address."""
+    street: Annotated[str, Field()]
+    suite: Annotated[str, Field()]
+    city: Annotated[str, Field()]
+    zipcode: Annotated[str, Field()]
+    geo: Annotated["UserGeo", Field()]
+
+class UserGeo(BaseModel):
+    """Represents geographic coordinates."""
+    lat: Annotated[str, Field()]
+    lng: Annotated[str, Field()]
+
+class UserCompany(BaseModel):
+    """Represents a company."""
+    name: Annotated[str, Field()]
+    catch_phrase: Annotated[str, Field()]
+    bs: Annotated[str, Field()]
+
+class Error(BaseModel):
+    """Represents an error response."""
+    message: Annotated[str, Field()]
+    """Error message."""
+    code: Annotated[Optional[int], Field(default=None)]
+    """Error code."""

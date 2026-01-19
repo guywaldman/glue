@@ -1,5 +1,0 @@
----
-source: cli/tests/e2e_tests.rs
-expression: stdout
----
-Serialized user: {"id":"123","registration_status":"active"}

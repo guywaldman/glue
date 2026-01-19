@@ -1,0 +1,56 @@
+SPACE = _{ " " | "\t" }
+WHITESPACE = _{ SPACE | NEWLINE }
+comment_prefix = @{ "//" ~ !"/" }
+COMMENT = _{ comment_prefix ~ (!NEWLINE ~ ANY)* ~ NEWLINE }  
+
+doc_block_line = @{ SPACE* ~ "///" ~ (!NEWLINE ~ ANY)* }
+doc_block = @{ NEWLINE? ~ (doc_block_line ~ (NEWLINE? ~ doc_block_line ~ NEWLINE?)*) }
+
+ident = @{ (ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")*) | (ASCII_DIGIT ~ (ASCII_DIGIT+ | "XX")) }
+
+string_literal = { "\"" ~ string_literal_inner ~ "\"" }
+string_literal_inner = @{ char* }
+char = {
+    !("\"" | "\\") ~ ANY
+    | "\\" ~ ("\"" | "\\" | "/" | "b" | "f" | "n" | "r" | "t")
+    | "\\" ~ ("u" ~ ASCII_HEX_DIGIT{4})
+}
+true_literal = { "true" }
+false_literal = { "false" }
+bool_literal = { true_literal | false_literal }
+int_literal = @{ ASCII_DIGIT+ }
+list_literal = ${ "[" ~ SPACE* ~ (literal ~ (SPACE* ~ "," ~ SPACE* ~ literal)*)? ~ SPACE* ~ "]" }
+record = ${ "Record" ~ "<" ~ type_expr ~ "," ~ SPACE* ~ type_expr ~ SPACE* ~ ">" }
+optional_modifier = { "?" }
+literal = { string_literal | bool_literal | int_literal | list_literal }
+
+builtin_type = { "any" | "int" | "string" | "bool" }
+type_atom_modifiers = { "[]"? ~ "?"? }
+type_atom = ${ (builtin_type | record | ident | anon_model) ~ type_atom_modifiers }
+type_expr = { type_atom ~ (WHITESPACE* ~ "|" ~ WHITESPACE* ~ type_atom)* }
+
+decorator_named_arg = { ident ~ "=" ~ literal }
+decorator_positional_arg = { literal }
+decorator_args = _{
+    decorator_positional_arg ~ ("," ~ decorator_positional_arg)* ~ ("," ~ decorator_named_arg)*
+    | decorator_named_arg ~ ("," ~ decorator_named_arg)*
+}
+decorator = { "@" ~ ident ~ ("(" ~ decorator_args? ~ ")")? }
+
+// NOTE: Can be a string literal to allow for field names that are not valid identifiers (e.g., "2XX")
+field_name = { ident | string_literal }
+field_default_value = { literal }
+// TODO: This should be a `$` production
+field = { doc_block? ~ decorator* ~ field_name ~ optional_modifier? ~ ":" ~ type_expr ~ ("=" ~ field_default_value)? }
+
+enum_variant = { doc_block? ~ decorator* ~ string_literal }
+enum_variants = { enum_variant ~ ("|" ~ enum_variant)* }
+enum_def = { doc_block? ~ decorator* ~ "enum" ~ ident ~ ":" ~ enum_variants }
+
+model_body = !{ (field | model | enum_def)* }
+model = { doc_block? ~ decorator* ~ "model" ~ ident ~ "{" ~ model_body ~ "}" }
+anon_model = { "{" ~ model_body ~ "}" }
+
+endpoint = { doc_block? ~ decorator* ~ "endpoint" ~ string_literal ~ ident? ~ "{" ~ model_body ~ "}" }
+
+program = _{ SOI ~ (model | endpoint | enum_def)+ ~ EOI }

@@ -3,4 +3,14 @@
 		"--show-output",
 		"--no-capture"
 	],
+	"[rust]": {
+		"editor.codeActionsOnSave": {
+			"source.organizeImports": "always",
+			"source.fixAll": "always",
+			"source.removeUnusedImports": "always",
+		}
+	},
+	"workbench.colorCustomizations": {
+		"titleBar.activeBackground": "#2e1504",
+	},
 }
