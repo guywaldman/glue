@@ -106,6 +106,7 @@ fn generate_code(input_path: PathBuf, codegen_mode: CodeGenMode) -> Result<Strin
         CodeGenMode::Rust => "rs",
         CodeGenMode::Python => "py",
         CodeGenMode::Protobuf => "proto",
+        CodeGenMode::Go => "go",
     };
     output_file_path.push(format!("output.{}", ext));
 

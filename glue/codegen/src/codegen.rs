@@ -4,7 +4,9 @@ use lang::{AnalyzedProgram, Parser, ParserError, SemanticAnalyzer, SemanticAnaly
 use log::debug;
 use thiserror::Error;
 
-use crate::{codegen_go::CodeGenGo, codegen_jsonschema::CodeGenJsonSchema, codegen_openapi::CodeGenOpenAPI, codegen_protobuf::CodeGenProtobuf, codegen_python::CodeGenPython, codegen_rust::CodeGenRust};
+use crate::{
+    codegen_go::CodeGenGo, codegen_jsonschema::CodeGenJsonSchema, codegen_openapi::CodeGenOpenAPI, codegen_protobuf::CodeGenProtobuf, codegen_python::CodeGenPython, codegen_rust::CodeGenRust,
+};
 
 #[derive(Debug, Error)]
 pub enum CodeGenError {

@@ -193,11 +193,7 @@ impl<'a> GoGenerator<'a> {
         let base_type = self.emit_base_type(atom, parent_scope)?;
 
         // Wrap in slice if array
-        if is_array {
-            Ok(format!("[]{}", base_type))
-        } else {
-            Ok(base_type)
-        }
+        if is_array { Ok(format!("[]{}", base_type)) } else { Ok(base_type) }
     }
 
     fn emit_base_type(&self, atom: &TypeAtom, parent_scope: Option<SymId>) -> CodeGenResult<String> {
