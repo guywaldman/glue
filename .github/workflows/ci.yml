@@ -91,17 +91,6 @@ jobs:
             glue/target
           key: ${{ runner.os }}-cargo-cov-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Generate coverage report
-        run: cargo llvm-cov --workspace --exclude cli --lcov --output-path lcov.info
-        working-directory: glue
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          files: glue/lcov.info
-          fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
-
   e2e-tests:
     name: E2E tests
     runs-on: ubuntu-latest
