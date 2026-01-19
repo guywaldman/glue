@@ -44,3 +44,13 @@ extension-dev:
 
 extension-publish:
 	cd extension && npm install && npm test && npm run publish
+
+# Pre-commit hooks
+precommit-install-hooks:
+	pre-commit install
+
+precommit:
+	pre-commit run --all-files
+
+precommit-staged:
+	pre-commit run
