@@ -124,10 +124,47 @@ jobs:
         run: cargo test --test e2e_tests -- --test-threads=1
         working-directory: glue
 
+  extension-test:
+    name: VS Code Extension Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            glue/target
+          key: ${{ runner.os }}-cargo-ext-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install extension dependencies
+        run: npm ci
+        working-directory: extension
+
+      - name: Build extension and LSP
+        run: |
+          npm run compile
+          npm run build:lsp
+        working-directory: extension
+
+      - name: Run extension tests
+        run: xvfb-run -a npm test
+        working-directory: extension
+
   extension:
     name: VS Code extension
     runs-on: ubuntu-latest
-    needs: [test, lint]
+    needs: [test, lint, extension-test]
     if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4

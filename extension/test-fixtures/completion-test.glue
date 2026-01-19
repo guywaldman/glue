@@ -1,0 +1,10 @@
+model TestModel {
+    /// This field needs completion after the colon
+    needs_completion: string
+}
+
+model CompletionTarget {
+    id: int
+}
+
+enum CompletionEnum: "a" | "b"

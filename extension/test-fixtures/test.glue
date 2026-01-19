@@ -1,0 +1,19 @@
+/// A simple model for testing
+model Foo {
+    /// A field referencing another model
+    field: Bar
+    /// Status enum field
+    status: Status
+}
+
+/// Bar model with documentation
+/// This is a multi-line doc comment
+model Bar {
+    /// The identifier
+    id: string
+    /// A numeric value
+    count: int
+}
+
+/// Status enum
+enum Status: "active" | "inactive" | "pending"
