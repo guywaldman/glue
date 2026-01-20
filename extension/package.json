@@ -18,6 +18,7 @@
     "onLanguage:glue",
     "onStartupFinished"
   ],
+  "icon": "./icon.png",
   "main": "./out/extension.js",
   "contributes": {
     "languages": [
