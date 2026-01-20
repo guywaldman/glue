@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use anyhow::Result;
-use lang::{AstNode, Enum, Field, LNode, LSyntaxKind, Model, Parser, RootNode, SemanticAnalyzer, SourceCodeMetadata, SymTable, TextSize, TokenAtOffset, Type};
+use lang::{AstNode, Endpoint, Enum, Field, LNode, LSyntaxKind, Model, Parser, RootNode, SemanticAnalyzer, SourceCodeMetadata, SymTable, TextSize, TokenAtOffset, Type};
 use log::{error, info};
 use tower_lsp::{Client, LanguageServer, jsonrpc::Result as LspResult, lsp_types as lsp};
 
@@ -92,7 +92,7 @@ impl Lsp {
 
     /// Find the enclosing scope (model/endpoint) for a given offset
     fn find_scope_at_offset(&self, ast: &LNode, offset: u32, symbols: &lang::SymTable<LNode>) -> Option<lang::SymId> {
-        // Get token at offset and walk up to find enclosing model
+        // Get token at offset and walk up to find enclosing model or endpoint
         let token = ast.token_at_offset(TextSize::new(offset));
         let token = match token {
             TokenAtOffset::Single(t) => t,
@@ -100,22 +100,41 @@ impl Lsp {
             TokenAtOffset::None => return None,
         };
 
-        // Walk up the parent chain to find enclosing MODEL
+        // Walk up the parent chain to find enclosing MODEL or ENDPOINT
+        // We need to collect scopes from innermost to outermost
+        let mut scopes: Vec<(LSyntaxKind, String)> = Vec::new();
         let mut current = token.parent();
         while let Some(node) = current {
-            if node.kind() == LSyntaxKind::MODEL {
-                // Found enclosing model - get its name and resolve to SymId
-                if let Some(model) = Model::cast(node.clone())
-                    && let Some(name) = model.ident()
-                {
-                    // Try to find this model in the symbol table
-                    // We need to resolve it from global scope first
-                    return symbols.resolve_id(None, &name);
+            match node.kind() {
+                LSyntaxKind::MODEL => {
+                    if let Some(model) = Model::cast(node.clone())
+                        && let Some(name) = model.ident()
+                    {
+                        scopes.push((LSyntaxKind::MODEL, name));
+                    }
                 }
+                LSyntaxKind::ENDPOINT => {
+                    if let Some(endpoint) = Endpoint::cast(node.clone())
+                        && let Some(path_literal) = endpoint.path_string_literal_node()
+                        && let Some(path) = path_literal.value()
+                    {
+                        scopes.push((LSyntaxKind::ENDPOINT, path));
+                    }
+                }
+                _ => {}
             }
             current = node.parent();
         }
-        None
+
+        // Build the fully qualified scope name from outermost to innermost
+        if scopes.is_empty() {
+            return None;
+        }
+
+        // Reverse to get outermost first
+        scopes.reverse();
+        let full_scope_name = scopes.iter().map(|(_, name)| name.as_str()).collect::<Vec<_>>().join("::");
+        symbols.resolve_id(None, &full_scope_name)
     }
 
     /// Extract symbol information from a node
@@ -339,35 +358,82 @@ impl LanguageServer for Lsp {
         let pos = params.text_document_position.position;
         info!("Received completion request at position: {pos:?} in {uri}");
 
-        let Ok((ast, _symbols)) = self.parse_document(&uri) else {
+        let Ok((ast, symbols)) = self.parse_document(&uri) else {
             error!("Failed to parse document: {uri}");
             return Ok(None);
         };
 
-        let root = RootNode::cast(ast);
+        let root = RootNode::cast(ast.clone());
         let Some(root) = root else {
             return Ok(None);
         };
 
-        // Collect all top-level model names as completions
+        // Find the current scope to prioritize nested types
+        let offset = self.offset_at_position(&uri, pos);
+        let current_scope = self.find_scope_at_offset(&ast, offset, &symbols);
+
         let mut items: Vec<lsp::CompletionItem> = Vec::new();
+
+        // Helper to create completion item with sort priority
+        let make_completion = |name: String, kind: lsp::CompletionItemKind, is_in_scope: bool| {
+            lsp::CompletionItem {
+                label: name.clone(),
+                kind: Some(kind),
+                // Lower sort_text = higher priority; nested types in scope get "0", others get "1"
+                sort_text: Some(if is_in_scope { format!("0{}", name) } else { format!("1{}", name) }),
+                ..Default::default()
+            }
+        };
+
+        // Collect nested types from models
         for model in root.top_level_models() {
             if let Some(name) = model.ident() {
-                items.push(lsp::CompletionItem {
-                    label: name,
-                    kind: Some(lsp::CompletionItemKind::CLASS),
-                    ..Default::default()
-                });
+                let model_scope = symbols.resolve_id(None, &name);
+                let is_in_scope = current_scope.is_some() && current_scope == model_scope;
+                items.push(make_completion(name, lsp::CompletionItemKind::STRUCT, false));
+
+                // Add nested models
+                for nested in model.nested_models() {
+                    if let Some(nested_name) = nested.ident() {
+                        items.push(make_completion(nested_name, lsp::CompletionItemKind::STRUCT, is_in_scope));
+                    }
+                }
+                // Add nested enums
+                for nested in model.nested_enums() {
+                    if let Some(nested_name) = nested.ident() {
+                        items.push(make_completion(nested_name, lsp::CompletionItemKind::ENUM, is_in_scope));
+                    }
+                }
             }
         }
 
+        // Collect nested types from endpoints
+        for endpoint in root.top_level_endpoints() {
+            if let Some(path_literal) = endpoint.path_string_literal_node()
+                && let Some(path) = path_literal.value()
+            {
+                let endpoint_scope = symbols.resolve_id(None, &path);
+                let is_in_scope = current_scope.is_some() && current_scope == endpoint_scope;
+
+                // Add nested models
+                for nested in endpoint.nested_models() {
+                    if let Some(nested_name) = nested.ident() {
+                        items.push(make_completion(nested_name, lsp::CompletionItemKind::STRUCT, is_in_scope));
+                    }
+                }
+                // Add nested enums
+                for nested in endpoint.nested_enums() {
+                    if let Some(nested_name) = nested.ident() {
+                        items.push(make_completion(nested_name, lsp::CompletionItemKind::ENUM, is_in_scope));
+                    }
+                }
+            }
+        }
+
+        // Add top-level enums
         for enum_def in root.top_level_enums() {
             if let Some(name) = enum_def.ident() {
-                items.push(lsp::CompletionItem {
-                    label: name,
-                    kind: Some(lsp::CompletionItemKind::ENUM),
-                    ..Default::default()
-                });
+                items.push(make_completion(name, lsp::CompletionItemKind::ENUM, false));
             }
         }
 
@@ -413,7 +479,7 @@ mod tests {
 
         let (lsp, uri) = setup_lsp(src).await;
 
-        // Position of "Bar" in "bar: Bar" on line 2 (0-indexed: line 1, col 9)
+        // Position of "Bar" in "bar: Bar"
         let params = lsp::GotoDefinitionParams {
             work_done_progress_params: Default::default(),
             partial_result_params: Default::default(),
@@ -427,7 +493,6 @@ mod tests {
             panic!("unexpected response: {resp:?}");
         };
 
-        // "model Bar" starts on line 5 (0-indexed: line 4)
         assert_eq!(loc.uri, uri.parse().unwrap());
         assert_eq!(loc.range.start.line, 4);
     }
@@ -445,7 +510,7 @@ mod tests {
 
         let (lsp, uri) = setup_lsp(src).await;
 
-        // Position of "Mode" in "mode: Mode" on line 2 (0-indexed: line 1, col 10)
+        // Position of "Mode" in "mode: Mode"
         let params = lsp::GotoDefinitionParams {
             work_done_progress_params: Default::default(),
             partial_result_params: Default::default(),
@@ -459,7 +524,6 @@ mod tests {
             panic!("unexpected response: {resp:?}");
         };
 
-        // "enum Mode" starts on line 5 (0-indexed: line 4)
         assert_eq!(loc.uri, uri.parse().unwrap());
         assert_eq!(loc.range.start.line, 4);
     }
@@ -479,7 +543,7 @@ mod tests {
 
         let (lsp, uri) = setup_lsp(src).await;
 
-        // Position of "RawData" in "raw_data: RawData" on line 2 (0-indexed: line 1, col 14)
+        // Position of "RawData" in "raw_data: RawData"
         let params = lsp::GotoDefinitionParams {
             work_done_progress_params: Default::default(),
             partial_result_params: Default::default(),
@@ -493,9 +557,113 @@ mod tests {
             panic!("unexpected response: {resp:?}");
         };
 
-        // "model RawData" starts on line 4 (0-indexed: line 3)
         assert_eq!(loc.uri, uri.parse().unwrap());
         assert_eq!(loc.range.start.line, 3, "should jump to nested model definition");
+    }
+
+    #[tokio::test]
+    async fn test_goto_definition_deeply_nested_types() {
+        let src = indoc! {r#"
+            model GlueConfigSchema {
+                generation?: Generation
+
+                model Generation {
+                    watermark?: Watermark
+
+                    enum Watermark: "full" | "short" | "none"
+
+                    python_pydantic?: PythonPydantic
+                    model PythonPydantic {
+                        base_model?: string
+                    }
+                }
+            }
+        "#}
+        .trim();
+
+        let (lsp, uri) = setup_lsp(src).await;
+
+        // Jump to "Generation" from "generation?: Generation"
+        let params = lsp::GotoDefinitionParams {
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            text_document_position_params: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri: uri.parse().unwrap() },
+                position: lsp::Position { line: 1, character: 17 },
+            },
+        };
+        let resp = lsp.goto_definition(params).await;
+        let Ok(Some(lsp::GotoDefinitionResponse::Scalar(loc))) = &resp else {
+            panic!("goto Generation: unexpected response: {resp:?}");
+        };
+        assert_eq!(loc.range.start.line, 3, "should jump to nested Generation model");
+
+        // Jump to "Watermark" from "watermark?: Watermark"
+        let params = lsp::GotoDefinitionParams {
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            text_document_position_params: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri: uri.parse().unwrap() },
+                position: lsp::Position { line: 4, character: 20 },
+            },
+        };
+        eprintln!("Testing goto Watermark at line 4, char 15");
+        let resp = lsp.goto_definition(params).await;
+        let Ok(Some(lsp::GotoDefinitionResponse::Scalar(loc))) = &resp else {
+            panic!("goto Watermark: unexpected response: {resp:?}");
+        };
+        eprintln!("Got location: line {}, char {}", loc.range.start.line, loc.range.start.character);
+        assert_eq!(loc.range.start.line, 6, "should jump to nested Watermark enum");
+
+        // Jump to "PythonPydantic" from "python_pydantic?: PythonPydantic"
+        let params = lsp::GotoDefinitionParams {
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            text_document_position_params: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri: uri.parse().unwrap() },
+                position: lsp::Position { line: 8, character: 26 },
+            },
+        };
+        let resp = lsp.goto_definition(params).await;
+        let Ok(Some(lsp::GotoDefinitionResponse::Scalar(loc))) = &resp else {
+            panic!("goto PythonPydantic: unexpected response: {resp:?}");
+        };
+        assert_eq!(loc.range.start.line, 9, "should jump to nested PythonPydantic model");
+    }
+
+    #[tokio::test]
+    async fn test_goto_definition_nested_model_in_endpoint() {
+        let src = indoc! {r#"
+            endpoint "GET /listings/{listing_id}" {
+                responses: {
+                    2XX: Apartment[]
+                }
+
+                model Apartment {
+                    id: int
+                }
+            }
+        "#}
+        .trim();
+
+        let (lsp, uri) = setup_lsp(src).await;
+
+        // Position of "Apartment" in "2XX: Apartment[]"
+        let params = lsp::GotoDefinitionParams {
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            text_document_position_params: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri: uri.parse().unwrap() },
+                position: lsp::Position { line: 2, character: 13 },
+            },
+        };
+        let resp = lsp.goto_definition(params).await;
+        let Ok(Some(lsp::GotoDefinitionResponse::Scalar(loc))) = &resp else {
+            panic!("unexpected response: {resp:?}");
+        };
+
+        assert_eq!(loc.uri, uri.parse().unwrap());
+        assert_eq!(loc.range.start.line, 5, "should jump to nested model definition inside endpoint");
     }
 
     #[tokio::test]
@@ -633,6 +801,105 @@ mod tests {
         assert!(labels.contains(&"User".to_string()), "should contain User model");
         assert!(labels.contains(&"Post".to_string()), "should contain Post model");
         assert!(labels.contains(&"Status".to_string()), "should contain Status enum");
+    }
+
+    #[tokio::test]
+    async fn test_completion_includes_nested_types() {
+        let src = indoc! {r#"
+            model Parent {
+                child: Child
+
+                model Child {
+                    name: string
+                }
+
+                enum ChildStatus: "active" | "inactive"
+            }
+
+            endpoint "GET /items" {
+                responses: {
+                    2XX: Item[]
+                }
+
+                model Item {
+                    id: int
+                }
+            }
+        "#}
+        .trim();
+
+        let (lsp, uri) = setup_lsp(src).await;
+
+        let params = lsp::CompletionParams {
+            text_document_position: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri: uri.parse().unwrap() },
+                position: lsp::Position { line: 0, character: 0 },
+            },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            context: None,
+        };
+        let resp = lsp.completion(params).await;
+        let Ok(Some(lsp::CompletionResponse::Array(items))) = &resp else {
+            panic!("unexpected response: {resp:?}");
+        };
+
+        let labels: Vec<String> = items.iter().map(|item| item.label.clone()).collect();
+        assert!(labels.contains(&"Parent".to_string()), "should contain Parent model");
+        assert!(labels.contains(&"Child".to_string()), "should contain nested Child model");
+        assert!(labels.contains(&"ChildStatus".to_string()), "should contain nested ChildStatus enum");
+        assert!(labels.contains(&"Item".to_string()), "should contain nested Item model from endpoint");
+
+        // Verify icons are correct
+        let child_item = items.iter().find(|i| i.label == "Child").unwrap();
+        assert_eq!(child_item.kind, Some(lsp::CompletionItemKind::STRUCT), "models should use STRUCT icon");
+
+        let status_item = items.iter().find(|i| i.label == "ChildStatus").unwrap();
+        assert_eq!(status_item.kind, Some(lsp::CompletionItemKind::ENUM), "enums should use ENUM icon");
+    }
+
+    #[tokio::test]
+    async fn test_completion_prioritizes_in_scope_types() {
+        let src = indoc! {r#"
+            model Parent {
+                child: Child
+
+                model Child {
+                    name: string
+                }
+            }
+
+            model Other {
+                x: int
+            }
+        "#}
+        .trim();
+
+        let (lsp, uri) = setup_lsp(src).await;
+
+        // Request completion inside Parent model (on "Child" type reference)
+        let params = lsp::CompletionParams {
+            text_document_position: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri: uri.parse().unwrap() },
+                position: lsp::Position { line: 1, character: 11 },
+            },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            context: None,
+        };
+        let resp = lsp.completion(params).await;
+        let Ok(Some(lsp::CompletionResponse::Array(items))) = &resp else {
+            panic!("unexpected response: {resp:?}");
+        };
+
+        // Child should be prioritized (lower sort_text) since we're inside Parent
+        let child_item = items.iter().find(|i| i.label == "Child").unwrap();
+        let other_item = items.iter().find(|i| i.label == "Other").unwrap();
+
+        assert!(
+            child_item.sort_text.as_ref().unwrap() < other_item.sort_text.as_ref().unwrap(),
+            "nested Child should be prioritized over Other when inside Parent scope"
+        );
     }
 
     #[tokio::test]
