@@ -247,7 +247,7 @@ checksum = "a1d728cc89cf3aee9ff92b05e62b19ee65a02b5702cff7d5a377e32c6ae29d8d"
 
 [[package]]
 name = "cli"
-version = "0.0.10"
+version = "0.0.11"
 dependencies = [
  "anyhow",
  "chrono",
@@ -271,7 +271,7 @@ dependencies = [
 
 [[package]]
 name = "codegen"
-version = "0.0.10"
+version = "0.0.11"
 dependencies = [
  "anyhow",
  "chrono",
@@ -309,7 +309,7 @@ dependencies = [
 
 [[package]]
 name = "config"
-version = "0.0.10"
+version = "0.0.11"
 dependencies = [
  "indoc",
  "log",
@@ -836,7 +836,7 @@ checksum = "078e285eafdfb6c4b434e0d31e8cfcb5115b651496faca5749b88fafd4f23bfd"
 
 [[package]]
 name = "lang"
-version = "0.0.10"
+version = "0.0.11"
 dependencies = [
  "colored",
  "indoc",
@@ -888,7 +888,7 @@ checksum = "34080505efa8e45a4b816c349525ebe327ceaa8559756f0356cba97ef3bf7432"
 
 [[package]]
 name = "lsp"
-version = "0.0.10"
+version = "0.0.11"
 dependencies = [
  "anyhow",
  "indoc",
@@ -1746,7 +1746,7 @@ dependencies = [
 
 [[package]]
 name = "wasm"
-version = "0.0.10"
+version = "0.0.11"
 dependencies = [
  "codegen",
  "config",
