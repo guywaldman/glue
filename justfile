@@ -77,7 +77,7 @@ release bump:
 	echo "Bumped all crates to version $NEW_VERSION"
 
 	# Stage and commit
-	git add extension/package.json glue/*/Cargo.toml
+	git add extension/package.json extension/package-lock.json glue/*/Cargo.toml glue/Cargo.lock
 	git commit -m "Release: v$NEW_VERSION"
 	git tag "v$NEW_VERSION"
 
