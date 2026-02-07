@@ -76,7 +76,8 @@ expression: generated_json
                   "type": "array"
                 }
               }
-            }
+            },
+            "description": "2XX response"
           },
           "2XX": {
             "content": {
@@ -88,7 +89,8 @@ expression: generated_json
                   "type": "array"
                 }
               }
-            }
+            },
+            "description": "2XX response"
           },
           "4XX": {
             "content": {
@@ -97,7 +99,8 @@ expression: generated_json
                   "$ref": "#/components/schemas/Error"
                 }
               }
-            }
+            },
+            "description": "4XX response"
           },
           "5XX": {
             "content": {
@@ -106,7 +109,8 @@ expression: generated_json
                   "$ref": "#/components/schemas/Error"
                 }
               }
-            }
+            },
+            "description": "5XX response"
           }
         },
         "summary": "List all movies"
@@ -115,6 +119,16 @@ expression: generated_json
     "/movies/{movie_id}": {
       "get": {
         "description": "Gets data for a specific movie by its ID",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "movie_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -123,7 +137,8 @@ expression: generated_json
                   "$ref": "#/components/schemas/Movie"
                 }
               }
-            }
+            },
+            "description": "2XX response"
           },
           "2XX": {
             "content": {
@@ -132,7 +147,8 @@ expression: generated_json
                   "$ref": "#/components/schemas/Movie"
                 }
               }
-            }
+            },
+            "description": "2XX response"
           },
           "4XX": {
             "content": {
@@ -141,7 +157,8 @@ expression: generated_json
                   "$ref": "#/components/schemas/Error"
                 }
               }
-            }
+            },
+            "description": "4XX response"
           },
           "5XX": {
             "content": {
@@ -150,7 +167,8 @@ expression: generated_json
                   "$ref": "#/components/schemas/Error"
                 }
               }
-            }
+            },
+            "description": "5XX response"
           }
         },
         "summary": "Gets data for a specific movie by its ID"

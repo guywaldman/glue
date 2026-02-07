@@ -1,5 +1,5 @@
 use anyhow::Result;
-use codegen::{CodeGen, CodeGenError};
+use codegen::{CodeGen, CodeGenError, CodeGenMode};
 use config::{GlueConfig, GlueConfigSchemaGenerationWatermark};
 use std::{io::Read, path::PathBuf};
 use thiserror::Error;
@@ -8,7 +8,7 @@ use clap::Parser as ClapParser;
 use lang::{AnalyzedProgram, Parser, SemanticAnalyzer, SourceCodeMetadata, print_report};
 use log::debug;
 
-use crate::args::{Cli, CliGenArgs, CliSubcommand, CodeGenMode};
+use crate::args::{Cli, CliGenArgs, CliSubcommand};
 
 #[derive(Debug, Error)]
 pub enum CliError {
@@ -26,19 +26,9 @@ pub enum CliError {
     CodeGen(String),
 }
 
-pub struct GlueCli {}
-
-impl Default for GlueCli {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+pub struct GlueCli;
 
 impl GlueCli {
-    pub fn new() -> Self {
-        Self {}
-    }
-
     pub fn run(&self, cli_args: &[&str]) -> Result<(), CliError> {
         let args = Cli::parse_from(cli_args);
 
@@ -80,14 +70,7 @@ impl GlueCli {
                     None => None,
                 };
 
-                let codegen_mode = match mode {
-                    CodeGenMode::JsonSchema => codegen::CodeGenMode::JsonSchema,
-                    CodeGenMode::OpenApi => codegen::CodeGenMode::OpenApi,
-                    CodeGenMode::Rust => codegen::CodeGenMode::Rust,
-                    CodeGenMode::Python => codegen::CodeGenMode::Python,
-                    CodeGenMode::Protobuf => codegen::CodeGenMode::Protobuf,
-                    CodeGenMode::Go => codegen::CodeGenMode::Go,
-                };
+                let codegen_mode = *mode;
                 let source = Self::handle_file(input.clone())?;
                 let mut generated_code = match CodeGen::generate(codegen_mode, &source, config.clone()) {
                     Ok(code) => code,
@@ -103,7 +86,7 @@ impl GlueCli {
                 };
 
                 if let Some(output) = &output {
-                    // Check if the output file changed - we strip the watermark and compare
+                    // Strip watermarks before comparing to detect actual content changes
                     if let Ok(output_file_contents) = std::fs::read_to_string(output) {
                         let stripped_existing = Self::strip_watermark(&output_file_contents);
                         let stripped_generated = Self::strip_watermark(&generated_code);
@@ -135,9 +118,7 @@ impl GlueCli {
             .and_then(|cfg| cfg.generation)
             .and_then(|gen_cfg| gen_cfg.watermark)
             .unwrap_or(GlueConfigSchemaGenerationWatermark::Short);
-        if mode == &CodeGenMode::OpenApi || mode == &CodeGenMode::JsonSchema {
-            // JSON files don't always support comments - don't add a watermark
-            // TODO: jsonc?
+        if mode.is_json_format() {
             watermark_mode = GlueConfigSchemaGenerationWatermark::None;
         }
         let timestamp = chrono::Utc::now().format("%Y-%m-%d").to_string();
@@ -187,14 +168,7 @@ impl GlueCli {
         }
 
         let mut watermark = String::new();
-        let comment_prefix = match mode {
-            CodeGenMode::Python => "#",
-            CodeGenMode::JsonSchema => "//",
-            CodeGenMode::Rust => "//",
-            CodeGenMode::OpenApi => "//",
-            CodeGenMode::Protobuf => "//",
-            CodeGenMode::Go => "//",
-        };
+        let comment_prefix = mode.comment_prefix();
         if !watermark_lines.is_empty() {
             watermark.push_str(&format!("{} {}\n", comment_prefix, Self::WATERMARK_SEPERATOR));
         }
@@ -233,7 +207,6 @@ impl GlueCli {
     fn write_to_file_or_stdout(output: &Option<PathBuf>, content: String) -> Result<(), CliError> {
         match output {
             Some(path) => {
-                // Create parent directories if they don't exist
                 if let Some(parent) = path.parent() {
                     std::fs::create_dir_all(parent).map_err(|e| {
                         log::error!("Failed to create parent directories for '{}': {}", path.display(), e);

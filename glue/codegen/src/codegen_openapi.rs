@@ -9,22 +9,11 @@ use serde_json::Number;
 
 use crate::CodeGenerator;
 use crate::codegen::CodeGenResult;
-use crate::context::{CodeGenContext, ModelExt, TypeMapper};
+use crate::context::{CodeGenContext, NamedExt, TypeMapper};
 use crate::models::openapi;
 
+#[derive(Default)]
 pub struct CodeGenOpenAPI;
-
-impl Default for CodeGenOpenAPI {
-    fn default() -> Self {
-        Self
-    }
-}
-
-impl CodeGenOpenAPI {
-    pub fn new() -> Self {
-        Self
-    }
-}
 
 impl CodeGenerator for CodeGenOpenAPI {
     fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, _config: Option<GlueConfig>) -> CodeGenResult<String> {
@@ -50,12 +39,10 @@ impl<'a> OpenAPIGenerator<'a> {
     }
 
     fn generate(mut self) -> CodeGenResult<String> {
-        // Process all top-level models
         for model in self.ctx.top_level_models().collect::<Vec<_>>() {
             self.process_model(&model);
         }
 
-        // Process all top-level endpoints
         for endpoint in self.ctx.top_level_endpoints().collect::<Vec<_>>() {
             self.process_endpoint(&endpoint);
         }
@@ -101,6 +88,10 @@ impl<'a> OpenAPIGenerator<'a> {
         }
 
         self.schemas.insert(schema_name, openapi::SchemaOrReference::Item(schema));
+
+        for nested in model.nested_models() {
+            self.process_model(&nested);
+        }
     }
 
     fn process_endpoint(&mut self, endpoint: &Endpoint) {
@@ -108,17 +99,38 @@ impl<'a> OpenAPIGenerator<'a> {
         let Some((method, path)) = Self::parse_endpoint_path(&path_str) else { return };
 
         let responses = self.extract_responses(endpoint);
+        let parameters = Self::extract_path_parameters(&path);
 
         let operation = openapi::Operation {
             operation_id: endpoint.ident(),
             summary: endpoint.docs().and_then(|d| d.first().cloned()),
             description: endpoint.docs().map(|d| d.join("\n")),
+            parameters: if parameters.is_empty() { None } else { Some(parameters) },
             responses: openapi::Responses { responses },
             ..Default::default()
         };
 
         let path_item = self.paths.entry(path).or_default();
         path_item.operations.insert(method, operation);
+    }
+
+    fn extract_path_parameters(path: &str) -> Vec<openapi::SchemaOrReference<openapi::Parameter>> {
+        let mut params = Vec::new();
+        for segment in path.split('/') {
+            if let Some(name) = segment.strip_prefix('{').and_then(|s| s.strip_suffix('}')) {
+                params.push(openapi::SchemaOrReference::Item(openapi::Parameter {
+                    name: name.to_string(),
+                    location: "path".to_string(),
+                    required: Some(true),
+                    schema: Some(openapi::SchemaOrReference::Item(openapi::Schema {
+                        schema_type: Some("string".to_string()),
+                        ..Default::default()
+                    })),
+                    description: None,
+                }));
+            }
+        }
+        params
     }
 
     fn type_to_schema(&self, ty: &Type) -> openapi::SchemaOrReference<openapi::Schema> {
@@ -169,7 +181,6 @@ impl<'a> OpenAPIGenerator<'a> {
             return self.wrap_if_array(atom, openapi::SchemaOrReference::Reference { reference });
         }
 
-        // Fallback
         openapi::SchemaOrReference::Item(openapi::Schema {
             schema_type: Some("object".to_string()),
             ..Default::default()
@@ -196,7 +207,6 @@ impl<'a> OpenAPIGenerator<'a> {
                 let mut name = f.ident()?;
                 let mut example: Option<Literal> = None;
 
-                // Handle @field decorator
                 if let Some(dec) = f.decorators().iter().find(|d| d.ident().as_deref() == Some(MODEL_FIELD_DECORATOR.id)) {
                     if let Some(alias_arg) = dec.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_ALIAS_ARG)
                         && let Some(Literal::StringLiteral(alias)) = alias_arg.literal()
@@ -258,7 +268,7 @@ impl<'a> OpenAPIGenerator<'a> {
                 let Some(response_ty) = field.ty() else { continue };
 
                 let response = openapi::Response {
-                    description: field.docs().map(|d| d.join("\n")),
+                    description: Some(field.docs().map(|d| d.join("\n")).unwrap_or_else(|| format!("{} response", status_code))),
                     content: Some(HashMap::from([(
                         "application/json".to_string(),
                         openapi::MediaType {
@@ -271,7 +281,7 @@ impl<'a> OpenAPIGenerator<'a> {
             }
         }
 
-        // Duplicate 2XX to 200 if needed (some OpenAPI clients expect 200)
+        // Duplicate 2XX → 200 for clients that expect it
         if responses.contains_key("2XX")
             && !responses.contains_key("200")
             && let Some(response) = responses.get("2XX").cloned()

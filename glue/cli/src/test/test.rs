@@ -2,17 +2,16 @@ use anyhow::{Result, anyhow};
 use insta::{assert_json_snapshot, assert_snapshot};
 use std::cell::OnceCell;
 use std::collections::HashMap;
-use std::collections::hash_map::Entry;
 use std::{env::temp_dir, path::PathBuf};
 
-use crate::args::CodeGenMode;
 use crate::cli::GlueCli;
+use codegen::CodeGenMode;
 
 const MOVIES_FIXTURE_NAME: &str = "movies.glue";
 const TODOS_FIXTURE_NAME: &str = "todos.glue";
 
 thread_local! {
-    static FIXTURES: OnceCell<HashMap<String, PathBuf>> = OnceCell::new();
+    static FIXTURES: OnceCell<HashMap<String, PathBuf>> = const { OnceCell::new() };
 }
 
 #[test]
@@ -52,7 +51,7 @@ fn test_python_todos_sample() {
 }
 
 fn run_cli_integration_test(codegen_mode: CodeGenMode, fixture_path: PathBuf) {
-    let snapshot_name = format!("gen_{}_{}", <&str>::from(codegen_mode), fixture_path.file_stem().unwrap().to_string_lossy());
+    let snapshot_name = format!("gen_{}_{}", codegen_mode.as_str(), fixture_path.file_stem().unwrap().to_string_lossy());
     let generated_code = generate_code(fixture_path, codegen_mode).unwrap();
     match codegen_mode {
         CodeGenMode::OpenApi => {
@@ -65,7 +64,6 @@ fn run_cli_integration_test(codegen_mode: CodeGenMode, fixture_path: PathBuf) {
     }
 }
 
-/// Read all files in the `/fixtures/glue` directory (same level as this file) and return their paths and contents.
 fn load_glue_fixture(fixture_name: &str) -> Result<PathBuf> {
     let load_glue_fixtures_inner = || -> Result<HashMap<String, PathBuf>> {
         let mut result = HashMap::new();
@@ -93,25 +91,17 @@ fn load_glue_fixture(fixture_name: &str) -> Result<PathBuf> {
 }
 
 fn generate_code(input_path: PathBuf, codegen_mode: CodeGenMode) -> Result<String> {
-    // Use a unique temp directory per test to avoid race conditions when tests run in parallel
     let unique_id: u64 = rand::random();
     let mut output_file_path = temp_dir();
     output_file_path.push(format!("glue_test_{}", unique_id));
     let config_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("test").join("fixtures").join(".gluerc.yaml");
     std::fs::create_dir_all(&output_file_path).map_err(|e| anyhow!("Failed to create temp directory: {}", e))?;
 
-    let ext = match codegen_mode {
-        CodeGenMode::JsonSchema => "json",
-        CodeGenMode::OpenApi => "yaml",
-        CodeGenMode::Rust => "rs",
-        CodeGenMode::Python => "py",
-        CodeGenMode::Protobuf => "proto",
-        CodeGenMode::Go => "go",
-    };
+    let ext = codegen_mode.file_extension();
     output_file_path.push(format!("output.{}", ext));
 
-    let mode_str: &str = codegen_mode.into();
-    let cli = GlueCli::new();
+    let mode_str = codegen_mode.as_str();
+    let cli = GlueCli;
     let args = &[
         "glue",
         "gen",

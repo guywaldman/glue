@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand};
+use codegen::CodeGenMode;
 
 #[derive(Parser)]
 #[command(version, name = "glue", about = "Glue Language CLI")]
@@ -9,44 +10,7 @@ pub struct Cli {
     pub command: CliSubcommand,
 }
 
-pub const CODEGEN_MODE_JSONSCHEMA: &str = "jsonschema";
-pub const CODEGEN_MODE_OPENAPI: &str = "openapi";
-pub const CODEGEN_MODE_RUST: &str = "rust";
-pub const CODEGEN_MODE_PYTHON: &str = "python";
-pub const CODEGEN_MODE_PROTOBUF: &str = "protobuf";
-pub const CODEGEN_MODE_GO: &str = "go";
-
-#[derive(Debug, Clone, Copy, ValueEnum, PartialEq, Eq)]
-pub enum CodeGenMode {
-    #[value(alias(CODEGEN_MODE_JSONSCHEMA))]
-    JsonSchema,
-    #[value(alias(CODEGEN_MODE_OPENAPI))]
-    OpenApi,
-    #[value(alias(CODEGEN_MODE_RUST))]
-    Rust,
-    #[value(alias(CODEGEN_MODE_PYTHON))]
-    Python,
-    #[value(alias(CODEGEN_MODE_PROTOBUF))]
-    Protobuf,
-    #[value(alias(CODEGEN_MODE_GO))]
-    Go,
-}
-
-impl From<CodeGenMode> for &str {
-    fn from(val: CodeGenMode) -> Self {
-        match val {
-            CodeGenMode::JsonSchema => CODEGEN_MODE_JSONSCHEMA,
-            CodeGenMode::OpenApi => CODEGEN_MODE_OPENAPI,
-            CodeGenMode::Rust => CODEGEN_MODE_RUST,
-            CodeGenMode::Python => CODEGEN_MODE_PYTHON,
-            CodeGenMode::Protobuf => CODEGEN_MODE_PROTOBUF,
-            CodeGenMode::Go => CODEGEN_MODE_GO,
-        }
-    }
-}
-
 #[derive(clap::Args)]
-// Shared arguments for code generation commands
 pub struct CliGenArgs {
     /// Path to the input .glue file (defaults to stdin if not provided)
     #[arg(short = 'i', long)]

@@ -43,7 +43,8 @@ expression: json_value
                   "type": "array"
                 }
               }
-            }
+            },
+            "description": "200 response"
           }
         },
         "summary": "Lists all users"

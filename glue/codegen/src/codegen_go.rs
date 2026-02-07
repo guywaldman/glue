@@ -1,26 +1,15 @@
 use config::GlueConfig;
 use convert_case::{Case, Casing};
-use lang::{AnalyzedProgram, AstNode, Enum, Field, Literal, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
+use lang::{AnalyzedProgram, AstNode, Enum, Field, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
     codegen::CodeGenResult,
-    context::{CodeGenContext, EnumExt, FieldExt, ModelExt, TypeMapper},
+    context::{CodeGenContext, FieldExt, NamedExt, TypeMapper},
 };
 
+#[derive(Default)]
 pub struct CodeGenGo;
-
-impl Default for CodeGenGo {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl CodeGenGo {
-    pub fn new() -> Self {
-        Self
-    }
-}
 
 impl CodeGenerator for CodeGenGo {
     fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, config: Option<GlueConfig>) -> Result<String, CodeGenError> {
@@ -46,22 +35,18 @@ impl<'a> GoGenerator<'a> {
     }
 
     fn generate(&mut self) -> CodeGenResult<String> {
-        // Package declaration
         self.output.push_str("package models\n\n");
 
-        // Top-level models
         for model in self.ctx.top_level_models().collect::<Vec<_>>() {
             let code = self.emit_model(&model, None)?;
             self.output.push_str(&code);
         }
 
-        // Top-level enums
         for enum_ in self.ctx.top_level_enums().collect::<Vec<_>>() {
             let code = self.emit_enum(&enum_, None)?;
             self.output.push_str(&code);
         }
 
-        // Append postludes (nested types)
         for postlude in &self.postludes {
             self.output.push_str(postlude);
         }
@@ -75,15 +60,12 @@ impl<'a> GoGenerator<'a> {
         let scope_id = model.scope_id(&self.ctx, parent_scope)?;
         let qualified_name = model.qualified_name(&self.ctx, parent_scope, Case::Pascal)?;
 
-        // Documentation
         if let Some(docs) = model.docs() {
             output.push_str(&Self::emit_go_docs(&docs, &qualified_name));
         }
 
-        // Struct declaration
         output.push_str(&format!("type {} struct {{\n", qualified_name));
 
-        // Fields
         for field in model.fields() {
             let field_code = self.emit_field(&field, Some(scope_id))?;
             output.push_str(&field_code);
@@ -91,7 +73,6 @@ impl<'a> GoGenerator<'a> {
 
         output.push_str("}\n\n");
 
-        // Queue nested types for postludes
         for nested_model in model.nested_models() {
             let nested_code = self.emit_model(&nested_model, Some(scope_id))?;
             self.postludes.push(nested_code);
@@ -110,15 +91,12 @@ impl<'a> GoGenerator<'a> {
 
         let qualified_name = enum_.qualified_name(&self.ctx, parent_scope, Case::Pascal)?;
 
-        // Documentation
         if let Some(docs) = enum_.docs() {
             output.push_str(&Self::emit_go_docs(&docs, &qualified_name));
         }
 
-        // Type alias
         output.push_str(&format!("type {} string\n\n", qualified_name));
 
-        // Constants for enum values
         output.push_str("const (\n");
 
         for (i, variant) in enum_.variants().iter().enumerate() {
@@ -149,10 +127,8 @@ impl<'a> GoGenerator<'a> {
         let field_name = field.name()?;
         let field_type = field.field_type()?;
 
-        // Go field names are PascalCase for exported fields
         let go_field_name = field_name.to_case(Case::Pascal);
 
-        // Build type string
         let type_atoms = field_type.type_atoms();
         let type_strs: Vec<String> = type_atoms.iter().map(|atom| self.emit_type_atom(atom, parent_scope)).collect::<Result<Vec<_>, _>>()?;
 
@@ -163,20 +139,17 @@ impl<'a> GoGenerator<'a> {
             type_strs.first().cloned().unwrap_or_else(|| "interface{}".to_string())
         };
 
-        // Handle optional fields (use pointer)
         if field.is_optional() {
             type_code = format!("*{}", type_code);
         }
 
-        // Build JSON tag
-        let alias = self.extract_field_alias(field)?;
+        let alias = field.alias()?;
         let json_name = alias.unwrap_or_else(|| field_name.clone());
         let mut json_tag = json_name.clone();
         if field.is_optional() {
             json_tag.push_str(",omitempty");
         }
 
-        // Documentation as inline comment
         if let Some(docs) = field.docs() {
             let doc_text = docs.join(" ").trim().to_string();
             output.push_str(&format!("\t{} {} `json:\"{}\"` // {}\n", go_field_name, type_code, json_tag, doc_text));
@@ -189,20 +162,15 @@ impl<'a> GoGenerator<'a> {
 
     fn emit_type_atom(&self, atom: &TypeAtom, parent_scope: Option<SymId>) -> CodeGenResult<String> {
         let is_array = atom.is_array();
-
         let base_type = self.emit_base_type(atom, parent_scope)?;
-
-        // Wrap in slice if array
         if is_array { Ok(format!("[]{}", base_type)) } else { Ok(base_type) }
     }
 
     fn emit_base_type(&self, atom: &TypeAtom, parent_scope: Option<SymId>) -> CodeGenResult<String> {
-        // Primitive type
         if let Some(primitive) = atom.as_primitive_type() {
             return Ok(TypeMapper::to_go(primitive).to_string());
         }
 
-        // Record type (map)
         if let Some(record_type) = atom.as_record_type() {
             let src_type = record_type.src_type_node().ok_or_else(|| CodeGenContext::internal_error("Record missing source type"))?;
             let dest_type = record_type.dest_type_node().ok_or_else(|| CodeGenContext::internal_error("Record missing destination type"))?;
@@ -220,7 +188,6 @@ impl<'a> GoGenerator<'a> {
             return Ok(format!("map[{}]{}", src_str, dest_str));
         }
 
-        // Reference to another type
         if let Some(ref_token) = atom.as_ref_token() {
             let ref_name = ref_token.text().trim();
             let resolved = self
@@ -230,26 +197,11 @@ impl<'a> GoGenerator<'a> {
             return Ok(resolved);
         }
 
-        // Anonymous model - not yet supported
         if atom.as_anon_model().is_some() {
             return Err(CodeGenContext::internal_error("Anonymous models not yet supported in Go codegen"));
         }
 
         Err(CodeGenContext::internal_error("Unknown type atom"))
-    }
-
-    fn extract_field_alias(&self, field: &Field) -> CodeGenResult<Option<String>> {
-        let decorators = field.decorators();
-        let field_dec = decorators.iter().find(|d| d.ident().as_deref() == Some(MODEL_FIELD_DECORATOR.id));
-
-        if let Some(dec) = field_dec
-            && let Some(alias_arg) = dec.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_ALIAS_ARG)
-            && let Some(Literal::StringLiteral(s)) = alias_arg.literal()
-        {
-            return Ok(s.value());
-        }
-
-        Ok(None)
     }
 
     fn emit_go_docs(docs: &[String], name: &str) -> String {
@@ -270,22 +222,11 @@ mod tests {
     use super::*;
     use indoc::indoc;
     use insta::assert_snapshot;
-    use lang::print_report;
 
-    use crate::test_utils::analyze_test_glue_file;
+    use crate::test_utils::gen_test;
 
     fn gen_go(src: &str) -> String {
-        let (program, source) = analyze_test_glue_file(src);
-        let codegen = CodeGenGo::new();
-        codegen
-            .generate(program, &source, None)
-            .map_err(|e| {
-                if let CodeGenError::GenerationError(report) = &e {
-                    let _ = print_report(report);
-                }
-                e
-            })
-            .unwrap()
+        gen_test(&CodeGenGo, src)
     }
 
     #[test]

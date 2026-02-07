@@ -28,14 +28,55 @@ pub trait CodeGenerator {
 
 pub type CodeGenResult<T> = Result<T, CodeGenError>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum CodeGenMode {
+    #[value(name = "jsonschema")]
     JsonSchema,
+    #[value(name = "openapi")]
     OpenApi,
+    #[value(name = "rust")]
     Rust,
+    #[value(name = "python")]
     Python,
+    #[value(name = "protobuf")]
     Protobuf,
+    #[value(name = "go")]
     Go,
+}
+
+impl CodeGenMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CodeGenMode::JsonSchema => "jsonschema",
+            CodeGenMode::OpenApi => "openapi",
+            CodeGenMode::Rust => "rust",
+            CodeGenMode::Python => "python",
+            CodeGenMode::Protobuf => "protobuf",
+            CodeGenMode::Go => "go",
+        }
+    }
+
+    pub fn comment_prefix(&self) -> &'static str {
+        match self {
+            CodeGenMode::Python => "#",
+            _ => "//",
+        }
+    }
+
+    pub fn file_extension(&self) -> &'static str {
+        match self {
+            CodeGenMode::JsonSchema => "json",
+            CodeGenMode::OpenApi => "yaml",
+            CodeGenMode::Rust => "rs",
+            CodeGenMode::Python => "py",
+            CodeGenMode::Protobuf => "proto",
+            CodeGenMode::Go => "go",
+        }
+    }
+
+    pub fn is_json_format(&self) -> bool {
+        matches!(self, CodeGenMode::OpenApi | CodeGenMode::JsonSchema)
+    }
 }
 
 impl TryFrom<&str> for CodeGenMode {
@@ -58,27 +99,24 @@ impl TryFrom<&str> for CodeGenMode {
 pub struct CodeGen;
 
 impl CodeGen {
-    pub fn generate(mode: CodeGenMode, source: &SourceCodeMetadata, config: Option<GlueConfig>) -> Result<String, CodeGenError> {
+    fn analyze(mode: CodeGenMode, source: &SourceCodeMetadata) -> Result<(Box<dyn CodeGenerator>, AnalyzedProgram), CodeGenError> {
         debug!("Parsing source code");
         let parsed_program = Parser::new().parse(source).map_err(CodeGenError::ParserError)?;
-        debug!("Parsed program successfully");
-
         debug!("Starting semantic analysis");
         let analyzed_program = SemanticAnalyzer::new().analyze(&parsed_program, source).map_err(CodeGenError::SemanticAnalysisError)?;
-        debug!("Semantic analysis completed successfully");
-
         let codegen: Box<dyn CodeGenerator> = match mode {
-            CodeGenMode::JsonSchema => Box::new(CodeGenJsonSchema::new()),
-            CodeGenMode::OpenApi => Box::new(CodeGenOpenAPI::new()),
-            CodeGenMode::Rust => Box::new(CodeGenRust::new()),
-            CodeGenMode::Python => Box::new(CodeGenPython::new()),
-            CodeGenMode::Protobuf => Box::new(CodeGenProtobuf::new()),
-            CodeGenMode::Go => Box::new(CodeGenGo::new()),
+            CodeGenMode::JsonSchema => Box::<CodeGenJsonSchema>::default(),
+            CodeGenMode::OpenApi => Box::<CodeGenOpenAPI>::default(),
+            CodeGenMode::Rust => Box::<CodeGenRust>::default(),
+            CodeGenMode::Python => Box::<CodeGenPython>::default(),
+            CodeGenMode::Protobuf => Box::<CodeGenProtobuf>::default(),
+            CodeGenMode::Go => Box::<CodeGenGo>::default(),
         };
-        debug!("Generating code");
-        let generated = codegen.generate(analyzed_program, source, config);
-        debug!("Code generation completed successfully");
+        Ok((codegen, analyzed_program))
+    }
 
-        generated
+    pub fn generate(mode: CodeGenMode, source: &SourceCodeMetadata, config: Option<GlueConfig>) -> Result<String, CodeGenError> {
+        let (codegen, analyzed_program) = Self::analyze(mode, source)?;
+        codegen.generate(analyzed_program, source, config)
     }
 }

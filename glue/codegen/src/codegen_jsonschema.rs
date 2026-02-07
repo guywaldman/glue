@@ -5,6 +5,7 @@ use lang::{AnalyzedProgram, AstNode, Decorator, DiagnosticContext, Enum, Field, 
 
 use crate::{CodeGenError, CodeGenerator, codegen::CodeGenResult};
 
+#[derive(Default)]
 pub struct CodeGenJsonSchema;
 
 // TODO: Refactor such that visitors also emit contributions, and similar refs are shared and not inlined
@@ -39,18 +40,6 @@ impl CodeGenerator for CodeGenJsonSchema {
     }
 }
 
-impl Default for CodeGenJsonSchema {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl CodeGenJsonSchema {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
 struct CodeGeneratorImpl {
     diag: DiagnosticContext,
     ast: LNode,
@@ -73,7 +62,6 @@ impl CodeGeneratorImpl {
         }
     }
 
-    /// Generates the JSON Schema for the program.
     /// Returns the root model name and its JSON object, along with contributed definitions.
     pub fn generate(&mut self) -> CodeGenResult<(String, json::JsonValue)> {
         let models = self
@@ -324,10 +312,9 @@ fn sort_json_keys(obj: &mut json::object::Object) {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::analyze_test_glue_file;
+    use crate::test_utils::gen_test;
     use indoc::indoc;
     use insta::assert_snapshot;
-    use lang::print_report;
 
     use super::*;
 
@@ -360,27 +347,6 @@ mod tests {
 				}
 				"# };
 
-        let (program, source) = analyze_test_glue_file(src);
-
-        let codegen = CodeGenJsonSchema::new();
-        let output = codegen
-            .generate(program, &source, None)
-            .map_err(|e| match e {
-                CodeGenError::InternalError(msg) => msg,
-                CodeGenError::GenerationError(diag) => {
-                    print_report(&diag).expect("Failed to print diagnostic");
-                    panic!("Generation error occurred");
-                }
-                CodeGenError::GenerationErrors(diags) => {
-                    for diag in diags {
-                        print_report(&diag).expect("Failed to print diagnostic");
-                    }
-                    panic!("Generation errors occurred");
-                }
-                e => panic!("Unexpected error: {:?}", e),
-            })
-            .unwrap();
-
-        assert_snapshot!(output);
+        assert_snapshot!(gen_test(&CodeGenJsonSchema, src));
     }
 }

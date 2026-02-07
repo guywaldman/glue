@@ -9,7 +9,7 @@ fn main() -> Result<()> {
 
     let args = std::env::args().collect::<Vec<String>>();
     let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-    GlueCli::new().run(&args_str)?;
+    GlueCli.run(&args_str)?;
 
     Ok(())
 }

@@ -2,20 +2,29 @@
 //!
 //! These tests verify that generated code is valid and can be used with actual
 //! language tooling (Python, protoc, OpenAPI validators, etc.).
+//!
+//! Requires: `uv` and `protoc` on PATH.
+//! Run: `just test-e2e`
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result, anyhow};
 
+/// Run a command via `uv run` with the given Python dependencies.
+fn uv_run(deps: &[&str]) -> Command {
+    let mut cmd = Command::new("uv");
+    cmd.arg("run");
+    for dep in deps {
+        cmd.args(["--with", dep]);
+    }
+    cmd
+}
+
 fn unique_temp_dir(test_name: &str) -> PathBuf {
     let random: u32 = rand::random();
     std::env::temp_dir().join(format!("glue_e2e_{}_{:x}", test_name, random))
 }
-
-// ============================================================================
-// Test Fixture Helper
-// ============================================================================
 
 struct GlueTestFixture {
     source_path: PathBuf,
@@ -115,24 +124,13 @@ fn cleanup(path: &PathBuf) {
     let _ = std::fs::remove_file(path);
 }
 
-fn command_exists(cmd: &str) -> bool {
-    Command::new("which").arg(cmd).output().map(|o| o.status.success()).unwrap_or(false)
-}
-
-// ============================================================================
-// Python + Pydantic E2E Tests
-// ============================================================================
-
 #[test]
 fn e2e_python_pydantic_todos() -> Result<()> {
     let fixture = GlueTestFixture::new("python_todos", "todos.glue")?;
     let output_path = fixture.generate_python()?;
 
     validate_python_syntax(&output_path)?;
-
-    if command_exists("mypy") {
-        validate_python_types(&output_path)?;
-    }
+    validate_python_types(&output_path)?;
 
     cleanup(&output_path);
     Ok(())
@@ -144,10 +142,7 @@ fn e2e_python_pydantic_movies() -> Result<()> {
     let output_path = fixture.generate_python()?;
 
     validate_python_syntax(&output_path)?;
-
-    if command_exists("mypy") {
-        validate_python_types(&output_path)?;
-    }
+    validate_python_types(&output_path)?;
 
     cleanup(&output_path);
     Ok(())
@@ -155,12 +150,6 @@ fn e2e_python_pydantic_movies() -> Result<()> {
 
 #[test]
 fn e2e_python_import_and_instantiate() -> Result<()> {
-    // Skip if pydantic isn't installed
-    if !python_has_pydantic() {
-        eprintln!("Skipping Python instantiation test (pydantic not installed)");
-        return Ok(());
-    }
-
     let fixture = GlueTestFixture::new("python_import", "todos.glue")?;
     let output_path = fixture.generate_python()?;
 
@@ -199,10 +188,6 @@ print("All Python E2E tests passed!")
 
     result
 }
-
-// ============================================================================
-// OpenAPI E2E Tests
-// ============================================================================
 
 #[test]
 fn e2e_openapi_todos_valid_json() -> Result<()> {
@@ -245,30 +230,21 @@ fn e2e_openapi_todos_has_required_fields() -> Result<()> {
 
 #[test]
 fn e2e_openapi_validate_with_spectral() -> Result<()> {
-    if !command_exists("spectral") {
-        eprintln!("Skipping spectral validation (spectral not installed)");
-        return Ok(());
-    }
-
     let fixture = GlueTestFixture::new("openapi_spectral", "todos.glue")?;
     let output_path = fixture.generate_openapi()?;
 
-    let output = Command::new("spectral").args(["lint", output_path.to_str().unwrap(), "--fail-severity=error"]).output()?;
+    let output = uv_run(&["openapi-spec-validator"]).args(["openapi-spec-validator", output_path.to_str().unwrap()]).output()?;
 
     cleanup(&output_path);
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
-        return Err(anyhow!("Spectral validation failed:\n{}\n{}", stdout, stderr));
+        return Err(anyhow!("OpenAPI spec validation failed:\n{}\n{}", stdout, stderr));
     }
 
     Ok(())
 }
-
-// ============================================================================
-// JSON Schema E2E Tests
-// ============================================================================
 
 #[test]
 fn e2e_jsonschema_valid() -> Result<()> {
@@ -295,10 +271,6 @@ model User {
     cleanup(&output_path);
     Ok(())
 }
-
-// ============================================================================
-// Protobuf E2E Tests
-// ============================================================================
 
 #[test]
 fn e2e_protobuf_valid_syntax() -> Result<()> {
@@ -332,11 +304,6 @@ model Error {
 
 #[test]
 fn e2e_protobuf_compile_with_protoc() -> Result<()> {
-    if !command_exists("protoc") {
-        eprintln!("Skipping protoc validation (protoc not installed)");
-        return Ok(());
-    }
-
     let source = r#"
 /// A simple user model
 model User {
@@ -378,10 +345,6 @@ model Error {
     Ok(())
 }
 
-// ============================================================================
-// Rust E2E Tests
-// ============================================================================
-
 #[test]
 fn e2e_rust_valid_syntax() -> Result<()> {
     let fixture = GlueTestFixture::new("rust_syntax", "movies.glue")?;
@@ -396,12 +359,8 @@ fn e2e_rust_valid_syntax() -> Result<()> {
     Ok(())
 }
 
-// ============================================================================
-// Python Helper Functions
-// ============================================================================
-
 fn validate_python_syntax(path: &Path) -> Result<()> {
-    let output = Command::new("python3").args(["-m", "py_compile", path.to_str().unwrap()]).output()?;
+    let output = uv_run(&[]).args(["python3", "-m", "py_compile", path.to_str().unwrap()]).output()?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -411,7 +370,7 @@ fn validate_python_syntax(path: &Path) -> Result<()> {
 }
 
 fn validate_python_types(path: &Path) -> Result<()> {
-    let output = Command::new("mypy").args(["--ignore-missing-imports", path.to_str().unwrap()]).output()?;
+    let output = uv_run(&["mypy"]).args(["mypy", "--ignore-missing-imports", path.to_str().unwrap()]).output()?;
 
     // mypy may have warnings, we only fail on errors
     if !output.status.success() {
@@ -424,7 +383,7 @@ fn validate_python_types(path: &Path) -> Result<()> {
 }
 
 fn run_python_script(path: &Path) -> Result<()> {
-    let output = Command::new("python3").arg(path).output()?;
+    let output = uv_run(&["pydantic"]).args(["python3", path.to_str().unwrap()]).output()?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -435,8 +394,4 @@ fn run_python_script(path: &Path) -> Result<()> {
     let stdout = String::from_utf8_lossy(&output.stdout);
     println!("{}", stdout);
     Ok(())
-}
-
-fn python_has_pydantic() -> bool {
-    Command::new("python3").args(["-c", "import pydantic"]).output().map(|o| o.status.success()).unwrap_or(false)
 }

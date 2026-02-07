@@ -47,7 +47,7 @@ class UserGeo(BaseModel):
 class UserCompany(BaseModel):
     """Represents a company."""
     name: Annotated[str, Field()]
-    catch_phrase: Annotated[str, Field()]
+    catch_phrase: Annotated[str, Field(alias="catchPhrase")]
     bs: Annotated[str, Field()]
 
 class Error(BaseModel):

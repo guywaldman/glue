@@ -1,26 +1,15 @@
 use config::GlueConfig;
 use convert_case::{Case, Casing};
-use lang::{AnalyzedProgram, AstNode, Enum, Field, Literal, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
+use lang::{AnalyzedProgram, AstNode, Enum, Field, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
     codegen::CodeGenResult,
-    context::{CodeGenContext, DocEmitter, EnumExt, FieldExt, ModelExt, TypeMapper},
+    context::{CodeGenContext, DocEmitter, FieldExt, NamedExt, TypeMapper},
 };
 
+#[derive(Default)]
 pub struct CodeGenRust;
-
-impl Default for CodeGenRust {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl CodeGenRust {
-    pub fn new() -> Self {
-        Self
-    }
-}
 
 impl CodeGenerator for CodeGenRust {
     fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, config: Option<GlueConfig>) -> Result<String, CodeGenError> {
@@ -46,10 +35,8 @@ impl<'a> RustGenerator<'a> {
     }
 
     fn generate(&mut self) -> CodeGenResult<String> {
-        // Preludes
         self.output.push_str("use std::collections::HashMap;\n\n");
 
-        // Top-level
         for model in self.ctx.top_level_models().collect::<Vec<_>>() {
             let code = self.emit_model(&model, None)?;
             self.output.push_str(&code);
@@ -59,7 +46,6 @@ impl<'a> RustGenerator<'a> {
             self.output.push_str(&code);
         }
 
-        // Append postludes
         for postlude in &self.postludes {
             self.output.push_str(postlude);
         }
@@ -73,16 +59,13 @@ impl<'a> RustGenerator<'a> {
         let scope_id = model.scope_id(&self.ctx, parent_scope)?;
         let qualified_name = model.qualified_name(&self.ctx, parent_scope, Case::Pascal)?;
 
-        // Documentation
         if let Some(docs) = model.docs() {
             output.push_str(&DocEmitter::rust_docs(&docs, 0));
         }
 
-        // Struct declaration with derives
         output.push_str("#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]\n");
         output.push_str(&format!("pub struct {} {{\n", qualified_name));
 
-        // Fields
         for field in model.fields() {
             let field_code = self.emit_field(&field, Some(scope_id))?;
             output.push_str(&field_code);
@@ -90,7 +73,6 @@ impl<'a> RustGenerator<'a> {
 
         output.push_str("}\n\n");
 
-        // Queue nested types for postludes
         for nested_model in model.nested_models() {
             let nested_code = self.emit_model(&nested_model, Some(scope_id))?;
             self.postludes.push(nested_code);
@@ -109,16 +91,13 @@ impl<'a> RustGenerator<'a> {
 
         let qualified_name = enum_.qualified_name(&self.ctx, parent_scope, Case::Pascal)?;
 
-        // Documentation
         if let Some(docs) = enum_.docs() {
             output.push_str(&DocEmitter::rust_docs(&docs, 0));
         }
 
-        // Enum declaration with derives
         output.push_str("#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]\n");
         output.push_str(&format!("pub enum {} {{\n", qualified_name));
 
-        // Handle enum literals (variants)
         for variant in enum_.variants() {
             let variant_value = variant.value().ok_or_else(|| CodeGenContext::internal_error("Enum variant missing value"))?;
             let variant_name = variant_value.to_case(Case::Pascal);
@@ -146,19 +125,16 @@ impl<'a> RustGenerator<'a> {
             output.push_str(&DocEmitter::rust_docs(&docs, 1));
         }
 
-        // Check for @field decorator with alias
-        let alias = self.extract_field_alias(field)?;
+        let alias = field.alias()?;
         if let Some(ref alias_value) = alias {
             output.push_str(&format!("    #[serde(rename = \"{}\")]\n", alias_value));
         }
 
-        // Build type string
         let type_atoms = field_type.type_atoms();
         let type_strs: Vec<String> = type_atoms.iter().map(|atom| self.emit_type_atom(atom, parent_scope)).collect::<Result<Vec<_>, _>>()?;
 
         let mut type_code = type_strs.join(" | ");
 
-        // Handle optional fields
         if field.is_optional() {
             output.push_str("    #[serde(skip_serializing_if = \"Option::is_none\")]\n");
             type_code = format!("Option<{}>", type_code);
@@ -179,12 +155,10 @@ impl<'a> RustGenerator<'a> {
     }
 
     fn emit_type_atom(&self, atom: &TypeAtom, parent_scope: Option<SymId>) -> CodeGenResult<String> {
-        // Primitive type
         if let Some(primitive) = atom.as_primitive_type() {
             return Ok(TypeMapper::to_rust(primitive).to_string());
         }
 
-        // Record type (HashMap)
         if let Some(record_type) = atom.as_record_type() {
             let src_type = record_type.src_type_node().ok_or_else(|| CodeGenContext::internal_error("Record missing source type"))?;
             let dest_type = record_type.dest_type_node().ok_or_else(|| CodeGenContext::internal_error("Record missing destination type"))?;
@@ -202,7 +176,6 @@ impl<'a> RustGenerator<'a> {
             return Ok(format!("HashMap<{}, {}>", src_str, dest_str));
         }
 
-        // Reference to another type
         if let Some(ref_token) = atom.as_ref_token() {
             let ref_name = ref_token.text().trim();
             let resolved = self
@@ -212,26 +185,11 @@ impl<'a> RustGenerator<'a> {
             return Ok(resolved);
         }
 
-        // Anonymous model - not yet supported
         if atom.as_anon_model().is_some() {
             return Err(CodeGenContext::internal_error("Anonymous models not yet supported in Rust codegen"));
         }
 
         Err(CodeGenContext::internal_error("Unknown type atom"))
-    }
-
-    fn extract_field_alias(&self, field: &Field) -> CodeGenResult<Option<String>> {
-        let decorators = field.decorators();
-        let field_dec = decorators.iter().find(|d| d.ident().as_deref() == Some(MODEL_FIELD_DECORATOR.id));
-
-        if let Some(dec) = field_dec
-            && let Some(alias_arg) = dec.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_ALIAS_ARG)
-            && let Some(Literal::StringLiteral(s)) = alias_arg.literal()
-        {
-            return Ok(s.value());
-        }
-
-        Ok(None)
     }
 }
 
@@ -240,30 +198,11 @@ mod tests {
     use super::*;
     use indoc::indoc;
     use insta::assert_snapshot;
-    use lang::print_report;
 
-    use crate::test_utils::analyze_test_glue_file;
+    use crate::test_utils::gen_test;
 
     fn gen_rust(src: &str) -> String {
-        let (program, source) = analyze_test_glue_file(src);
-        let codegen = CodeGenRust::new();
-        codegen
-            .generate(program, &source, None)
-            .map_err(|e| match e {
-                CodeGenError::InternalError(msg) => panic!("Internal error: {}", msg),
-                CodeGenError::GenerationError(diag) => {
-                    print_report(&diag).expect("Failed to print diagnostic");
-                    panic!("Generation error occurred");
-                }
-                CodeGenError::GenerationErrors(diags) => {
-                    for diag in diags {
-                        print_report(&diag).expect("Failed to print diagnostic");
-                    }
-                    panic!("Generation errors occurred");
-                }
-                e => panic!("Unexpected error: {:?}", e),
-            })
-            .unwrap()
+        gen_test(&CodeGenRust, src)
     }
 
     #[test]
@@ -375,7 +314,7 @@ mod tests {
         "# };
 
         let output = gen_rust(src);
-        // Note: Record<K,V>[] syntax may need Vec wrapping - check actual output
+        // Record<K,V>[] syntax may need Vec wrapping - check actual output
         assert!(output.contains("HashMap<String, i64>"), "Expected HashMap in output:\n{}", output);
         assert_snapshot!(output);
     }

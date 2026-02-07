@@ -1,26 +1,15 @@
 use config::{GlueConfig, GlueConfigSchemaGenerationPythonPydantic};
 use convert_case::{Case, Casing};
-use lang::{AnalyzedProgram, AstNode, Enum, Field, Literal, LiteralExpr, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
+use lang::{AnalyzedProgram, AstNode, Enum, Field, Literal, LiteralExpr, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
     codegen::CodeGenResult,
-    context::{CodeGenContext, DocEmitter, EnumExt, EnumVariantExt, FieldExt, ModelExt, TypeMapper, indent},
+    context::{CodeGenContext, DocEmitter, EnumVariantExt, FieldExt, NamedExt, TypeMapper, indent},
 };
 
+#[derive(Default)]
 pub struct CodeGenPython;
-
-impl Default for CodeGenPython {
-    fn default() -> Self {
-        Self
-    }
-}
-
-impl CodeGenPython {
-    pub fn new() -> Self {
-        Self
-    }
-}
 
 impl CodeGenerator for CodeGenPython {
     fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, config: Option<GlueConfig>) -> Result<String, CodeGenError> {
@@ -49,7 +38,6 @@ impl<'a> PythonGenerator<'a> {
     }
 
     fn generate(&mut self) -> CodeGenResult<String> {
-        // Build preludes
         let base_model_import = self.config.base_model.clone().unwrap_or_else(|| "pydantic.BaseModel".to_string());
         let (base_module, base_class) = base_model_import
             .rsplit_once('.')
@@ -63,15 +51,12 @@ impl<'a> PythonGenerator<'a> {
             "from typing import Any, Annotated, Optional, Union".to_string(),
         ];
 
-        // Generate models and enums
         for model in self.ctx.top_level_models().collect::<Vec<_>>() {
-            let code = self.emit_model(&model, None)?;
-            self.output.push_str(&code);
+            self.emit_model(&model, None)?;
         }
 
         for enum_ in self.ctx.top_level_enums().collect::<Vec<_>>() {
-            let code = self.emit_enum(&enum_, None)?;
-            self.output.push_str(&code);
+            self.emit_enum(&enum_, None)?;
         }
 
         Ok(format!("{}\n{}", preludes.join("\n"), self.output))
@@ -81,62 +66,48 @@ impl<'a> PythonGenerator<'a> {
         self.config.base_model.as_ref().and_then(|s| s.rsplit_once('.')).map(|(_, class)| class).unwrap_or("BaseModel")
     }
 
-    fn emit_model(&mut self, model: &Model, parent_scope: Option<SymId>) -> CodeGenResult<String> {
-        let mut output = String::new();
-
+    fn emit_model(&mut self, model: &Model, parent_scope: Option<SymId>) -> CodeGenResult<()> {
         let scope_id = model.scope_id(&self.ctx, parent_scope)?;
         let qualified_name = model.qualified_name(&self.ctx, parent_scope, Case::Pascal)?;
 
-        // Class declaration
-        output.push_str(&format!("\nclass {}({}):\n", qualified_name, self.base_class_name()));
+        self.output.push_str(&format!("\nclass {}({}):\n", qualified_name, self.base_class_name()));
 
-        // Docstring
         if let Some(docs) = model.docs() {
-            output.push_str(&indent(&DocEmitter::python_docstring(&docs), 4));
+            self.output.push_str(&indent(&DocEmitter::python_docstring(&docs), 4));
         }
 
-        // Fields
         let fields = model.fields();
         if fields.is_empty() && model.docs().is_none() {
-            output.push_str(&indent("pass\n", 4));
+            self.output.push_str(&indent("pass\n", 4));
         } else {
             for field in fields {
-                let field_code = self.emit_field(&field, Some(scope_id))?;
-                output.push_str(&field_code);
+                self.emit_field(&field, Some(scope_id))?;
             }
         }
 
-        // Nested types
         for nested_model in model.nested_models() {
-            let code = self.emit_model(&nested_model, Some(scope_id))?;
-            output.push_str(&code);
+            self.emit_model(&nested_model, Some(scope_id))?;
         }
 
         for nested_enum in model.nested_enums() {
-            let code = self.emit_enum(&nested_enum, Some(scope_id))?;
-            output.push_str(&code);
+            self.emit_enum(&nested_enum, Some(scope_id))?;
         }
 
-        Ok(output)
+        Ok(())
     }
 
-    fn emit_field(&self, field: &Field, scope: Option<SymId>) -> CodeGenResult<String> {
-        let mut output = String::new();
-
+    fn emit_field(&mut self, field: &Field, scope: Option<SymId>) -> CodeGenResult<()> {
         let field_name = field.name()?;
         let field_type = field.field_type()?;
         let py_field_name = field_name.to_case(Case::Snake);
 
-        // Build type annotation
         let mut type_code = self.emit_type(&field_type, scope)?;
         if field.is_optional() {
             type_code = format!("Optional[{}]", type_code);
         }
 
-        // Build Field() arguments
         let mut field_args = vec![];
 
-        // Default value
         if field.is_optional() {
             field_args.push("default=None".to_string());
         } else if let Some(default_node) = field.default_literal_expr_node()
@@ -147,54 +118,44 @@ impl<'a> PythonGenerator<'a> {
             field_args.push(format!("default={}", default_code));
         }
 
-        // Alias from @field decorator or auto-generate if names differ
-        let decorators = field.decorators();
-        let field_decorator = decorators.iter().find(|d| d.ident() == Some(MODEL_FIELD_DECORATOR.id.to_owned()));
-        if let Some(dec) = field_decorator {
-            if let Some(alias_arg) = dec.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_ALIAS_ARG)
-                && let Some(Literal::StringLiteral(v)) = alias_arg.literal()
-                && let Some(alias_value) = v.value()
-            {
-                field_args.push(format!("alias=\"{}\"", alias_value));
-            }
+        // Alias: explicit @field decorator or auto-generated when names differ
+        let alias = field.alias()?;
+        if let Some(alias_value) = &alias {
+            field_args.push(format!("alias=\"{}\"", alias_value));
         } else if py_field_name != field_name {
             field_args.push(format!("alias=\"{}\"", field_name));
         }
 
-        output.push_str(&indent(&format!("{}: Annotated[{}, Field({})]\n", py_field_name, type_code, field_args.join(", ")), 4));
+        self.output
+            .push_str(&indent(&format!("{}: Annotated[{}, Field({})]\n", py_field_name, type_code, field_args.join(", ")), 4));
 
-        // Field docstring
         if let Some(docs) = field.docs() {
-            output.push_str(&indent(&DocEmitter::python_docstring(&docs), 4));
+            self.output.push_str(&indent(&DocEmitter::python_docstring(&docs), 4));
         }
 
-        Ok(output)
+        Ok(())
     }
 
-    fn emit_enum(&self, enum_: &Enum, parent_scope: Option<SymId>) -> CodeGenResult<String> {
-        let mut output = String::new();
-
+    fn emit_enum(&mut self, enum_: &Enum, parent_scope: Option<SymId>) -> CodeGenResult<()> {
         let qualified_name = enum_.qualified_name(&self.ctx, parent_scope, Case::Pascal)?;
 
-        output.push_str(&format!("\nclass {}(StrEnum):\n", qualified_name));
+        self.output.push_str(&format!("\nclass {}(StrEnum):\n", qualified_name));
 
-        // Docstring
         if let Some(docs) = enum_.docs() {
-            output.push_str(&indent(&DocEmitter::python_docstring(&docs), 4));
+            self.output.push_str(&indent(&DocEmitter::python_docstring(&docs), 4));
         }
 
-        // Variants
         for variant in enum_.variants() {
             let value = variant.variant_value()?;
             let ident = value.replace('-', "_").to_case(Case::UpperSnake);
-            output.push_str(&indent(&format!("{} = \"{}\"\n", ident, value), 4));
+            self.output.push_str(&indent(&format!("{} = \"{}\"\n", ident, value), 4));
 
             if let Some(docs) = variant.docs() {
-                output.push_str(&indent(&DocEmitter::python_docstring(&docs), 4));
+                self.output.push_str(&indent(&DocEmitter::python_docstring(&docs), 4));
             }
         }
 
-        Ok(output)
+        Ok(())
     }
 
     fn emit_type(&self, ty: &Type, scope: Option<SymId>) -> CodeGenResult<String> {
@@ -227,7 +188,7 @@ impl<'a> PythonGenerator<'a> {
                 .resolve(scope, &type_name)
                 .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved type: {}", type_name)))?;
             let qualified = lang::symbol_name_to_parts(&sym.name).join("_").to_case(Case::Pascal);
-            format!("\"{}\"", qualified) // Forward reference
+            format!("\"{}\"", qualified) // forward reference
         } else if atom.as_anon_model().is_some() {
             return Err(self.ctx.error(atom.syntax(), "Anonymous models not supported"));
         } else {
@@ -259,30 +220,11 @@ mod tests {
     use super::*;
     use indoc::indoc;
     use insta::assert_snapshot;
-    use lang::print_report;
 
-    use crate::{CodeGenError, CodeGenerator, test_utils::analyze_test_glue_file};
+    use crate::test_utils::gen_test;
 
     fn gen_python(src: &str) -> String {
-        let (program, source) = analyze_test_glue_file(src);
-        let codegen = CodeGenPython::new();
-        codegen
-            .generate(program, &source, None)
-            .map_err(|e| match e {
-                CodeGenError::InternalError(msg) => panic!("Internal error: {}", msg),
-                CodeGenError::GenerationError(diag) => {
-                    print_report(&diag).expect("Failed to print diagnostic");
-                    panic!("Generation error occurred");
-                }
-                CodeGenError::GenerationErrors(diags) => {
-                    for diag in diags {
-                        print_report(&diag).expect("Failed to print diagnostic");
-                    }
-                    panic!("Generation errors occurred");
-                }
-                e => panic!("Unexpected error: {:?}", e),
-            })
-            .unwrap()
+        gen_test(&CodeGenPython, src)
     }
 
     #[test]

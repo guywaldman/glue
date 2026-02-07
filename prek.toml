@@ -1,0 +1,30 @@
+[[repos]]
+repo = "local"
+hooks = [
+  {
+    id = "rust-fmt",
+    name = "cargo fmt",
+    language = "system",
+    entry = "bash -c 'cd glue && cargo fmt --all -- --check'",
+    pass_filenames = false,
+    types = ["rust"],
+  },
+  {
+    id = "rust-clippy",
+    name = "cargo clippy",
+    language = "system",
+    entry = "bash -c 'cd glue && cargo clippy --workspace --all -- -D warnings'",
+    pass_filenames = false,
+    types = ["rust"],
+    priority = 10,
+  },
+  {
+    id = "rust-test",
+    name = "cargo test",
+    language = "system",
+    entry = "bash -c 'cd glue && cargo test --workspace --all-features'",
+    pass_filenames = false,
+    types = ["rust"],
+    priority = 20,
+  },
+]

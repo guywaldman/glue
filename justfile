@@ -31,6 +31,9 @@ install-cli:
 test-cli:
 	cd glue && cargo test --workspace --all-features
 
+test-e2e:
+	cd glue && cargo test e2e -- --nocapture
+
 lint-cli:
 	cd glue && cargo clippy --workspace --all -D warnings
 	cd glue && cargo fmt --all -- --check
@@ -45,15 +48,14 @@ extension-dev:
 extension-publish:
 	cd extension && npm install && npm test && npm run publish
 
-# Pre-commit hooks
-precommit-install-hooks:
-	pre-commit install
+lint-install:
+	prek install
 
-precommit:
-	pre-commit run --all-files
+lint:
+	prek run --all-files
 
-precommit-staged:
-	pre-commit run
+lint-staged:
+	prek run
 
 # Release - bumps extension and crate versions, tags and pushes
 # Requires: cargo install cargo-edit

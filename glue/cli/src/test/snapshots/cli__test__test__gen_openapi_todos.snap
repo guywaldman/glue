@@ -5,6 +5,61 @@ expression: generated_json
 {
   "components": {
     "schemas": {
+      "Address": {
+        "description": "Represents a user's address.",
+        "properties": {
+          "city": {
+            "example": "Gwenborough",
+            "type": "string"
+          },
+          "geo": {
+            "$ref": "#/components/schemas/Geo"
+          },
+          "street": {
+            "example": "Kulas Light",
+            "type": "string"
+          },
+          "suite": {
+            "example": "Apt. 556",
+            "type": "string"
+          },
+          "zipcode": {
+            "example": "92998-3874",
+            "type": "string"
+          }
+        },
+        "required": [
+          "street",
+          "suite",
+          "city",
+          "zipcode",
+          "geo"
+        ],
+        "type": "object"
+      },
+      "Company": {
+        "description": "Represents a company.",
+        "properties": {
+          "bs": {
+            "example": "harness real-time e-markets",
+            "type": "string"
+          },
+          "catchPhrase": {
+            "example": "Multi-layered client-server neural-net",
+            "type": "string"
+          },
+          "name": {
+            "example": "Romaguera-Crona",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "catchPhrase",
+          "bs"
+        ],
+        "type": "object"
+      },
       "Error": {
         "description": "Represents an error response.",
         "properties": {
@@ -19,6 +74,24 @@ expression: generated_json
         },
         "required": [
           "message"
+        ],
+        "type": "object"
+      },
+      "Geo": {
+        "description": "Represents geographic coordinates.",
+        "properties": {
+          "lat": {
+            "example": "-37.3159",
+            "type": "string"
+          },
+          "lng": {
+            "example": "81.1496",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lat",
+          "lng"
         ],
         "type": "object"
       },
@@ -122,7 +195,8 @@ expression: generated_json
                   "type": "array"
                 }
               }
-            }
+            },
+            "description": "2XX response"
           },
           "2XX": {
             "content": {
@@ -134,7 +208,8 @@ expression: generated_json
                   "type": "array"
                 }
               }
-            }
+            },
+            "description": "2XX response"
           },
           "4XX": {
             "content": {
@@ -143,7 +218,8 @@ expression: generated_json
                   "$ref": "#/components/schemas/Error"
                 }
               }
-            }
+            },
+            "description": "4XX response"
           },
           "5XX": {
             "content": {
@@ -152,7 +228,8 @@ expression: generated_json
                   "$ref": "#/components/schemas/Error"
                 }
               }
-            }
+            },
+            "description": "5XX response"
           }
         },
         "summary": "List all todos"
@@ -161,6 +238,16 @@ expression: generated_json
     "/todos/{todo_id}": {
       "get": {
         "description": "Gets data for a specific todo by its ID",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "todo_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -169,7 +256,8 @@ expression: generated_json
                   "$ref": "#/components/schemas/Todo"
                 }
               }
-            }
+            },
+            "description": "2XX response"
           },
           "2XX": {
             "content": {
@@ -178,7 +266,8 @@ expression: generated_json
                   "$ref": "#/components/schemas/Todo"
                 }
               }
-            }
+            },
+            "description": "2XX response"
           },
           "4XX": {
             "content": {
@@ -187,7 +276,8 @@ expression: generated_json
                   "$ref": "#/components/schemas/Error"
                 }
               }
-            }
+            },
+            "description": "4XX response"
           },
           "5XX": {
             "content": {
@@ -196,7 +286,8 @@ expression: generated_json
                   "$ref": "#/components/schemas/Error"
                 }
               }
-            }
+            },
+            "description": "5XX response"
           }
         },
         "summary": "Gets data for a specific todo by its ID"
@@ -216,7 +307,8 @@ expression: generated_json
                   "type": "array"
                 }
               }
-            }
+            },
+            "description": "2XX response"
           },
           "2XX": {
             "content": {
@@ -228,7 +320,8 @@ expression: generated_json
                   "type": "array"
                 }
               }
-            }
+            },
+            "description": "2XX response"
           },
           "4XX": {
             "content": {
@@ -237,7 +330,8 @@ expression: generated_json
                   "$ref": "#/components/schemas/Error"
                 }
               }
-            }
+            },
+            "description": "4XX response"
           },
           "5XX": {
             "content": {
@@ -246,7 +340,8 @@ expression: generated_json
                   "$ref": "#/components/schemas/Error"
                 }
               }
-            }
+            },
+            "description": "5XX response"
           }
         },
         "summary": "List all users"
@@ -255,6 +350,16 @@ expression: generated_json
     "/users/{user_id}": {
       "get": {
         "description": "Gets data for a specific user by their ID",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -263,7 +368,8 @@ expression: generated_json
                   "$ref": "#/components/schemas/User"
                 }
               }
-            }
+            },
+            "description": "2XX response"
           },
           "2XX": {
             "content": {
@@ -272,7 +378,8 @@ expression: generated_json
                   "$ref": "#/components/schemas/User"
                 }
               }
-            }
+            },
+            "description": "2XX response"
           },
           "4XX": {
             "content": {
@@ -281,7 +388,8 @@ expression: generated_json
                   "$ref": "#/components/schemas/Error"
                 }
               }
-            }
+            },
+            "description": "4XX response"
           },
           "5XX": {
             "content": {
@@ -290,7 +398,8 @@ expression: generated_json
                   "$ref": "#/components/schemas/Error"
                 }
               }
-            }
+            },
+            "description": "5XX response"
           }
         },
         "summary": "Gets data for a specific user by their ID"
