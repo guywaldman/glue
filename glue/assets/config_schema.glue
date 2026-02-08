@@ -15,10 +15,20 @@ model GlueConfigSchema {
 			/// No watermark comment is included
 			"none"
 
-		/// Configurations for Python code generation using Pydantic (`glue gen py-pydantic [...]`)
-		python_pydantic?: PythonPydantic
-		model PythonPydantic {
-			/// The full import path for the base model class to inherit from. Defaults to `pydantic.BaseModel` if not specified.
+		/// Configurations for Python code generation (`glue gen python [...]`)
+		python?: Python
+		model Python {
+			/// The Python modeling library to use. Defaults to "pydantic".
+			data_model_library?: DataModelLibrary
+			/// The Python modeling library
+			enum DataModelLibrary:
+				/// Pydantic (v2) BaseModel classes with Field() annotations
+				"pydantic" |
+				/// Standard library dataclasses
+				"dataclasses" |
+				/// msgspec Struct classes
+				"msgspec"
+			/// For pydantic: the full import path for the base model class. Defaults to `pydantic.BaseModel`.
 			base_model?: string
 		}
 	}

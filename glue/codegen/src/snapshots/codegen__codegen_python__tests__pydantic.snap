@@ -1,0 +1,17 @@
+---
+source: codegen/src/codegen_python.rs
+expression: gen_python(SIMPLE_MODEL)
+---
+# pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring
+
+from pydantic import BaseModel
+from pydantic import Field
+from enum import StrEnum
+from typing import Any, Annotated, Optional, Union
+
+class User(BaseModel):
+    name: Annotated[str, Field()]
+    """The user's display name"""
+    age: Annotated[int, Field()]
+    email: Annotated[Optional[str], Field(default=None)]
+    active: Annotated[bool, Field(default=True)]

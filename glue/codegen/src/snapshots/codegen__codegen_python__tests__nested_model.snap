@@ -1,6 +1,6 @@
 ---
 source: codegen/src/codegen_python.rs
-expression: output
+expression: gen_python(src)
 ---
 # pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring
 

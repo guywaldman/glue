@@ -57,6 +57,13 @@ impl GlueTestFixture {
         Ok(Self { source_path, temp_dir })
     }
 
+    /// Write a .gluerc.yaml config file next to the source.
+    fn write_config(&self, yaml: &str) -> Result<()> {
+        let config_path = self.source_path.parent().unwrap().join(".gluerc.yaml");
+        std::fs::write(&config_path, yaml)?;
+        Ok(())
+    }
+
     fn generate_python(&self) -> Result<PathBuf> {
         self.run_codegen("python", "py")
     }
@@ -185,6 +192,79 @@ print("All Python E2E tests passed!")
 
     cleanup(&output_path);
     std::fs::remove_file(&test_script_path).ok();
+
+    result
+}
+
+#[test]
+fn e2e_python_dataclasses() -> Result<()> {
+    let source = r#"
+model User {
+    name: string
+    age: int
+    email?: string
+    active: bool = true
+}
+"#;
+    let fixture = GlueTestFixture::from_source("python_dataclasses", "dc_test.glue", source)?;
+    fixture.write_config("generation:\n  python:\n    data_model_library: dataclasses\n")?;
+    let output_path = fixture.generate_python()?;
+
+    validate_python_syntax(&output_path)?;
+    validate_python_types(&output_path)?;
+
+    // Verify the generated code uses dataclasses
+    let content = std::fs::read_to_string(&output_path)?;
+    assert!(content.contains("@dataclass"), "Expected @dataclass decorator");
+    assert!(!content.contains("BaseModel"), "Should not contain BaseModel");
+
+    cleanup(&output_path);
+    Ok(())
+}
+
+#[test]
+fn e2e_python_msgspec() -> Result<()> {
+    let source = r#"
+model User {
+    name: string
+    age: int
+    email?: string
+    active: bool = true
+}
+"#;
+    let fixture = GlueTestFixture::from_source("python_msgspec", "ms_test.glue", source)?;
+    fixture.write_config("generation:\n  python:\n    data_model_library: msgspec\n")?;
+    let output_path = fixture.generate_python()?;
+
+    validate_python_syntax(&output_path)?;
+
+    // Verify the generated code uses msgspec
+    let content = std::fs::read_to_string(&output_path)?;
+    assert!(content.contains("msgspec.Struct"), "Expected msgspec.Struct base class");
+    assert!(!content.contains("BaseModel"), "Should not contain BaseModel");
+
+    // Import and instantiate
+    let test_script = format!(
+        r#"
+import sys
+sys.path.insert(0, "{parent_dir}")
+from {module} import *
+
+user = User(name="Alice", age=30)
+assert user.name == "Alice"
+assert user.age == 30
+print("msgspec OK")
+"#,
+        parent_dir = output_path.parent().unwrap().display(),
+        module = output_path.file_stem().unwrap().to_string_lossy(),
+    );
+
+    let script_path = output_path.with_extension("test.py");
+    std::fs::write(&script_path, test_script)?;
+    let result = run_python_script_with_deps(&script_path, &["msgspec"]);
+
+    cleanup(&output_path);
+    std::fs::remove_file(&script_path).ok();
 
     result
 }
@@ -383,7 +463,11 @@ fn validate_python_types(path: &Path) -> Result<()> {
 }
 
 fn run_python_script(path: &Path) -> Result<()> {
-    let output = uv_run(&["pydantic"]).args(["python3", path.to_str().unwrap()]).output()?;
+    run_python_script_with_deps(path, &["pydantic"])
+}
+
+fn run_python_script_with_deps(path: &Path, deps: &[&str]) -> Result<()> {
+    let output = uv_run(deps).args(["python3", path.to_str().unwrap()]).output()?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);

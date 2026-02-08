@@ -1,0 +1,17 @@
+---
+source: codegen/src/codegen_python.rs
+expression: "gen_python_with_framework(SIMPLE_MODEL,\nGlueConfigSchemaGenerationPythonPythonFramework::Dataclasses)"
+---
+# pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring
+
+from dataclasses import dataclass, field
+from enum import StrEnum
+from typing import Any, Optional, Union
+
+@dataclass
+class User:
+    name: str
+    """The user's display name"""
+    age: int
+    email: Optional[str] = None
+    active: bool = True
