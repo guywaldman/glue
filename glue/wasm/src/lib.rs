@@ -1,8 +1,15 @@
 use codegen::{CodeGen, CodeGenError, SourceCodeMetadata, generate_report, generate_reports};
+use config::GlueConfigSchema;
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub fn generate(mode: &str, code: &str) -> String {
+    generate_with_config(mode, code, None)
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+pub fn generate_with_config(mode: &str, code: &str, config: Option<GlueConfigSchema>) -> String {
     let source = &SourceCodeMetadata {
         file_name: "demo.glue",
         file_contents: code,
@@ -12,7 +19,7 @@ pub fn generate(mode: &str, code: &str) -> String {
         // TODO: Find an idiomatic way to return structured errors from wasm functions.
         return format!("ERROR: Unknown code generation mode: {}", mode);
     };
-    CodeGen::generate(mode, source, None).unwrap_or_else(|e| match e {
+    CodeGen::generate(mode, source, config).unwrap_or_else(|e| match e {
         CodeGenError::GenerationError(diag) => generate_report(&diag).unwrap_or_else(|_| "Error generating report".to_string()),
         CodeGenError::GenerationErrors(diags) => {
             let reports: Vec<_> = diags.iter().collect();

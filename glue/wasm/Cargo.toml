@@ -8,5 +8,5 @@ crate-type = ["cdylib"]
 
 [dependencies]
 codegen = { path = "../codegen" }
-config = { path = "../config" }
+config = { path = "../config", features = ["tsify"] }
 wasm-bindgen = "0.2.105"

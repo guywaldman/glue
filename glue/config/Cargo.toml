@@ -12,3 +12,8 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 serde_yaml = "0.9.34"
 thiserror = "2.0.16"
+tsify = { version = "0.4.5", optional = true }
+wasm-bindgen = { version = "0.2.105", optional = true }
+
+[features]
+tsify = ["dep:tsify", "dep:wasm-bindgen"]

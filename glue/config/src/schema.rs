@@ -5,6 +5,11 @@
 
 use std::collections::HashMap;
 
+#[cfg(all(feature = "tsify", target_arch = "wasm32"))]
+use wasm_bindgen::prelude::*;
+
+#[cfg_attr(all(feature = "tsify", target_arch = "wasm32"), derive(tsify::Tsify))]
+#[cfg_attr(all(feature = "tsify", target_arch = "wasm32"), tsify(into_wasm_abi, from_wasm_abi))]
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
 pub struct GlueConfigSchema {
     /// Configuration for code generation (`glue gen [...]`)
@@ -13,6 +18,8 @@ pub struct GlueConfigSchema {
 }
 
 /// The Python modeling library
+#[cfg_attr(all(feature = "tsify", target_arch = "wasm32"), derive(tsify::Tsify))]
+#[cfg_attr(all(feature = "tsify", target_arch = "wasm32"), tsify(into_wasm_abi, from_wasm_abi))]
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum GlueConfigSchemaGenerationPythonDataModelLibrary {
     /// Pydantic (v2) BaseModel classes with Field() annotations
@@ -26,6 +33,8 @@ pub enum GlueConfigSchemaGenerationPythonDataModelLibrary {
     Msgspec,
 }
 
+#[cfg_attr(all(feature = "tsify", target_arch = "wasm32"), derive(tsify::Tsify))]
+#[cfg_attr(all(feature = "tsify", target_arch = "wasm32"), tsify(into_wasm_abi, from_wasm_abi))]
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
 pub struct GlueConfigSchemaGenerationPython {
     /// The Python modeling library to use. Defaults to "pydantic".
@@ -37,6 +46,8 @@ pub struct GlueConfigSchemaGenerationPython {
 }
 
 /// Mode for generating the watermark comment at the top of generated files
+#[cfg_attr(all(feature = "tsify", target_arch = "wasm32"), derive(tsify::Tsify))]
+#[cfg_attr(all(feature = "tsify", target_arch = "wasm32"), tsify(into_wasm_abi, from_wasm_abi))]
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum GlueConfigSchemaGenerationWatermark {
     /// Includes full details including generation timestamp, Glue version, source file, etc.
@@ -50,6 +61,8 @@ pub enum GlueConfigSchemaGenerationWatermark {
     None,
 }
 
+#[cfg_attr(all(feature = "tsify", target_arch = "wasm32"), derive(tsify::Tsify))]
+#[cfg_attr(all(feature = "tsify", target_arch = "wasm32"), tsify(into_wasm_abi, from_wasm_abi))]
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
 pub struct GlueConfigSchemaGeneration {
     /// Mode for the watermark at the top of the generated files. Defaults to "short" if not specified.
