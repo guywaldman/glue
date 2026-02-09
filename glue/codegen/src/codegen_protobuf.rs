@@ -1,4 +1,4 @@
-use config::GlueConfig;
+use config::GlueConfigSchemaGeneration;
 use lang::{AnalyzedProgram, AstNode, SourceCodeMetadata, Type, TypeAtom};
 
 use crate::{
@@ -11,7 +11,7 @@ use crate::{
 pub struct CodeGenProtobuf;
 
 impl CodeGenerator for CodeGenProtobuf {
-    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, _config: Option<GlueConfig>) -> Result<String, CodeGenError> {
+    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, _config: Option<GlueConfigSchemaGeneration>) -> Result<String, CodeGenError> {
         let ctx = CodeGenContext::new(program.ast_root.clone(), program.symbols, source, None);
         let mut output = String::from("syntax = \"proto3\";\n\npackage glue;\n\n");
 

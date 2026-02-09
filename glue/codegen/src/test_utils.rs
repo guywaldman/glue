@@ -1,6 +1,6 @@
 use lang::{AnalyzedProgram, Parser, SemanticAnalyzer, SourceCodeMetadata, print_report};
 
-use config::GlueConfig;
+use config::GlueConfigSchemaGeneration;
 
 use crate::{CodeGenError, CodeGenerator};
 
@@ -33,7 +33,7 @@ pub fn gen_test(codegen: &dyn CodeGenerator, src: &str) -> String {
     gen_test_with_config(codegen, src, None)
 }
 
-pub fn gen_test_with_config(codegen: &dyn CodeGenerator, src: &str, config: Option<GlueConfig>) -> String {
+pub fn gen_test_with_config(codegen: &dyn CodeGenerator, src: &str, config: Option<GlueConfigSchemaGeneration>) -> String {
     let (program, source) = analyze_test_glue_file(src);
     codegen.generate(program, &source, config).unwrap_or_else(|e| match e {
         CodeGenError::InternalError(msg) => panic!("Internal error: {}", msg),

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use config::GlueConfig;
+use config::GlueConfigSchemaGeneration;
 use convert_case::Case;
 use lang::{
     AnalyzedProgram, AnonModel, AstNode, Endpoint, Field, Literal, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG, MODEL_FIELD_DECORATOR_EXAMPLE_ARG, Model, SourceCodeMetadata, Type, TypeAtom,
@@ -16,7 +16,7 @@ use crate::models::openapi;
 pub struct CodeGenOpenAPI;
 
 impl CodeGenerator for CodeGenOpenAPI {
-    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, _config: Option<GlueConfig>) -> CodeGenResult<String> {
+    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, _config: Option<GlueConfigSchemaGeneration>) -> CodeGenResult<String> {
         let ctx = CodeGenContext::new(program.ast_root.clone(), program.symbols, source, None);
         let generator = OpenAPIGenerator::new(ctx);
         generator.generate()

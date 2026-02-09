@@ -207,7 +207,7 @@ model User {
 }
 "#;
     let fixture = GlueTestFixture::from_source("python_dataclasses", "dc_test.glue", source)?;
-    fixture.write_config("generation:\n  python:\n    data_model_library: dataclasses\n")?;
+    fixture.write_config("global:\n  config:\n    python:\n      data_model_library: dataclasses\n")?;
     let output_path = fixture.generate_python()?;
 
     validate_python_syntax(&output_path)?;
@@ -233,7 +233,7 @@ model User {
 }
 "#;
     let fixture = GlueTestFixture::from_source("python_msgspec", "ms_test.glue", source)?;
-    fixture.write_config("generation:\n  python:\n    data_model_library: msgspec\n")?;
+    fixture.write_config("global:\n  config:\n    python:\n      data_model_library: msgspec\n")?;
     let output_path = fixture.generate_python()?;
 
     validate_python_syntax(&output_path)?;

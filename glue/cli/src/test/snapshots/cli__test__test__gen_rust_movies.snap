@@ -15,7 +15,7 @@ pub struct Movie {
     #[serde(rename = "releaseYear")]
     pub release_year: i64,
     /// List of tags associated with the movie.
-    pub tags: String,
+    pub tags: Vec<String>,
 }
 
 /// Represents an error response.

@@ -3,18 +3,43 @@
     "title": "GlueConfigSchema",
     "type": "object",
     "properties": {
-        "generation": {
-            "$ref": "#/$defs/GlueConfigSchema::Generation",
-            "description": "Configuration for code generation (`glue gen [...]`)"
+        "gen": {
+            "$ref": "#/$defs/GlueConfigSchema::GenConfig",
+            "description": "Per-generation configuration entries"
+        },
+        "global": {
+            "$ref": "#/$defs/GlueConfigSchema::Global",
+            "description": "Global defaults applied to all generation entries"
         }
     },
     "$defs": {
         "GlueConfigSchema": {
             "type": "object",
             "properties": {
-                "generation": {
+                "gen": {
+                    "$ref": "#/$defs/GlueConfigSchema::GenConfig",
+                    "description": "Per-generation configuration entries"
+                },
+                "global": {
+                    "$ref": "#/$defs/GlueConfigSchema::Global",
+                    "description": "Global defaults applied to all generation entries"
+                }
+            }
+        },
+        "GlueConfigSchema::GenConfig": {
+            "type": "object",
+            "properties": {
+                "config_overrides": {
                     "$ref": "#/$defs/GlueConfigSchema::Generation",
-                    "description": "Configuration for code generation (`glue gen [...]`)"
+                    "description": "Per-generation configuration overrides"
+                },
+                "files": {
+                    "type": "string",
+                    "description": "Glob selector for input files"
+                },
+                "output": {
+                    "type": "string",
+                    "description": "Output path template (supports {file_name} and {file_ext})"
                 }
             }
         },
@@ -24,6 +49,10 @@
                 "python": {
                     "$ref": "#/$defs/GlueConfigSchema::Generation::Python",
                     "description": "Configurations for Python code generation (`glue gen python [...]`)"
+                },
+                "rust": {
+                    "$ref": "#/$defs/GlueConfigSchema::Generation::Rust",
+                    "description": "Configurations for Rust code generation (`glue gen rust [...]`)"
                 },
                 "watermark": {
                     "$ref": "#/$defs/GlueConfigSchema::Generation::Watermark",
@@ -50,8 +79,18 @@
             "enum": [
                 "pydantic",
                 "dataclasses",
+                "attrs",
                 "msgspec"
             ]
+        },
+        "GlueConfigSchema::Generation::Rust": {
+            "type": "object",
+            "properties": {
+                "include_yaml": {
+                    "type": "boolean",
+                    "description": "Include serde_yaml support in generated output"
+                }
+            }
         },
         "GlueConfigSchema::Generation::Watermark": {
             "type": "string",
@@ -61,6 +100,19 @@
                 "short",
                 "none"
             ]
+        },
+        "GlueConfigSchema::Global": {
+            "type": "object",
+            "properties": {
+                "config": {
+                    "$ref": "#/$defs/GlueConfigSchema::Generation",
+                    "description": "Default code generation configuration"
+                },
+                "output_base_dir": {
+                    "type": "string",
+                    "description": "Base directory for generated output (relative to the config file if not absolute)"
+                }
+            }
         }
     }
 }

@@ -5,4 +5,7 @@ mod config;
 mod schema;
 
 pub use config::GlueConfig;
-pub use schema::{GlueConfigSchema, GlueConfigSchemaGeneration, GlueConfigSchemaGenerationPython, GlueConfigSchemaGenerationPythonDataModelLibrary, GlueConfigSchemaGenerationWatermark};
+pub use schema::{
+    GlueConfigSchema, GlueConfigSchemaGenConfig, GlueConfigSchemaGeneration, GlueConfigSchemaGenerationPython, GlueConfigSchemaGenerationPythonDataModelLibrary, GlueConfigSchemaGenerationRust,
+    GlueConfigSchemaGenerationWatermark, GlueConfigSchemaGlobal,
+};

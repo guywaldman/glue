@@ -1,4 +1,4 @@
-use config::GlueConfig;
+use config::GlueConfigSchemaGeneration;
 use lang::{AnalyzedProgram, Parser, ParserError, SemanticAnalyzer, SemanticAnalyzerError, SourceCodeMetadata};
 
 use log::debug;
@@ -23,7 +23,7 @@ pub enum CodeGenError {
 }
 
 pub trait CodeGenerator {
-    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, config: Option<GlueConfig>) -> Result<String, CodeGenError>;
+    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, config: Option<GlueConfigSchemaGeneration>) -> Result<String, CodeGenError>;
 }
 
 pub type CodeGenResult<T> = Result<T, CodeGenError>;
@@ -115,7 +115,7 @@ impl CodeGen {
         Ok((codegen, analyzed_program))
     }
 
-    pub fn generate(mode: CodeGenMode, source: &SourceCodeMetadata, config: Option<GlueConfig>) -> Result<String, CodeGenError> {
+    pub fn generate(mode: CodeGenMode, source: &SourceCodeMetadata, config: Option<GlueConfigSchemaGeneration>) -> Result<String, CodeGenError> {
         let (codegen, analyzed_program) = Self::analyze(mode, source)?;
         codegen.generate(analyzed_program, source, config)
     }

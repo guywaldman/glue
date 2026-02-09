@@ -1,5 +1,5 @@
 use codegen::{CodeGen, CodeGenError, SourceCodeMetadata, generate_report, generate_reports};
-use config::GlueConfigSchema;
+use config::GlueConfigSchemaGeneration;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
@@ -9,7 +9,7 @@ pub fn generate(mode: &str, code: &str) -> String {
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
-pub fn generate_with_config(mode: &str, code: &str, config: Option<GlueConfigSchema>) -> String {
+pub fn generate_with_config(mode: &str, code: &str, config: Option<GlueConfigSchemaGeneration>) -> String {
     let source = &SourceCodeMetadata {
         file_name: "demo.glue",
         file_contents: code,

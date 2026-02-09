@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use config::GlueConfig;
+use config::GlueConfigSchemaGeneration;
 use lang::{AnalyzedProgram, AstNode, Decorator, DiagnosticContext, Enum, Field, LNode, LSyntaxKind, Model, PrimitiveType, SourceCodeMetadata, SymId, SymTable, Type, TypeAtom};
 
 use crate::{CodeGenError, CodeGenerator, codegen::CodeGenResult};
@@ -10,7 +10,7 @@ pub struct CodeGenJsonSchema;
 
 // TODO: Refactor such that visitors also emit contributions, and similar refs are shared and not inlined
 impl CodeGenerator for CodeGenJsonSchema {
-    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, _config: Option<GlueConfig>) -> Result<String, crate::CodeGenError> {
+    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, _config: Option<GlueConfigSchemaGeneration>) -> Result<String, crate::CodeGenError> {
         let ast = program.ast_root.clone();
         let mut json = json::object::Object::new();
 

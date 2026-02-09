@@ -1,6 +1,25 @@
 model GlueConfigSchema {
-	/// Configuration for code generation (`glue gen [...]`)
-	generation?: Generation
+	/// Global defaults applied to all generation entries
+	global?: Global
+
+	/// Per-generation configuration entries
+	gen?: GenConfig[]
+
+	model Global {
+		/// Base directory for generated output (relative to the config file if not absolute)
+		output_base_dir?: string
+		/// Default code generation configuration
+		config?: Generation
+	}
+
+	model GenConfig {
+		/// Glob selector for input files
+		files: string
+		/// Output path template (supports {file_name} and {file_ext})
+		output?: string
+		/// Per-generation configuration overrides
+		config_overrides?: Generation
+	}
 
 	model Generation {
 		/// Mode for the watermark at the top of the generated files. Defaults to "short" if not specified.
@@ -26,10 +45,19 @@ model GlueConfigSchema {
 				"pydantic" |
 				/// Standard library dataclasses
 				"dataclasses" |
+				/// attrs classes
+				"attrs" |
 				/// msgspec Struct classes
 				"msgspec"
 			/// For pydantic: the full import path for the base model class. Defaults to `pydantic.BaseModel`.
 			base_model?: string
+		}
+
+		/// Configurations for Rust code generation (`glue gen rust [...]`)
+		rust?: Rust
+		model Rust {
+			/// Include serde_yaml support in generated output
+			include_yaml?: bool
 		}
 	}
 }

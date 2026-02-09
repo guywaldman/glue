@@ -1,6 +1,6 @@
 ---
 source: codegen/src/codegen_python.rs
-expression: "gen_python_with_framework(SIMPLE_MODEL,\nGlueConfigSchemaGenerationPythonPythonFramework::Dataclasses)"
+expression: gen_python_with_data_model_lib(ALIAS_MODEL, GlueConfigSchemaGenerationPythonDataModelLibrary::Dataclasses)
 ---
 # pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring
 
@@ -10,8 +10,6 @@ from typing import Any, Optional, Union
 
 @dataclass
 class User:
-    name: str
-    """The user's display name"""
-    age: int
-    email: Optional[str] = None
-    active: bool = True
+    id: int
+    first_name: str
+    metadata: Any

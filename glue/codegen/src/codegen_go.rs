@@ -1,4 +1,4 @@
-use config::GlueConfig;
+use config::GlueConfigSchemaGeneration;
 use convert_case::{Case, Casing};
 use lang::{AnalyzedProgram, AstNode, Enum, Field, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
 
@@ -12,7 +12,7 @@ use crate::{
 pub struct CodeGenGo;
 
 impl CodeGenerator for CodeGenGo {
-    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, config: Option<GlueConfig>) -> Result<String, CodeGenError> {
+    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, config: Option<GlueConfigSchemaGeneration>) -> Result<String, CodeGenError> {
         let ctx = CodeGenContext::new(program.ast_root.clone(), program.symbols, source, config.as_ref());
         let mut generator = GoGenerator::new(ctx);
         generator.generate()

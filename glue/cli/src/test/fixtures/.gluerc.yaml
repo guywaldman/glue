@@ -1,4 +1,5 @@
 # yaml-language-server: $schema=../../../../assets/config_schema.json
 
-generation:
-  watermark: none
+global:
+  config:
+    watermark: none

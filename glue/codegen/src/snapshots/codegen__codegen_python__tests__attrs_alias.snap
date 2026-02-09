@@ -1,0 +1,15 @@
+---
+source: codegen/src/codegen_python.rs
+expression: gen_python_with_data_model_lib(ALIAS_MODEL, GlueConfigSchemaGenerationPythonDataModelLibrary::Attrs)
+---
+# pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring
+
+from attrs import define, field
+from enum import StrEnum
+from typing import Any, Optional, Union
+
+@define
+class User:
+    id: int
+    first_name: str = field(alias="firstName")
+    metadata: Any

@@ -1,4 +1,4 @@
-use config::{GlueConfig, GlueConfigSchemaGenerationPython, GlueConfigSchemaGenerationPythonDataModelLibrary};
+use config::{GlueConfigSchemaGeneration, GlueConfigSchemaGenerationPython, GlueConfigSchemaGenerationPythonDataModelLibrary};
 use convert_case::{Case, Casing};
 use lang::{AnalyzedProgram, AstNode, Enum, Field, Literal, LiteralExpr, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
 
@@ -11,6 +11,7 @@ use crate::{
 enum PyModelLibrary {
     Pydantic { base_model: String },
     Dataclasses,
+    Attrs,
     Msgspec,
 }
 
@@ -26,6 +27,7 @@ impl PyModelLibrary {
                 Ok(Self::Pydantic { base_model: base })
             }
             GlueConfigSchemaGenerationPythonDataModelLibrary::Dataclasses => Ok(Self::Dataclasses),
+            GlueConfigSchemaGenerationPythonDataModelLibrary::Attrs => Ok(Self::Attrs),
             GlueConfigSchemaGenerationPythonDataModelLibrary::Msgspec => Ok(Self::Msgspec),
         }
     }
@@ -45,7 +47,13 @@ impl PyModelLibrary {
             }
             Self::Dataclasses => vec![
                 lint,
-                "from dataclasses import dataclass, field".to_string(),
+                "from dataclasses import dataclass".to_string(),
+                "from enum import StrEnum".to_string(),
+                "from typing import Any, Optional, Union".to_string(),
+            ],
+            Self::Attrs => vec![
+                lint,
+                "from attrs import define, field".to_string(),
                 "from enum import StrEnum".to_string(),
                 "from typing import Any, Optional, Union".to_string(),
             ],
@@ -61,6 +69,7 @@ impl PyModelLibrary {
     fn model_decorator(&self) -> Option<&str> {
         match self {
             Self::Dataclasses => Some("@dataclass"),
+            Self::Attrs => Some("@define"),
             _ => None,
         }
     }
@@ -69,6 +78,7 @@ impl PyModelLibrary {
         match self {
             Self::Pydantic { base_model } => base_model.rsplit_once('.').unwrap().1,
             Self::Dataclasses => "",
+            Self::Attrs => "",
             Self::Msgspec => "msgspec.Struct",
         }
     }
@@ -78,8 +88,8 @@ impl PyModelLibrary {
 pub struct CodeGenPython;
 
 impl CodeGenerator for CodeGenPython {
-    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, config: Option<GlueConfig>) -> Result<String, CodeGenError> {
-        let py_config = config.and_then(|c| c.generation).and_then(|g| g.python).unwrap_or_default();
+    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, config: Option<GlueConfigSchemaGeneration>) -> Result<String, CodeGenError> {
+        let py_config = config.and_then(|g| g.python).unwrap_or_default();
 
         let lib = PyModelLibrary::from_config(py_config)?;
         let ctx = CodeGenContext::new(program.ast_root.clone(), program.symbols, source, None);
@@ -162,8 +172,9 @@ impl<'a> PythonGenerator<'a> {
 
         let line = match &self.fw {
             PyModelLibrary::Pydantic { .. } => self.emit_field_pydantic(field, &py_name, &field_name, &type_code)?,
-            PyModelLibrary::Dataclasses => self.emit_field_simple(field, &py_name, &type_code)?,
-            PyModelLibrary::Msgspec => self.emit_field_simple(field, &py_name, &type_code)?,
+            PyModelLibrary::Dataclasses => self.emit_field_dataclasses(field, &py_name, &type_code)?,
+            PyModelLibrary::Attrs => self.emit_field_attrs(field, &py_name, &field_name, &type_code)?,
+            PyModelLibrary::Msgspec => self.emit_field_msgspec(field, &py_name, &field_name, &type_code)?,
         };
 
         self.output.push_str(&indent(&line, 4));
@@ -195,14 +206,61 @@ impl<'a> PythonGenerator<'a> {
         Ok(format!("{}: Annotated[{}, Field({})]\n", py_name, type_code, args.join(", ")))
     }
 
-    /// Dataclasses / msgspec: `name: Type = default`
-    fn emit_field_simple(&self, field: &Field, py_name: &str, type_code: &str) -> CodeGenResult<String> {
+    /// Dataclasses: `name: Type = default`
+    fn emit_field_dataclasses(&self, field: &Field, py_name: &str, type_code: &str) -> CodeGenResult<String> {
         if field.is_optional() {
             Ok(format!("{}: {} = None\n", py_name, type_code))
         } else if let Some(default) = self.field_default_code(field) {
             Ok(format!("{}: {} = {}\n", py_name, type_code, default))
         } else {
             Ok(format!("{}: {}\n", py_name, type_code))
+        }
+    }
+
+    fn emit_field_attrs(&self, field: &Field, py_name: &str, orig_name: &str, type_code: &str) -> CodeGenResult<String> {
+        let alias = self.field_alias(field, py_name, orig_name)?;
+        if alias.is_some() || field.is_optional() || self.field_default_code(field).is_some() {
+            let mut args = Vec::new();
+            if let Some(alias) = alias {
+                args.push(format!("alias=\"{}\"", alias));
+            }
+            if field.is_optional() {
+                args.push("default=None".to_string());
+            } else if let Some(default) = self.field_default_code(field) {
+                args.push(format!("default={}", default));
+            }
+            Ok(format!("{}: {} = field({})\n", py_name, type_code, args.join(", ")))
+        } else {
+            Ok(format!("{}: {}\n", py_name, type_code))
+        }
+    }
+
+    fn emit_field_msgspec(&self, field: &Field, py_name: &str, orig_name: &str, type_code: &str) -> CodeGenResult<String> {
+        let alias = self.field_alias(field, py_name, orig_name)?;
+        if alias.is_some() || field.is_optional() || self.field_default_code(field).is_some() {
+            let mut args = Vec::new();
+            if let Some(alias) = alias {
+                args.push(format!("name=\"{}\"", alias));
+            }
+            if field.is_optional() {
+                args.push("default=None".to_string());
+            } else if let Some(default) = self.field_default_code(field) {
+                args.push(format!("default={}", default));
+            }
+            Ok(format!("{}: {} = msgspec.field({})\n", py_name, type_code, args.join(", ")))
+        } else {
+            Ok(format!("{}: {}\n", py_name, type_code))
+        }
+    }
+
+    fn field_alias(&self, field: &Field, py_name: &str, orig_name: &str) -> CodeGenResult<Option<String>> {
+        let alias = field.alias()?;
+        if let Some(v) = alias {
+            Ok(Some(v))
+        } else if py_name != orig_name {
+            Ok(Some(orig_name.to_string()))
+        } else {
+            Ok(None)
         }
     }
 
@@ -307,14 +365,12 @@ mod tests {
     }
 
     fn gen_python_with_data_model_lib(src: &str, lib: GlueConfigSchemaGenerationPythonDataModelLibrary) -> String {
-        let config = GlueConfig {
-            generation: Some(GlueConfigSchemaGeneration {
-                python: Some(GlueConfigSchemaGenerationPython {
-                    data_model_library: Some(lib),
-                    base_model: None,
-                }),
-                ..Default::default()
+        let config = GlueConfigSchemaGeneration {
+            python: Some(GlueConfigSchemaGenerationPython {
+                data_model_library: Some(lib),
+                base_model: None,
             }),
+            ..Default::default()
         };
         gen_test_with_config(&CodeGenPython, src, Some(config))
     }
@@ -329,6 +385,15 @@ mod tests {
         }
     "# };
 
+    const ALIAS_MODEL: &str = indoc! { r#"
+        model User {
+            id: int
+            @field(alias="firstName")
+            first_name: string
+            metadata: any
+        }
+    "# };
+
     #[test]
     fn test_pydantic() {
         assert_snapshot!(gen_python(SIMPLE_MODEL));
@@ -340,8 +405,28 @@ mod tests {
     }
 
     #[test]
+    fn test_attrs() {
+        assert_snapshot!(gen_python_with_data_model_lib(SIMPLE_MODEL, GlueConfigSchemaGenerationPythonDataModelLibrary::Attrs));
+    }
+
+    #[test]
     fn test_msgspec() {
         assert_snapshot!(gen_python_with_data_model_lib(SIMPLE_MODEL, GlueConfigSchemaGenerationPythonDataModelLibrary::Msgspec));
+    }
+
+    #[test]
+    fn test_dataclasses_alias() {
+        assert_snapshot!(gen_python_with_data_model_lib(ALIAS_MODEL, GlueConfigSchemaGenerationPythonDataModelLibrary::Dataclasses));
+    }
+
+    #[test]
+    fn test_attrs_alias() {
+        assert_snapshot!(gen_python_with_data_model_lib(ALIAS_MODEL, GlueConfigSchemaGenerationPythonDataModelLibrary::Attrs));
+    }
+
+    #[test]
+    fn test_msgspec_alias() {
+        assert_snapshot!(gen_python_with_data_model_lib(ALIAS_MODEL, GlueConfigSchemaGenerationPythonDataModelLibrary::Msgspec));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use config::GlueConfig;
+use config::GlueConfigSchemaGeneration;
 use convert_case::{Case, Casing};
 use lang::{
     AstNode, DiagnosticContext, Enum, EnumVariant, Field, LNode, LSyntaxKind, Literal, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG, Model, PrimitiveType, SourceCodeMetadata, SymId,
@@ -11,11 +11,11 @@ pub struct CodeGenContext<'a> {
     pub ast: LNode,
     pub symbols: SymTable<LNode>,
     pub diag: DiagnosticContext,
-    pub config: Option<&'a GlueConfig>,
+    pub config: Option<&'a GlueConfigSchemaGeneration>,
 }
 
 impl<'a> CodeGenContext<'a> {
-    pub fn new(ast: LNode, symbols: SymTable<LNode>, source: &SourceCodeMetadata, config: Option<&'a GlueConfig>) -> Self {
+    pub fn new(ast: LNode, symbols: SymTable<LNode>, source: &SourceCodeMetadata, config: Option<&'a GlueConfigSchemaGeneration>) -> Self {
         let diag = DiagnosticContext::new(source.file_name, source.file_contents);
         Self { ast, symbols, diag, config }
     }

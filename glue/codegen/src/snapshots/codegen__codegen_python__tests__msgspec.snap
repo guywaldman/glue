@@ -1,6 +1,6 @@
 ---
 source: codegen/src/codegen_python.rs
-expression: "gen_python_with_framework(SIMPLE_MODEL,\nGlueConfigSchemaGenerationPythonPythonFramework::Msgspec)"
+expression: "gen_python_with_data_model_lib(SIMPLE_MODEL,\nGlueConfigSchemaGenerationPythonDataModelLibrary::Msgspec)"
 ---
 # pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring
 
@@ -12,5 +12,5 @@ class User(msgspec.Struct):
     name: str
     """The user's display name"""
     age: int
-    email: Optional[str] = None
-    active: bool = True
+    email: Optional[str] = msgspec.field(default=None)
+    active: bool = msgspec.field(default=True)

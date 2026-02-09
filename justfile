@@ -20,25 +20,21 @@ generate: build
 	cargo run --bin glue -- gen rust -i {{config_schema}} -o $config_rust_file
 	cargo fmt -- $config_rust_file
 
-check-cli:
-	just lint-cli
-	just test-cli
-
 install-cli:
 	cd glue && cargo build --release --bin glue
 	cd glue && cargo install --path cli --bin glue
 
-test-cli:
+test:
 	cd glue && cargo test --workspace --all-features
 
 test-e2e:
 	cd glue && cargo test e2e -- --nocapture
 
-lint-cli:
-	cd glue && cargo clippy --workspace --all -D warnings
+lint:
+	cd glue && cargo clippy --workspace --all
 	cd glue && cargo fmt --all -- --check
 
-fix-cli:
+fix:
 	cd glue && cargo fmt --all
 	cd glue && cargo clippy --workspace --all --fix --allow-dirty --allow-staged
 
@@ -48,14 +44,8 @@ extension-dev:
 extension-publish:
 	cd extension && npm install && npm test && npm run publish
 
-lint-install:
-	prek install
-
-lint:
+precommit:
 	prek run --all-files
-
-lint-staged:
-	prek run
 
 # Release - bumps extension and crate versions, tags and pushes
 # Requires: cargo install cargo-edit

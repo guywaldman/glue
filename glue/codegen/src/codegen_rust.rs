@@ -1,4 +1,4 @@
-use config::GlueConfig;
+use config::GlueConfigSchemaGeneration;
 use convert_case::{Case, Casing};
 use lang::{AnalyzedProgram, AstNode, Enum, Field, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
 
@@ -12,7 +12,7 @@ use crate::{
 pub struct CodeGenRust;
 
 impl CodeGenerator for CodeGenRust {
-    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, config: Option<GlueConfig>) -> Result<String, CodeGenError> {
+    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, config: Option<GlueConfigSchemaGeneration>) -> Result<String, CodeGenError> {
         let ctx = CodeGenContext::new(program.ast_root.clone(), program.symbols, source, config.as_ref());
         let mut generator = RustGenerator::new(ctx);
         generator.generate()
@@ -146,6 +146,7 @@ impl<'a> RustGenerator<'a> {
             "ref" => "r#ref",
             "self" => "r#self",
             "mod" => "r#mod",
+            "gen" => "r#gen",
             other => other,
         };
 
@@ -155,11 +156,9 @@ impl<'a> RustGenerator<'a> {
     }
 
     fn emit_type_atom(&self, atom: &TypeAtom, parent_scope: Option<SymId>) -> CodeGenResult<String> {
-        if let Some(primitive) = atom.as_primitive_type() {
-            return Ok(TypeMapper::to_rust(primitive).to_string());
-        }
-
-        if let Some(record_type) = atom.as_record_type() {
+        let mut base = if let Some(primitive) = atom.as_primitive_type() {
+            TypeMapper::to_rust(primitive).to_string()
+        } else if let Some(record_type) = atom.as_record_type() {
             let src_type = record_type.src_type_node().ok_or_else(|| CodeGenContext::internal_error("Record missing source type"))?;
             let dest_type = record_type.dest_type_node().ok_or_else(|| CodeGenContext::internal_error("Record missing destination type"))?;
 
@@ -173,23 +172,23 @@ impl<'a> RustGenerator<'a> {
                 .transpose()?
                 .unwrap_or_else(|| "serde_json::Value".to_string());
 
-            return Ok(format!("HashMap<{}, {}>", src_str, dest_str));
-        }
-
-        if let Some(ref_token) = atom.as_ref_token() {
+            format!("HashMap<{}, {}>", src_str, dest_str)
+        } else if let Some(ref_token) = atom.as_ref_token() {
             let ref_name = ref_token.text().trim();
-            let resolved = self
-                .ctx
+            self.ctx
                 .qualified_name(parent_scope, ref_name, Case::Pascal)
-                .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved type: {}", ref_name)))?;
-            return Ok(resolved);
-        }
-
-        if atom.as_anon_model().is_some() {
+                .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved type: {}", ref_name)))?
+        } else if atom.as_anon_model().is_some() {
             return Err(CodeGenContext::internal_error("Anonymous models not yet supported in Rust codegen"));
+        } else {
+            return Err(CodeGenContext::internal_error("Unknown type atom"));
+        };
+
+        if atom.is_array() {
+            base = format!("Vec<{}>", base);
         }
 
-        Err(CodeGenContext::internal_error("Unknown type atom"))
+        Ok(base)
     }
 }
 
