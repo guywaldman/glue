@@ -6,6 +6,7 @@ use thiserror::Error;
 
 use crate::{
     codegen_go::CodeGenGo, codegen_jsonschema::CodeGenJsonSchema, codegen_openapi::CodeGenOpenAPI, codegen_protobuf::CodeGenProtobuf, codegen_python::CodeGenPython, codegen_rust::CodeGenRust,
+    codegen_typescript::CodeGenTypeScript,
 };
 
 #[derive(Debug, Error)]
@@ -38,6 +39,8 @@ pub enum CodeGenMode {
     Rust,
     #[value(name = "python")]
     Python,
+    #[value(name = "typescript")]
+    TypeScript,
     #[value(name = "protobuf")]
     Protobuf,
     #[value(name = "go")]
@@ -51,6 +54,7 @@ impl CodeGenMode {
             CodeGenMode::OpenApi => "openapi",
             CodeGenMode::Rust => "rust",
             CodeGenMode::Python => "python",
+            CodeGenMode::TypeScript => "typescript",
             CodeGenMode::Protobuf => "protobuf",
             CodeGenMode::Go => "go",
         }
@@ -69,6 +73,7 @@ impl CodeGenMode {
             CodeGenMode::OpenApi => "yaml",
             CodeGenMode::Rust => "rs",
             CodeGenMode::Python => "py",
+            CodeGenMode::TypeScript => "ts",
             CodeGenMode::Protobuf => "proto",
             CodeGenMode::Go => "go",
         }
@@ -88,6 +93,7 @@ impl TryFrom<&str> for CodeGenMode {
             "openapi" => Ok(CodeGenMode::OpenApi),
             "rust" => Ok(CodeGenMode::Rust),
             "python" => Ok(CodeGenMode::Python),
+            "typescript" => Ok(CodeGenMode::TypeScript),
             "protobuf" => Ok(CodeGenMode::Protobuf),
             "go" => Ok(CodeGenMode::Go),
             _ => Err(CodeGenError::InternalError(format!("Unknown code generation mode: {}", value))),
@@ -109,6 +115,7 @@ impl CodeGen {
             CodeGenMode::OpenApi => Box::<CodeGenOpenAPI>::default(),
             CodeGenMode::Rust => Box::<CodeGenRust>::default(),
             CodeGenMode::Python => Box::<CodeGenPython>::default(),
+            CodeGenMode::TypeScript => Box::<CodeGenTypeScript>::default(),
             CodeGenMode::Protobuf => Box::<CodeGenProtobuf>::default(),
             CodeGenMode::Go => Box::<CodeGenGo>::default(),
         };

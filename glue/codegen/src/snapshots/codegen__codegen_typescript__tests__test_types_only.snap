@@ -1,0 +1,15 @@
+---
+source: codegen/src/codegen_typescript.rs
+expression: gen_typescript(SIMPLE_MODEL)
+---
+export type User = {
+  /**
+   * The user's display name
+   */
+  name: string;
+  age: number;
+  email?: string;
+  active: boolean;
+};
+
+export type UserRole = "admin" | "user" | "guest";

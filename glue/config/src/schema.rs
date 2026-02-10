@@ -37,6 +37,13 @@ pub struct GlueConfigSchemaGenConfig {
     pub config_overrides: Option<GlueConfigSchemaGeneration>,
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
+pub struct GlueConfigSchemaGenerationTypeScript {
+    /// Whether to emit Zod schemas and use z.infer for types. Defaults to false.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub zod: Option<bool>,
+}
+
 /// The Python modeling library
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum GlueConfigSchemaGenerationPythonDataModelLibrary {
@@ -87,6 +94,12 @@ pub enum GlueConfigSchemaGenerationWatermark {
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
 pub struct GlueConfigSchemaGeneration {
+    /// Whether to emit lint suppression comments in generated files. Defaults to true.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lint_suppressions: Option<bool>,
+    /// Configurations for TypeScript code generation (`glue gen typescript [...]`)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub typescript: Option<GlueConfigSchemaGenerationTypeScript>,
     /// Mode for the watermark at the top of the generated files. Defaults to "short" if not specified.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub watermark: Option<GlueConfigSchemaGenerationWatermark>,

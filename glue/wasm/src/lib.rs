@@ -31,8 +31,8 @@ pub fn generate(mode: &str, code: &str) -> GenerateResult {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub fn generate_with_config(mode: &str, code: &str, config: Option<JsValue>) -> GenerateResult {
     let parsed = match config {
-        Some(value) => match serde_wasm_bindgen::from_value::<GlueConfigSchemaGeneration>(value) {
-            Ok(config) => Some(config),
+        Some(value) => match parse_generation_config(value) {
+            Ok(config) => config,
             Err(err) => {
                 return GenerateResult {
                     ok: false,
@@ -84,4 +84,17 @@ fn generate_with_config_inner(mode: &str, code: &str, config: Option<GlueConfigS
             GenerateResult { ok: false, output }
         }
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn parse_generation_config(value: JsValue) -> Result<Option<GlueConfigSchemaGeneration>, String> {
+    if let Ok(config) = serde_wasm_bindgen::from_value::<GlueConfigSchemaGeneration>(value.clone()) {
+        return Ok(Some(config));
+    }
+
+    if let Ok(schema) = serde_wasm_bindgen::from_value::<GlueConfigSchema>(value) {
+        return Ok(schema.global.and_then(|g| g.config));
+    }
+
+    Err("Expected GlueConfigSchemaGeneration or GlueConfigSchema".to_string())
 }

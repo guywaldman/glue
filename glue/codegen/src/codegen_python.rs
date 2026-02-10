@@ -32,8 +32,12 @@ impl PyModelLibrary {
         }
     }
 
-    fn preludes(&self) -> Vec<String> {
-        let lint = "# pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring\n".to_string();
+    fn preludes(&self, include_lint: bool) -> Vec<String> {
+        let lint = if include_lint {
+            "# pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring\n".to_string()
+        } else {
+            String::new()
+        };
         match self {
             Self::Pydantic { base_model } => {
                 let (module, class) = base_model.rsplit_once('.').unwrap();
@@ -89,11 +93,12 @@ pub struct CodeGenPython;
 
 impl CodeGenerator for CodeGenPython {
     fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, config: Option<GlueConfigSchemaGeneration>) -> Result<String, CodeGenError> {
+        let lint_suppressions = config.as_ref().and_then(|g| g.lint_suppressions).unwrap_or(true);
         let py_config = config.and_then(|g| g.python).unwrap_or_default();
 
         let lib = PyModelLibrary::from_config(py_config)?;
         let ctx = CodeGenContext::new(program.ast_root.clone(), program.symbols, source, None);
-        let mut generator = PythonGenerator::new(ctx, lib);
+        let mut generator = PythonGenerator::new(ctx, lib, lint_suppressions);
         generator.generate()
     }
 }
@@ -101,12 +106,18 @@ impl CodeGenerator for CodeGenPython {
 struct PythonGenerator<'a> {
     ctx: CodeGenContext<'a>,
     fw: PyModelLibrary,
+    lint_suppressions: bool,
     output: String,
 }
 
 impl<'a> PythonGenerator<'a> {
-    fn new(ctx: CodeGenContext<'a>, fw: PyModelLibrary) -> Self {
-        Self { ctx, fw, output: String::new() }
+    fn new(ctx: CodeGenContext<'a>, fw: PyModelLibrary, lint_suppressions: bool) -> Self {
+        Self {
+            ctx,
+            fw,
+            lint_suppressions,
+            output: String::new(),
+        }
     }
 
     fn generate(&mut self) -> CodeGenResult<String> {
@@ -117,7 +128,7 @@ impl<'a> PythonGenerator<'a> {
             self.emit_enum(&enum_, None)?;
         }
 
-        let preludes = self.fw.preludes().join("\n");
+        let preludes = self.fw.preludes(self.lint_suppressions).join("\n");
         Ok(format!("{}\n{}", preludes, self.output))
     }
 

@@ -320,9 +320,11 @@ impl GlueCli {
             (Some(base), None) => Some(base),
             (None, Some(overrides)) => Some(overrides),
             (Some(base), Some(overrides)) => Some(GlueConfigSchemaGeneration {
+                lint_suppressions: overrides.lint_suppressions.or(base.lint_suppressions),
                 watermark: overrides.watermark.or(base.watermark),
                 python: Self::merge_python_config(base.python, overrides.python),
                 rust: Self::merge_rust_config(base.rust, overrides.rust),
+                typescript: Self::merge_typescript_config(base.typescript, overrides.typescript),
             }),
         }
     }
@@ -347,6 +349,18 @@ impl GlueCli {
             (Some(base), Some(overrides)) => Some(config::GlueConfigSchemaGenerationRust {
                 include_yaml: overrides.include_yaml.or(base.include_yaml),
             }),
+        }
+    }
+
+    fn merge_typescript_config(
+        base: Option<config::GlueConfigSchemaGenerationTypeScript>,
+        overrides: Option<config::GlueConfigSchemaGenerationTypeScript>,
+    ) -> Option<config::GlueConfigSchemaGenerationTypeScript> {
+        match (base, overrides) {
+            (None, None) => None,
+            (Some(base), None) => Some(base),
+            (None, Some(overrides)) => Some(overrides),
+            (Some(base), Some(overrides)) => Some(config::GlueConfigSchemaGenerationTypeScript { zod: overrides.zod.or(base.zod) }),
         }
     }
 

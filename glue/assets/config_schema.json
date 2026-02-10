@@ -46,6 +46,10 @@
         "GlueConfigSchema::Generation": {
             "type": "object",
             "properties": {
+                "lint_suppressions": {
+                    "type": "boolean",
+                    "description": "Whether to emit lint suppression comments in generated files. Defaults to true."
+                },
                 "python": {
                     "$ref": "#/$defs/GlueConfigSchema::Generation::Python",
                     "description": "Configurations for Python code generation (`glue gen python [...]`)"
@@ -53,6 +57,10 @@
                 "rust": {
                     "$ref": "#/$defs/GlueConfigSchema::Generation::Rust",
                     "description": "Configurations for Rust code generation (`glue gen rust [...]`)"
+                },
+                "typescript": {
+                    "$ref": "#/$defs/GlueConfigSchema::Generation::TypeScript",
+                    "description": "Configurations for TypeScript code generation (`glue gen typescript [...]`)"
                 },
                 "watermark": {
                     "$ref": "#/$defs/GlueConfigSchema::Generation::Watermark",
@@ -89,6 +97,15 @@
                 "include_yaml": {
                     "type": "boolean",
                     "description": "Include serde_yaml support in generated output"
+                }
+            }
+        },
+        "GlueConfigSchema::Generation::TypeScript": {
+            "type": "object",
+            "properties": {
+                "zod": {
+                    "type": "boolean",
+                    "description": "Whether to emit Zod schemas and use z.infer for types. Defaults to false."
                 }
             }
         },

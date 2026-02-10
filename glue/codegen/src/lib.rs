@@ -8,6 +8,7 @@ mod codegen_openapi;
 mod codegen_protobuf;
 mod codegen_python;
 mod codegen_rust;
+mod codegen_typescript;
 mod context;
 mod models;
 

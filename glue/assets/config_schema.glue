@@ -22,6 +22,16 @@ model GlueConfigSchema {
 	}
 
 	model Generation {
+		/// Whether to emit lint suppression comments in generated files. Defaults to true.
+		lint_suppressions?: bool
+
+		/// Configurations for TypeScript code generation (`glue gen typescript [...]`)
+		typescript?: TypeScript
+		model TypeScript {
+			/// Whether to emit Zod schemas and use z.infer for types. Defaults to false.
+			zod?: bool
+		}
+
 		/// Mode for the watermark at the top of the generated files. Defaults to "short" if not specified.
 		watermark?: Watermark
 
