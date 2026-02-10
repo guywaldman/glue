@@ -159,6 +159,9 @@ pub struct Schema {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub items: Option<Box<SchemaOrReference<Schema>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "additionalProperties")]
+    pub additional_properties: Option<Box<SchemaOrReference<Schema>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "enum")]
     pub enum_values: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]

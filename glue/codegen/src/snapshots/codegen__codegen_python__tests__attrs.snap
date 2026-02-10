@@ -1,9 +1,8 @@
 ---
 source: codegen/src/codegen_python.rs
-expression: gen_python_with_data_model_lib(SIMPLE_MODEL, GlueConfigSchemaGenerationPythonDataModelLibrary::Attrs)
+expression: "gen_python_with_data_model_lib(SIMPLE_MODEL,\nGlueConfigSchemaGenerationPythonDataModelLibrary::Attrs)"
 ---
 # pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring
-
 from attrs import define, field
 from enum import StrEnum
 from typing import Any, Optional, Union

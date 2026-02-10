@@ -188,6 +188,15 @@ impl SemanticAnalyzer {
                     errors.push(SemanticAnalyzerError::UndefinedTypeReference(report));
                 }
             }
+
+            if let Some(record) = type_atom.as_record_type() {
+                if let Some(src) = record.src_type_node() {
+                    Self::check_type(src, symbols, scope, errors, diag.clone());
+                }
+                if let Some(dest) = record.dest_type_node() {
+                    Self::check_type(dest, symbols, scope, errors, diag.clone());
+                }
+            }
         }
     }
 
@@ -415,6 +424,23 @@ mod tests {
     use indoc::indoc;
 
     use crate::{metadata::SourceCodeMetadata, semantic_analyzer::SemanticAnalyzer, syntax::Parser};
+
+    #[test]
+    fn test_record_unknown_type_fails() {
+        let src = indoc! { r#"
+            model User {
+                metadata: Record<string, Foo>
+            }
+        "# };
+
+        let source = SourceCodeMetadata {
+            file_name: "test.glue",
+            file_contents: src,
+        };
+        let parsed = Parser::new().parse(&source).unwrap();
+        let result = SemanticAnalyzer::new().analyze(&parsed, &source);
+        assert!(result.is_err(), "Expected semantic analysis to fail for unknown record type");
+    }
 
     #[test]
     fn test_valid_model_basic() {

@@ -3,7 +3,6 @@ source: codegen/src/codegen_python.rs
 expression: output
 ---
 # pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring
-
 from pydantic import BaseModel
 from pydantic import Field
 from enum import StrEnum
@@ -11,6 +10,7 @@ from typing import Any, Annotated, Optional, Union
 
 class Container(BaseModel):
     inner: Annotated["ContainerInner", Field()]
+
 
 class ContainerInner(BaseModel):
     data: Annotated[dict[str, Any], Field()]

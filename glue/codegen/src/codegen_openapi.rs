@@ -176,6 +176,22 @@ impl<'a> OpenAPIGenerator<'a> {
             return self.wrap_if_array(atom, openapi::SchemaOrReference::Item(base));
         }
 
+        if let Some(record) = atom.as_record_type() {
+            let value_schema = record.dest_type_node().and_then(Type::cast).map(|dest_type| self.type_to_schema(&dest_type)).unwrap_or_else(|| {
+                openapi::SchemaOrReference::Item(openapi::Schema {
+                    schema_type: Some("object".to_string()),
+                    ..Default::default()
+                })
+            });
+            let base = openapi::Schema {
+                schema_type: Some("object".to_string()),
+                additional_properties: Some(Box::new(value_schema)),
+                nullable,
+                ..Default::default()
+            };
+            return self.wrap_if_array(atom, openapi::SchemaOrReference::Item(base));
+        }
+
         if let Some(ref_token) = atom.as_ref_token() {
             let reference = format!("#/components/schemas/{}", ref_token.text());
             return self.wrap_if_array(atom, openapi::SchemaOrReference::Reference { reference });
@@ -299,6 +315,7 @@ mod tests {
     use indoc::indoc;
     use insta::{assert_json_snapshot, assert_snapshot};
     use lang::SourceCodeMetadata;
+    use serde_json::Value;
 
     use crate::{CodeGenerator, test_utils::analyze_test_glue_file};
 
@@ -331,5 +348,36 @@ mod tests {
             .unwrap();
         let json_value: serde_json::Value = serde_json::from_str(&result).unwrap();
         assert_json_snapshot!(json_value);
+    }
+
+    #[test]
+    fn test_record_string_to_model() {
+        let src = indoc! {r#"
+            model Container {
+                metadata: Record<string, UserData>
+
+                model UserData {
+                    foo: string
+                }
+            }
+        "#};
+
+        let (program, source) = analyze_test_glue_file(src);
+        let codegen = CodeGenOpenAPI;
+        let result = codegen
+            .generate(
+                program,
+                &SourceCodeMetadata {
+                    file_name: source.file_name,
+                    file_contents: source.file_contents,
+                },
+                None,
+            )
+            .unwrap();
+
+        let json_value: Value = serde_json::from_str(&result).unwrap();
+        let metadata = &json_value["components"]["schemas"]["Container"]["properties"]["metadata"];
+        assert_eq!(metadata["type"], "object");
+        assert_eq!(metadata["additionalProperties"]["$ref"], "#/components/schemas/UserData");
     }
 }

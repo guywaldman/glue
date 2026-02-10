@@ -8,7 +8,6 @@ build-wasm:
 	cd glue && cargo run --bin glue -- gen typescript -i {{config_schema}} -o {{assets_dir}}/config_schema.ts
 	cd glue/wasm && wasm-pack build --release --target web
 	cp glue/assets/config_schema.ts glue/wasm/pkg/config_schema.ts
-	# Then copy the `glue/wasm/pkg` folder to the frontend repo
 
 generate: build
 	#!/usr/bin/env bash

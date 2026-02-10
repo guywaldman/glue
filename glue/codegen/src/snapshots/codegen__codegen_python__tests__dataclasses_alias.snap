@@ -1,9 +1,8 @@
 ---
 source: codegen/src/codegen_python.rs
-expression: gen_python_with_data_model_lib(ALIAS_MODEL, GlueConfigSchemaGenerationPythonDataModelLibrary::Dataclasses)
+expression: "gen_python_with_data_model_lib(ALIAS_MODEL,\nGlueConfigSchemaGenerationPythonDataModelLibrary::Dataclasses)"
 ---
 # pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring
-
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Optional, Union

@@ -3,7 +3,6 @@ source: codegen/src/codegen_python.rs
 expression: "gen_python_with_data_model_lib(SIMPLE_MODEL,\nGlueConfigSchemaGenerationPythonDataModelLibrary::Msgspec)"
 ---
 # pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring
-
 import msgspec
 from enum import StrEnum
 from typing import Any, Optional, Union

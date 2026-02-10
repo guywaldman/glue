@@ -3,7 +3,6 @@ source: cli/src/test/test.rs
 expression: generated_code
 ---
 # pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring
-
 from pydantic import BaseModel
 from pydantic import Field
 from enum import StrEnum
@@ -20,6 +19,7 @@ class Todo(BaseModel):
     user_id: Annotated[int, Field()]
     """User ID associated with this todo."""
 
+
 class User(BaseModel):
     """Represents a user."""
     id: Annotated[int, Field()]
@@ -31,6 +31,7 @@ class User(BaseModel):
     website: Annotated[str, Field()]
     company: Annotated["UserCompany", Field()]
 
+
 class UserAddress(BaseModel):
     """Represents a user's address."""
     street: Annotated[str, Field()]
@@ -39,16 +40,19 @@ class UserAddress(BaseModel):
     zipcode: Annotated[str, Field()]
     geo: Annotated["UserGeo", Field()]
 
+
 class UserGeo(BaseModel):
     """Represents geographic coordinates."""
     lat: Annotated[str, Field()]
     lng: Annotated[str, Field()]
+
 
 class UserCompany(BaseModel):
     """Represents a company."""
     name: Annotated[str, Field()]
     catch_phrase: Annotated[str, Field(alias="catchPhrase")]
     bs: Annotated[str, Field()]
+
 
 class Error(BaseModel):
     """Represents an error response."""

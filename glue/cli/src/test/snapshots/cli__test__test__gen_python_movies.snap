@@ -3,7 +3,6 @@ source: cli/src/test/test.rs
 expression: generated_code
 ---
 # pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring
-
 from pydantic import BaseModel
 from pydantic import Field
 from enum import StrEnum
@@ -19,6 +18,7 @@ class Movie(BaseModel):
     """Year the movie was released."""
     tags: Annotated[list[str], Field()]
     """List of tags associated with the movie."""
+
 
 class Error(BaseModel):
     """Represents an error response."""

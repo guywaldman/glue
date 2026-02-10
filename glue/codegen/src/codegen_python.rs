@@ -33,16 +33,11 @@ impl PyModelLibrary {
     }
 
     fn preludes(&self, include_lint: bool) -> Vec<String> {
-        let lint = if include_lint {
-            "# pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring\n".to_string()
-        } else {
-            String::new()
-        };
-        match self {
+        let lint = "# pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring".to_string();
+        let mut lines = match self {
             Self::Pydantic { base_model } => {
                 let (module, class) = base_model.rsplit_once('.').unwrap();
                 vec![
-                    lint,
                     format!("from {} import {}", module, class),
                     "from pydantic import Field".to_string(),
                     "from enum import StrEnum".to_string(),
@@ -50,24 +45,27 @@ impl PyModelLibrary {
                 ]
             }
             Self::Dataclasses => vec![
-                lint,
                 "from dataclasses import dataclass".to_string(),
                 "from enum import StrEnum".to_string(),
                 "from typing import Any, Optional, Union".to_string(),
             ],
             Self::Attrs => vec![
-                lint,
                 "from attrs import define, field".to_string(),
                 "from enum import StrEnum".to_string(),
                 "from typing import Any, Optional, Union".to_string(),
             ],
             Self::Msgspec => vec![
-                lint,
                 "import msgspec".to_string(),
                 "from enum import StrEnum".to_string(),
                 "from typing import Any, Optional, Union".to_string(),
             ],
+        };
+
+        if include_lint {
+            lines.insert(0, lint);
         }
+
+        lines
     }
 
     fn model_decorator(&self) -> Option<&str> {
@@ -129,17 +127,20 @@ impl<'a> PythonGenerator<'a> {
         }
 
         let preludes = self.fw.preludes(self.lint_suppressions).join("\n");
-        Ok(format!("{}\n{}", preludes, self.output))
+        let body = self.output.trim_start_matches('\n');
+        if body.is_empty() { Ok(preludes) } else { Ok(format!("{}\n\n{}", preludes, body)) }
     }
 
     fn emit_model(&mut self, model: &Model, parent_scope: Option<SymId>) -> CodeGenResult<()> {
         let scope_id = model.scope_id(&self.ctx, parent_scope)?;
         let name = model.qualified_name(&self.ctx, parent_scope, Case::Pascal)?;
 
+        if !self.output.is_empty() && !self.output.ends_with("\n\n") {
+            self.output.push_str("\n\n");
+        }
+
         if let Some(decorator) = self.fw.model_decorator() {
-            self.output.push_str(&format!("\n{}\n", decorator));
-        } else {
-            self.output.push('\n');
+            self.output.push_str(&format!("{}\n", decorator));
         }
 
         let base = self.fw.base_class();
@@ -288,7 +289,11 @@ impl<'a> PythonGenerator<'a> {
     fn emit_enum(&mut self, enum_: &Enum, parent_scope: Option<SymId>) -> CodeGenResult<()> {
         let name = enum_.qualified_name(&self.ctx, parent_scope, Case::Pascal)?;
 
-        self.output.push_str(&format!("\nclass {}(StrEnum):\n", name));
+        if !self.output.is_empty() && !self.output.ends_with("\n\n") {
+            self.output.push_str("\n\n");
+        }
+
+        self.output.push_str(&format!("class {}(StrEnum):\n", name));
 
         if let Some(docs) = enum_.docs() {
             self.output.push_str(&indent(&DocEmitter::python_docstring(&docs), 4));
