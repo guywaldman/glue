@@ -88,6 +88,8 @@ fn generate_with_config_inner(mode: &str, code: &str, config: Option<GlueConfigS
 
 #[cfg(target_arch = "wasm32")]
 fn parse_generation_config(value: JsValue) -> Result<Option<GlueConfigSchemaGeneration>, String> {
+    use config::GlueConfigSchema;
+
     if let Ok(config) = serde_wasm_bindgen::from_value::<GlueConfigSchemaGeneration>(value.clone()) {
         return Ok(Some(config));
     }
