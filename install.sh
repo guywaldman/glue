@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -e
 
-BINARY_NAME="${BINARY_NAME:-cli}"
 REPO="guywaldman/glue"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 VERSION="${VERSION:-latest}"
@@ -36,18 +35,16 @@ if [ "$VERSION" = "latest" ]; then
     [ -z "$VERSION" ] && err "Could not determine latest version"
 fi
 
-echo "Installing $BINARY_NAME $VERSION for $OS/$ARCH ..."
+echo "Installing glue $VERSION for $OS/$ARCH ..."
 
-# === Download & Extract ===
-TARBALL_URL="https://github.com/$REPO/releases/download/$VERSION/${BINARY_NAME}_${OS}_${ARCH}.tar.gz"
+TARBALL_URL="https://github.com/$REPO/releases/download/$VERSION/glue_${OS}_${ARCH}.tar.gz"
 echo "Downloading from $TARBALL_URL ..."
-curl -fsSL "$TARBALL_URL" -o "$TMPDIR/$BINARY_NAME.tgz" || err "Failed to download release"
+curl -fsSL "$TARBALL_URL" -o "$TMPDIR/glue.tgz" || err "Failed to download release"
 
-tar -xzf "$TMPDIR/$BINARY_NAME.tgz" -C "$TMPDIR" || err "Failed to extract archive"
+tar -xzf "$TMPDIR/glue.tgz" -C "$TMPDIR" || err "Failed to extract archive"
 
-# === Install ===
-echo "Installing to $INSTALL_DIR/$BINARY_NAME ..."
-install -m 0755 "$TMPDIR/$BINARY_NAME" "$INSTALL_DIR/$BINARY_NAME" || err "Failed to install binary (may need sudo)"
+echo "Installing glue to $INSTALL_DIR/glue..."
+install -m 0755 "$TMPDIR/glue" "$INSTALL_DIR/glue" || err "Failed to install binary (may need sudo)"
 
-echo "✅ Installed $BINARY_NAME to $INSTALL_DIR/$BINARY_NAME"
-echo "Run '$BINARY_NAME --help' to get started."
+echo "Installed glue to $INSTALL_DIR/glue"
+echo "Run 'glue --help' to get started."
