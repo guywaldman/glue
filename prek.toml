@@ -26,5 +26,5 @@ hooks = [
     pass_filenames = false,
     types = ["rust"],
     priority = 20,
-  },
+  }
 ]

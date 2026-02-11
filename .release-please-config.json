@@ -1,0 +1,19 @@
+{
+  "packages": {
+    ".": {
+      "release-type": "simple",
+      "include-v-in-tag": true,
+      "extra-files": [
+        "glue/cli/Cargo.toml",
+        "glue/codegen/Cargo.toml",
+        "glue/config/Cargo.toml",
+        "glue/lang/Cargo.toml",
+        "glue/lsp/Cargo.toml",
+        "glue/wasm/Cargo.toml",
+        "extension/package.json",
+        "extension/package-lock.json",
+        "glue/Cargo.lock"
+      ]
+    }
+  }
+}

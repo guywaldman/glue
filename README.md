@@ -1,10 +1,17 @@
 # Glue
 
-A domain-specific language and translator toolchain for modelling data.
+Glue is a domain-specific language and toolchain for modeling data and generating artifacts like API specs and language-specific models.
 
-> [!NOTE]
+> [!IMPORTANT]
 >
-> The project is under heavy development, and should not be used for production.
+> The Glue toolchain is in **beta**, use for production with caution and at your own risk. Expect breaking changes and bugs, though we will try to minimize these.
+> Feedback and contributions are very welcome!
+
+## Highlights
+
+- Glue DSL for defining models and API endpoints.
+- Codegen targets for JSON Schema, OpenAPI, Rust, TypeScript, Python, and more.
+- CLI and VS Code extension support.
 
 ## Installation
 
@@ -22,9 +29,8 @@ Requires [Rust](https://rustup.rs/) 1.70 or later:
 
 ```bash
 git clone https://github.com/guywaldman/glue.git
-cd glue/glue
-cargo build --release
-# Binaries will be in target/release/cli and target/release/gluelang
+cd glue
+just build
 ```
 
 ## Project Goals
@@ -47,13 +53,12 @@ cargo build --release
 
 ```typescript
 model User {
-	  /// A unique identifier for the user.
-		// INTERNAL NOTE: The ID is a UUID.
-		id: string
-		/// The user's email address.
-		email: string
-		/// The user's age.
-		age: int
+  /// A unique identifier for the user (UUID).
+  id: string
+  /// The user's email address.
+  email: string
+  /// The user's age.
+  age: int
 }
 ```
 
@@ -70,3 +75,31 @@ GET /users/{id}
 @response 200: Response200
 @response 404: Response404
 ```
+
+## CLI Quickstart
+
+Install the CLI:
+
+```bash
+just install-cli
+```
+
+Generate JSON Schema from a Glue file:
+
+```bash
+just gen-jsonschema ./path/to/schema.glue ./schema.json
+```
+
+Generate OpenAPI:
+
+```bash
+just gen-openapi ./path/to/api.glue ./openapi.json
+```
+
+Run `glue --help` to see all commands.
+
+## VS Code Extension
+
+Install the VS Code extension: https://marketplace.visualstudio.com/items?itemName=guywaldman.glue
+
+Source lives in [extension](extension) with syntax highlighting and language server features.

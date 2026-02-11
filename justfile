@@ -1,14 +1,17 @@
 assets_dir := "assets"
 config_schema := "assets/config_schema.glue"
 
+# Build the Rust workspace with all features.
 build:
 	cd glue && cargo build --workspace --all-features
 
+# Build the wasm package and sync generated schema bindings.
 build-wasm:
 	cd glue && cargo run --bin glue -- gen typescript -i {{config_schema}} -o {{assets_dir}}/config_schema.ts
 	cd glue/wasm && wasm-pack build --release --target web
 	cp glue/assets/config_schema.ts glue/wasm/pkg/config_schema.ts
 
+# Generate schema artifacts from the config schema.
 generate: build
 	#!/usr/bin/env bash
 
@@ -21,66 +24,41 @@ generate: build
 	cargo run --bin glue -- gen rust -i {{config_schema}} -o $config_rust_file
 	cargo fmt -- $config_rust_file
 
+# Build and install the CLI locally.
 install-cli:
 	cd glue && cargo build --release --bin glue
 	cd glue && cargo install --path cli --bin glue
 
-test:
+# Run Rust workspace unit tests.
+test-unit-cli:
 	cd glue && cargo test --workspace --all-features
 
-test-e2e:
+# Run CLI E2E tests.
+test-e2e-cli:
 	cd glue && cargo test e2e -- --nocapture
 
-lint:
+# Run lint and formatting checks for Rust.
+lint-cli:
 	cd glue && cargo clippy --workspace --all
 	cd glue && cargo fmt --all -- --check
 
-fix:
+# Auto-fix Rust formatting and clippy warnings.
+fix-cli:
 	cd glue && cargo fmt --all
 	cd glue && cargo clippy --workspace --all --fix --allow-dirty --allow-staged
 
+# Run VS Code extension tests.
+test-extension:
+	cd extension && npm install && npm test
+
+# Package and install the extension locally for development.
 extension-dev:
 	cd extension && rm -rf out ./*.vsix && npm install && npm run package && code --install-extension glue-*.vsix
 
+# Publish the extension to the marketplace.
 extension-publish:
 	cd extension && npm install && npm test && npm run publish
 
+# Run all precommit hooks.
 precommit:
 	prek run --all-files
-
-# Release - bumps extension and crate versions, tags and pushes
-# Requires: cargo install cargo-edit
-release bump:
-	#!/usr/bin/env bash
-	set -e
-
-	# Bump the extension version
-	cd extension
-	npm version {{bump}} --no-git-tag-version
-	NEW_VERSION=$(node -p "require('./package.json').version")
-	cd ..
-
-	echo "Bumped extension to version $NEW_VERSION"
-
-	# Bump all Rust crate versions using cargo-edit
-	cd glue
-	cargo set-version --workspace "$NEW_VERSION"
-	cd ..
-
-	echo "Bumped all crates to version $NEW_VERSION"
-
-	# Stage and commit
-	git add extension/package.json extension/package-lock.json glue/*/Cargo.toml glue/Cargo.lock
-	git commit -m "Release: v$NEW_VERSION"
-	git tag "v$NEW_VERSION"
-
-	echo ""
-	echo "Created commit and tag v$NEW_VERSION"
-	echo ""
-	read -p "Push commit and tag to origin? [y/N] " confirm
-	if [[ "$confirm" =~ ^[Yy]$ ]]; then
-		git push && git push --tags
-		echo "Pushed to origin"
-	else
-		echo "Aborted. You can push manually with: git push && git push --tags"
-	fi
