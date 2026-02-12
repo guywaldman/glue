@@ -1,4 +1,4 @@
-#sh Glue
+# Glue
 
 Glue is an IDL (Interface Definition Language) and toolchain for modeling data and interfaces, and generating them using a unified toolchain.
 
@@ -9,22 +9,13 @@ Glue is an IDL (Interface Definition Language) and toolchain for modeling data a
 
 ## Installation
 
-### Quick Install (Linux/macOS)
-
-Install the latest version of the CLI:
-
-```bash
+```shell
+# Linux/macOS (x86 or ARM)
 curl -fsSL https://github.com/guywaldman/glue/releases/latest/download/install.sh | bash
-```
 
-### Quick Install (Windows)
-
-Install the latest version of the CLI (PowerShell):
-
-```powershell
+# Windows (x86 or ARM)
 iwr -useb https://github.com/guywaldman/glue/releases/latest/download/install.ps1 | iex
 ```
-
 
 ## VS Code Extension
 
