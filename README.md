@@ -9,11 +9,17 @@ Glue is an IDL (Interface Definition Language) and toolchain for modeling data a
 
 ## Installation
 
-```shell
-# Linux/macOS (x86 or ARM)
-curl -fsSL https://github.com/guywaldman/glue/releases/latest/download/install.sh | bash
+For macOS/Linux (ARM or x86):
 
-# Windows (x86 or ARM)
+```shell
+brew install guywaldman/tap/glue
+# ...or:
+curl -fsSL https://github.com/guywaldman/glue/releases/latest/download/install.sh | bash
+```
+
+For Windows (ARM or x86):
+
+```shell
 iwr -useb https://github.com/guywaldman/glue/releases/latest/download/install.ps1 | iex
 ```
 
