@@ -37,19 +37,6 @@ impl GlueCli {
         let args = Cli::parse_from(cli_args);
 
         match &args.command {
-            CliSubcommand::Ast { input, output } => {
-                let (analyzed_program, _) = Self::analyze(input.clone())?;
-                let root = analyzed_program.ast_root;
-                Self::write_to_file_or_stdout(output, format!("{:#?}", root))?;
-                match output {
-                    Some(output_path) => {
-                        std::fs::write(output_path, format!("{:#?}", root))?;
-                    }
-                    None => {
-                        println!("{:#?}", root);
-                    }
-                }
-            }
             CliSubcommand::Check { input } => {
                 let _analyzed_program = Self::analyze(input.clone())?;
             }

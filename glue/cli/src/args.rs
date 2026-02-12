@@ -31,24 +31,14 @@ pub struct CliGenArgs {
 
 #[derive(Subcommand)]
 pub enum CliSubcommand {
-    /// Outputs the AST in Mermaid format
-    #[command(name = "ast")]
-    Ast {
-        /// Path to the input .glue file (defaults to stdin if not provided)
-        input: Option<PathBuf>,
-        /// Output directory for generated code. If not provided, prints to stdout
-        #[arg(short = 'o', long)]
-        output: Option<PathBuf>,
-    },
-
-    /// Checks for validity of the Glue file
+    /// Checks for validity of a Glue file
     #[command(name = "check")]
     Check {
         /// Path to the input .glue file (defaults to stdin if not provided)
         input: Option<PathBuf>,
     },
 
-    /// Generates code from the Glue file
+    /// Generates code from a Glue file
     Gen {
         #[command(flatten)]
         args: CliGenArgs,
