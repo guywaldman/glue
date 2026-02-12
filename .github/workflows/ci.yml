@@ -449,6 +449,7 @@ jobs:
             dist/*.tar.gz
             dist/*.vsix
             install.sh
+            install.ps1
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

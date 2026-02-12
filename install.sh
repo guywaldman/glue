@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
 REPO="guywaldman/glue"
-INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
+INSTALL_DIR="${INSTALL_DIR:-"$HOME/.local/bin"}"
 VERSION="${VERSION:-latest}"
 
 # === Helpers ===
@@ -17,6 +17,12 @@ need_cmd mktemp
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
 
+case "$OS" in
+    linux) OS="linux" ;;
+    darwin) OS="darwin" ;;
+    *) err "Unsupported OS: $OS (use install.ps1 on Windows)" ;;
+esac
+
 case "$ARCH" in
     x86_64) ARCH="amd64" ;;
     aarch64 | arm64) ARCH="arm64" ;;
@@ -26,25 +32,36 @@ esac
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
-# === Fetch latest version if needed ===
-if [ "$VERSION" = "latest" ]; then
-    echo "Fetching latest version..."
-    VERSION=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
-        | grep -o '"tag_name": *"[^"]*"' \
-        | head -n1 | cut -d'"' -f4)
-    [ -z "$VERSION" ] && err "Could not determine latest version"
+if [ "$VERSION" != "latest" ] && [[ "$VERSION" != v* ]]; then
+    VERSION="v$VERSION"
 fi
 
-echo "Installing glue $VERSION for $OS/$ARCH ..."
+ASSET="glue_${OS}_${ARCH}.tar.gz"
+if [ "$VERSION" = "latest" ]; then
+    TARBALL_URL="https://github.com/$REPO/releases/latest/download/$ASSET"
+else
+    TARBALL_URL="https://github.com/$REPO/releases/download/$VERSION/$ASSET"
+fi
 
-TARBALL_URL="https://github.com/$REPO/releases/download/$VERSION/glue_${OS}_${ARCH}.tar.gz"
+echo "Installing glue ($VERSION) for $OS/$ARCH ..."
 echo "Downloading from $TARBALL_URL ..."
 curl -fsSL "$TARBALL_URL" -o "$TMPDIR/glue.tgz" || err "Failed to download release"
 
 tar -xzf "$TMPDIR/glue.tgz" -C "$TMPDIR" || err "Failed to extract archive"
 
-echo "Installing glue to $INSTALL_DIR/glue..."
-install -m 0755 "$TMPDIR/glue" "$INSTALL_DIR/glue" || err "Failed to install binary (may need sudo)"
+[ -f "$TMPDIR/glue" ] || err "Expected 'glue' in archive, but it was not found"
 
-echo "Installed glue to $INSTALL_DIR/glue"
+mkdir -p "$INSTALL_DIR" 2>/dev/null || true
+
+DEST="$INSTALL_DIR/glue"
+echo "Installing glue to $DEST..."
+
+if command -v install >/dev/null 2>&1; then
+    install -m 0755 "$TMPDIR/glue" "$DEST" 2>/dev/null || err "Failed to write to $DEST (choose a writable INSTALL_DIR or use sudo)"
+else
+    cp "$TMPDIR/glue" "$DEST" 2>/dev/null || err "Failed to write to $DEST (choose a writable INSTALL_DIR or use sudo)"
+    chmod 0755 "$DEST" 2>/dev/null || true
+fi
+
+echo "Installed glue to $DEST"
 echo "Run 'glue --help' to get started."
