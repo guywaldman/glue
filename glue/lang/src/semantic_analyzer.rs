@@ -11,7 +11,7 @@ use crate::{
     builtin_decorators::{BUILTIN_DECORATORS, DecoratorDef},
     diagnostics::DiagnosticContext,
     symbols::{SymId, SymTable},
-    syntax::{AstNode, Enum, Field, LNode, LNodeOrToken, LSyntaxKind, Model, ParsedProgram, Type, TypeAtom},
+    syntax::{AnonModel, AstNode, Enum, Field, LNode, LNodeOrToken, LSyntaxKind, Model, ParsedProgram, Type, TypeAtom},
     utils::fuzzy_match,
 };
 
@@ -47,7 +47,11 @@ impl SemanticAnalyzer {
         let mut errors = Vec::new();
 
         let root = parsed.ast_root.clone();
-        let targets: Vec<_> = root.children().filter(|n| n.kind() == LSyntaxKind::MODEL).map(|n| (n.kind(), n.text_range())).collect();
+        let targets: Vec<_> = root
+            .children()
+            .filter(|n| matches!(n.kind(), LSyntaxKind::MODEL | LSyntaxKind::ENDPOINT))
+            .map(|n| (n.kind(), n.text_range()))
+            .collect();
         let green_node = root.green();
 
         debug!("Generating symbol table");
@@ -59,14 +63,28 @@ impl SemanticAnalyzer {
             let local_root: LNode = rowan::SyntaxNode::new_root(green_node.clone().into());
             let element = local_root.covering_element(range);
             let node = element.into_node().expect("expected node at range");
-            debug!("Analyzing model at range: {:?}", range);
-            if kind == LSyntaxKind::MODEL {
-                // TODO: Remove clone for symbols
-                Self::check_model(node, &symbols, None, &mut errors, diagnostic_ctx.clone());
+            match kind {
+                LSyntaxKind::MODEL => {
+                    // TODO: Remove clone for symbols
+                    Self::check_model(node, &symbols, None, &mut errors, diagnostic_ctx.clone());
+                }
+                LSyntaxKind::ENDPOINT => {
+                    Self::check_endpoint(node, &symbols, None, &mut errors, diagnostic_ctx.clone());
+                }
+                _ => {}
             }
         });
 
         if !errors.is_empty() { Err(errors) } else { Ok(AnalyzedProgram { ast_root: root, symbols }) }
+    }
+
+    /// Like [`analyze`], but always returns an [`AnalyzedProgram`] even when there are semantic errors etc.
+    pub fn analyze_lenient(&self, parsed: &ParsedProgram, source_code_metadata: &SourceCodeMetadata) -> AnalyzedProgram {
+        let diagnostic_ctx = DiagnosticContext::new(source_code_metadata.file_name, source_code_metadata.file_contents);
+        let mut errors = Vec::new();
+        let root = parsed.ast_root.clone();
+        let symbols = Self::generate_symbol_table(parsed, &mut errors, diagnostic_ctx);
+        AnalyzedProgram { ast_root: root, symbols }
     }
 
     fn check_model(node: LNode, symbols: &SymTable<LNode>, scope: Option<SymId>, errors: &mut Vec<SemanticAnalyzerError>, diag: DiagnosticContext) {
@@ -82,6 +100,42 @@ impl SemanticAnalyzer {
 
         for nested_model_node in model.nested_model_nodes() {
             Self::check_model(nested_model_node, symbols, model_scope, errors, diag.clone());
+        }
+    }
+
+    fn check_endpoint(node: LNode, symbols: &SymTable<LNode>, scope: Option<SymId>, errors: &mut Vec<SemanticAnalyzerError>, diag: DiagnosticContext) {
+        let endpoint = Endpoint::cast(node).unwrap();
+        let endpoint_name = endpoint.path_string_literal_node().unwrap().value().unwrap();
+        let endpoint_scope = symbols.resolve_id(scope, &endpoint_name);
+
+        // Check regular (non-responses) fields
+        for field_node in endpoint.field_nodes() {
+            let field = Field::cast(field_node.clone()).unwrap();
+            if field.ident().as_deref() == Some("responses") {
+                // Walk the anon model inside `responses` (e.g., `{ 2XX: Foo, 4XX: Bar }` and check each response type reference.
+                if let Some(type_node) = field.type_node() {
+                    let type_expr = Type::cast(type_node).unwrap();
+                    for atom_node in type_expr.type_atom_nodes() {
+                        let atom = TypeAtom::cast(atom_node).unwrap();
+                        if let Some(anon_model_node) = atom.as_anon_model() {
+                            let anon_model = AnonModel::cast(anon_model_node).unwrap();
+                            for response_field_node in anon_model.field_nodes() {
+                                let response_field = Field::cast(response_field_node).unwrap();
+                                if let Some(response_type_node) = response_field.type_node() {
+                                    Self::check_type(response_type_node, symbols, endpoint_scope, errors, diag.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                Self::check_field(field_node, symbols, endpoint_scope, errors, diag.clone());
+            }
+        }
+
+        // Check nested models declared inside the endpoint
+        for nested_model_node in endpoint.nested_model_nodes() {
+            Self::check_model(nested_model_node, symbols, endpoint_scope, errors, diag.clone());
         }
     }
 
@@ -492,5 +546,67 @@ mod tests {
         assert_eq!(errors.len(), 1);
         let error = errors[0].report();
         assert_eq!(error.help().unwrap().to_string(), "Did you mean 'BarEnum'?");
+    }
+
+    #[test]
+    fn test_endpoint_response_undefined_type_fails() {
+        let src = indoc! { r#"
+            endpoint "POST /listings" {
+                responses: {
+                    2XX: Aartment[]
+                    4XX: ErrorResponse
+                }
+            }
+
+            model Apartment {
+                id: int
+            }
+
+            model ErrorResponse {
+                code: int
+                message: string
+            }
+        "# };
+
+        let metadata = SourceCodeMetadata {
+            file_name: "test.glue",
+            file_contents: src,
+        };
+        let parsed = Parser::new().parse(&metadata).unwrap();
+        let result = SemanticAnalyzer::new().analyze(&parsed, &metadata);
+        assert!(result.is_err(), "Expected analysis to fail for typo 'Aartment'");
+        let errors = result.err().unwrap();
+        assert_eq!(errors.len(), 1, "Expected exactly one error");
+        assert!(errors[0].report().to_string().contains("Aartment"), "Expected error to mention 'Aartment'");
+        assert!(errors[0].report().help().unwrap().to_string().contains("Apartment"), "Expected 'Did you mean Apartment?' hint");
+    }
+
+    #[test]
+    fn test_endpoint_response_valid_type_passes() {
+        let src = indoc! { r#"
+            endpoint "GET /listings" {
+                responses: {
+                    2XX: Apartment[]
+                    4XX: ErrorResponse
+                }
+            }
+
+            model Apartment {
+                id: int
+            }
+
+            model ErrorResponse {
+                code: int
+                message: string
+            }
+        "# };
+
+        let metadata = SourceCodeMetadata {
+            file_name: "test.glue",
+            file_contents: src,
+        };
+        let parsed = Parser::new().parse(&metadata).unwrap();
+        let result = SemanticAnalyzer::new().analyze(&parsed, &metadata);
+        assert!(result.is_ok(), "Expected analysis to pass for valid endpoint response types");
     }
 }

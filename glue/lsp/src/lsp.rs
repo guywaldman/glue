@@ -131,7 +131,10 @@ impl Lsp {
         client.publish_diagnostics(parsed_uri, diagnostics, None).await;
     }
 
-    fn parse_document(&self, uri: &str) -> Result<(LNode, SymTable<LNode>)> {
+    /// Parses the document and runs lenient semantic analysis, succeeding even when the document
+    /// has errors (e.g. an unresolved type reference while the user is still typing).
+    /// Used by hover, goto_definition, and completion providers.
+    fn parse_document_lenient(&self, uri: &str) -> Result<(LNode, SymTable<LNode>)> {
         let state = self.state.read().expect("Failed to acquire read lock on LSP state");
         let source = state.documents.get(uri).ok_or_else(|| anyhow::anyhow!("Document not found: {uri}"))?;
         let metadata = SourceCodeMetadata {
@@ -141,7 +144,7 @@ impl Lsp {
         let mut parser = Parser::new();
         let parsed = parser.parse(&metadata).map_err(|e| anyhow::anyhow!("Parse error: {:?}", e))?;
         let analyzer = SemanticAnalyzer::new();
-        let analyzed = analyzer.analyze(&parsed, &metadata).map_err(|e| anyhow::anyhow!("Analysis error: {:?}", e))?;
+        let analyzed = analyzer.analyze_lenient(&parsed, &metadata);
         Ok((analyzed.ast_root, analyzed.symbols))
     }
 
@@ -356,8 +359,8 @@ impl LanguageServer for Lsp {
         let pos = params.text_document_position_params.position;
         info!("Received goto_definition request at position: {pos:?} in {uri}");
 
-        let Ok((ast, symbols)) = self.parse_document(&uri) else {
-            error!("Failed to parse document: {uri}");
+        let Ok((ast, symbols)) = self.parse_document_lenient(&uri) else {
+            error!("Failed to parse document for goto_definition: {uri}");
             return Ok(None);
         };
 
@@ -407,8 +410,8 @@ impl LanguageServer for Lsp {
         let pos = params.text_document_position_params.position;
         info!("Received hover request at position: {pos:?} in {uri}");
 
-        let Ok((ast, symbols)) = self.parse_document(&uri) else {
-            error!("Failed to parse document: {uri}");
+        let Ok((ast, symbols)) = self.parse_document_lenient(&uri) else {
+            error!("Failed to parse document for hover: {uri}");
             return Ok(None);
         };
 
@@ -465,8 +468,8 @@ impl LanguageServer for Lsp {
         let pos = params.text_document_position.position;
         info!("Received completion request at position: {pos:?} in {uri}");
 
-        let Ok((ast, symbols)) = self.parse_document(&uri) else {
-            error!("Failed to parse document: {uri}");
+        let Ok((ast, symbols)) = self.parse_document_lenient(&uri) else {
+            error!("Failed to parse document for completion: {uri}");
             return Ok(None);
         };
 
@@ -1072,5 +1075,42 @@ mod tests {
 
         assert!(!diagnostics.is_empty(), "expected semantic diagnostics");
         assert!(diagnostics.iter().any(|d| d.message.contains("Undefined type reference")), "expected undefined type diagnostic");
+    }
+
+    #[tokio::test]
+    async fn test_completion_works_with_unresolved_type_reference() {
+        // Regression test: completions must be returned even when the document contains an
+        // unresolved type reference (e.g. the user is mid-way through typing "ErrorResponse").
+        let src = indoc! {r#"
+            model Foo {
+                bar: ErrorRes
+            }
+
+            model ErrorResponse {
+                code: int
+                message: string
+            }
+        "#}
+        .trim();
+
+        let (lsp, uri) = setup_lsp(src).await;
+
+        let params = lsp::CompletionParams {
+            text_document_position: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri: uri.parse().unwrap() },
+                position: lsp::Position { line: 1, character: 14 },
+            },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            context: None,
+        };
+        let resp = lsp.completion(params).await;
+        let Ok(Some(lsp::CompletionResponse::Array(items))) = &resp else {
+            panic!("completion should succeed even with an unresolved type reference, got: {resp:?}");
+        };
+
+        let labels: Vec<String> = items.iter().map(|item| item.label.clone()).collect();
+        assert!(labels.contains(&"ErrorResponse".to_string()), "should contain ErrorResponse as a completion candidate");
+        assert!(labels.contains(&"Foo".to_string()), "should contain Foo model");
     }
 }

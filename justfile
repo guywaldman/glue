@@ -1,5 +1,8 @@
 set shell := ["zsh", "-l", "-c"]
 
+default:
+	@just --list
+
 assets_dir := "assets"
 config_schema := "assets/config_schema.glue"
 
@@ -58,7 +61,6 @@ test-extension:
 	cd extension && npm install && npm test
 
 # Package and install the extension locally for development.
-# Optionally pass a VS Code profile name: just extension-dev Personal
 extension-dev profile="":
 	cd extension && rm -rf out && rm -f ./*.vsix(N) && npm install && npm run package && code --install-extension glue-*.vsix --force {{ if profile != "" { "--profile " + profile } else { "" } }}
 
