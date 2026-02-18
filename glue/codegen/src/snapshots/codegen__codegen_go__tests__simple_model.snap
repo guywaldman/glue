@@ -2,7 +2,7 @@
 source: codegen/src/codegen_go.rs
 expression: gen_go(src)
 ---
-package models
+package glue
 
 // User A simple user model
 type User struct {

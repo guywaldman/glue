@@ -312,6 +312,8 @@ impl GlueCli {
                 python: Self::merge_python_config(base.python, overrides.python),
                 rust: Self::merge_rust_config(base.rust, overrides.rust),
                 typescript: Self::merge_typescript_config(base.typescript, overrides.typescript),
+                go: Self::merge_go_config(base.go, overrides.go),
+                protobuf: Self::merge_protobuf_config(base.protobuf, overrides.protobuf),
             }),
         }
     }
@@ -335,6 +337,31 @@ impl GlueCli {
             (None, Some(overrides)) => Some(overrides),
             (Some(base), Some(overrides)) => Some(config::GlueConfigSchemaGenerationRust {
                 include_yaml: overrides.include_yaml.or(base.include_yaml),
+            }),
+        }
+    }
+
+    fn merge_go_config(base: Option<config::GlueConfigSchemaGenerationGo>, overrides: Option<config::GlueConfigSchemaGenerationGo>) -> Option<config::GlueConfigSchemaGenerationGo> {
+        match (base, overrides) {
+            (None, None) => None,
+            (Some(base), None) => Some(base),
+            (None, Some(overrides)) => Some(overrides),
+            (Some(base), Some(overrides)) => Some(config::GlueConfigSchemaGenerationGo {
+                package_name: overrides.package_name.or(base.package_name),
+            }),
+        }
+    }
+
+    fn merge_protobuf_config(
+        base: Option<config::GlueConfigSchemaGenerationProtobuf>,
+        overrides: Option<config::GlueConfigSchemaGenerationProtobuf>,
+    ) -> Option<config::GlueConfigSchemaGenerationProtobuf> {
+        match (base, overrides) {
+            (None, None) => None,
+            (Some(base), None) => Some(base),
+            (None, Some(overrides)) => Some(overrides),
+            (Some(base), Some(overrides)) => Some(config::GlueConfigSchemaGenerationProtobuf {
+                package_name: overrides.package_name.or(base.package_name),
             }),
         }
     }

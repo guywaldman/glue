@@ -1,4 +1,4 @@
-use config::GlueConfigSchemaGeneration;
+use config::{GlueConfigSchemaGeneration, GlueConfigSchemaGenerationGo};
 use convert_case::{Case, Casing};
 use lang::{AnalyzedProgram, AstNode, Enum, Field, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
 
@@ -13,29 +13,33 @@ pub struct CodeGenGo;
 
 impl CodeGenerator for CodeGenGo {
     fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, config: Option<GlueConfigSchemaGeneration>) -> Result<String, CodeGenError> {
+        let go_config = config.as_ref().and_then(|c| c.go.clone()).unwrap_or_default();
         let ctx = CodeGenContext::new(program.ast_root.clone(), program.symbols, source, config.as_ref());
-        let mut generator = GoGenerator::new(ctx);
+        let mut generator = GoGenerator::new(ctx, go_config);
         generator.generate()
     }
 }
 
 struct GoGenerator<'a> {
     ctx: CodeGenContext<'a>,
+    config: GlueConfigSchemaGenerationGo,
     output: String,
     postludes: Vec<String>,
 }
 
 impl<'a> GoGenerator<'a> {
-    fn new(ctx: CodeGenContext<'a>) -> Self {
+    fn new(ctx: CodeGenContext<'a>, config: GlueConfigSchemaGenerationGo) -> Self {
         Self {
             ctx,
+            config,
             output: String::new(),
             postludes: Vec::new(),
         }
     }
 
     fn generate(&mut self) -> CodeGenResult<String> {
-        self.output.push_str("package models\n\n");
+        let package_name = self.config.package_name.as_deref().unwrap_or("glue");
+        self.output.push_str(&format!("package {}\n\n", package_name));
 
         for model in self.ctx.top_level_models().collect::<Vec<_>>() {
             let code = self.emit_model(&model, None)?;

@@ -46,6 +46,10 @@
         "GlueConfigSchema::Generation": {
             "type": "object",
             "properties": {
+                "go": {
+                    "$ref": "#/$defs/GlueConfigSchema::Generation::Go",
+                    "description": "Configurations for Go code generation (`glue gen go [...]`)"
+                },
                 "lint_suppressions": {
                     "type": "boolean",
                     "description": "Whether to emit lint suppression comments in generated files. Defaults to true."
@@ -65,6 +69,15 @@
                 "watermark": {
                     "$ref": "#/$defs/GlueConfigSchema::Generation::Watermark",
                     "description": "Mode for the watermark at the top of the generated files. Defaults to \"short\" if not specified."
+                }
+            }
+        },
+        "GlueConfigSchema::Generation::Go": {
+            "type": "object",
+            "properties": {
+                "package_name": {
+                    "type": "string",
+                    "description": "The Go package name emitted at the top of generated files. Defaults to \"models\"."
                 }
             }
         },

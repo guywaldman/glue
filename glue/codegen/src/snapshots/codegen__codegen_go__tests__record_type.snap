@@ -2,7 +2,7 @@
 source: codegen/src/codegen_go.rs
 expression: gen_go(src)
 ---
-package models
+package glue
 
 type Data struct {
 	Metadata map[string]interface{} `json:"metadata"` // A map of string to any

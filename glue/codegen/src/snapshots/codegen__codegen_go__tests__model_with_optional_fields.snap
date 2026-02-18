@@ -2,7 +2,7 @@
 source: codegen/src/codegen_go.rs
 expression: gen_go(src)
 ---
-package models
+package glue
 
 type Config struct {
 	Name string `json:"name"` // Required field

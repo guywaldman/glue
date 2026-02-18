@@ -11,9 +11,11 @@ use crate::{
 pub struct CodeGenProtobuf;
 
 impl CodeGenerator for CodeGenProtobuf {
-    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, _config: Option<GlueConfigSchemaGeneration>) -> Result<String, CodeGenError> {
-        let ctx = CodeGenContext::new(program.ast_root.clone(), program.symbols, source, None);
-        let mut output = String::from("syntax = \"proto3\";\n\npackage glue;\n\n");
+    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, config: Option<GlueConfigSchemaGeneration>) -> Result<String, CodeGenError> {
+        let protobuf_config = config.as_ref().and_then(|c| c.protobuf.clone()).unwrap_or_default();
+        let package_name = protobuf_config.package_name.as_deref().unwrap_or("glue");
+        let ctx = CodeGenContext::new(program.ast_root.clone(), program.symbols, source, config.as_ref());
+        let mut output = format!("syntax = \"proto3\";\n\npackage {};\n\n", package_name);
 
         for model in ctx.top_level_models().collect::<Vec<_>>() {
             let name = model.name()?;
@@ -78,7 +80,7 @@ mod tests {
             }
         "#};
         let (program, source) = analyze_test_glue_file(src);
-        let codegen = CodeGenProtobuf;
+        let codegen = CodeGenProtobuf::default();
         let result = codegen
             .generate(
                 program,

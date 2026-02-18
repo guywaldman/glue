@@ -63,11 +63,25 @@ model GlueConfigSchema {
 			base_model?: string
 		}
 
-		/// Configurations for Rust code generation (`glue gen rust [...]`)
+		/// Configurations for Rust code generation
 		rust?: Rust
 		model Rust {
 			/// Include serde_yaml support in generated output
 			include_yaml?: bool
+		}
+
+		/// Configurations for Go code generation
+		go?: Go
+		model Go {
+			/// The Go package name emitted at the top of generated files. Defaults to "glue".
+			package_name?: string
+		}
+
+		/// Configurations for Protobuf code generation
+		protobuf?: Protobuf
+		model Protobuf {
+			/// The protobuf package name. Defaults to "glue".
+			package_name?: string
 		}
 	}
 }
