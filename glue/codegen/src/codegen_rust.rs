@@ -35,11 +35,21 @@ impl<'a> RustGenerator<'a> {
     }
 
     fn generate(&mut self) -> CodeGenResult<String> {
-        self.output.push_str("use std::collections::HashMap;\n\n");
+        let include_yaml = self.ctx.config.and_then(|c| c.rust.as_ref()).and_then(|r| r.include_yaml).unwrap_or(false);
+
+        self.output.push_str("use std::collections::HashMap;\n");
+        if include_yaml {
+            self.output.push_str("use serde_yaml;\n");
+        }
+        self.output.push('\n');
 
         for model in self.ctx.top_level_models().collect::<Vec<_>>() {
             let code = self.emit_model(&model, None)?;
             self.output.push_str(&code);
+            if include_yaml {
+                let yaml_impl = self.emit_model_yaml_impl(&model, None)?;
+                self.output.push_str(&yaml_impl);
+            }
         }
         for enum_ in self.ctx.top_level_enums().collect::<Vec<_>>() {
             let code = self.emit_enum(&enum_, None)?;
@@ -153,6 +163,14 @@ impl<'a> RustGenerator<'a> {
         output.push_str(&format!("    pub {}: {},\n", emit_name, type_code));
 
         Ok(output)
+    }
+
+    fn emit_model_yaml_impl(&self, model: &Model, parent_scope: Option<SymId>) -> CodeGenResult<String> {
+        let qualified_name = model.qualified_name(&self.ctx, parent_scope, Case::Pascal)?;
+        Ok(format!(
+            "impl {} {{\n    pub fn from_yaml(yaml: &str) -> Result<Self, serde_yaml::Error> {{\n        serde_yaml::from_str(yaml)\n    }}\n\n    pub fn to_yaml(&self) -> Result<String, serde_yaml::Error> {{\n        serde_yaml::to_string(self)\n    }}\n}}\n\n",
+            qualified_name
+        ))
     }
 
     fn emit_type_atom(&self, atom: &TypeAtom, parent_scope: Option<SymId>) -> CodeGenResult<String> {
