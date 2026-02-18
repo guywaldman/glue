@@ -117,3 +117,36 @@ fn generate_code(input_path: PathBuf, codegen_mode: CodeGenMode) -> Result<Strin
     let output_file_contents = std::fs::read_to_string(&output_file_path).map_err(|e| anyhow!("Failed to read output file: {}", e))?;
     Ok(output_file_contents)
 }
+
+/// Runs codegen without passing --config, relying on auto-discovery of .gluerc.yaml
+/// in the same directory as the input file.
+fn generate_code_without_explicit_config(input_path: PathBuf, codegen_mode: CodeGenMode) -> Result<String> {
+    let unique_id: u64 = rand::random();
+    let mut output_file_path = temp_dir();
+    output_file_path.push(format!("glue_test_no_cfg_{}", unique_id));
+    std::fs::create_dir_all(&output_file_path).map_err(|e| anyhow!("Failed to create temp directory: {}", e))?;
+
+    let ext = codegen_mode.file_extension();
+    output_file_path.push(format!("output.{}", ext));
+
+    let mode_str = codegen_mode.as_str();
+    let cli = GlueCli;
+    let args = &["glue", "gen", mode_str, "--input", input_path.to_str().unwrap(), "--output", output_file_path.to_str().unwrap()];
+    cli.run(args).map_err(|e| anyhow!("CLI execution for command '{}' failed: {}", args.join(" "), e))?;
+    let output_file_contents = std::fs::read_to_string(&output_file_path).map_err(|e| anyhow!("Failed to read output file: {}", e))?;
+    Ok(output_file_contents)
+}
+
+#[test]
+fn test_gluerc_auto_discovery() {
+    // The fixtures directory contains a .gluerc.yaml with `watermark: none`.
+    // When we run without --config, auto-discovery should find it and apply the config.
+    // We verify by comparing the output to an explicit-config run: they must be identical.
+    let path = load_glue_fixture(MOVIES_FIXTURE_NAME).unwrap();
+    let with_explicit_config = generate_code(path.clone(), CodeGenMode::TypeScript).unwrap();
+    let with_auto_discovery = generate_code_without_explicit_config(path, CodeGenMode::TypeScript).unwrap();
+    assert_eq!(
+        with_explicit_config, with_auto_discovery,
+        "Auto-discovered .gluerc.yaml should produce identical output to explicit --config"
+    );
+}

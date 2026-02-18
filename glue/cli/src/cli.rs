@@ -49,20 +49,21 @@ impl GlueCli {
                 },
             } => {
                 let mut output = output.clone();
-                let config = match config_path {
+                let effective_config_path: Option<PathBuf> = config_path.clone().or_else(|| Self::find_gluerc(input.as_deref()));
+                let config = match &effective_config_path {
                     Some(path) => {
                         let config_contents = std::fs::read_to_string(path).map_err(CliError::Io)?;
                         let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
                         match ext {
                             "json" => Some(GlueConfig::from_json(&config_contents).map_err(|e| CliError::CodeGen(format!("Failed to load config from JSON: {:?}", e)))?),
-                            "yaml" | "yml" => Some(GlueConfig::from_yaml(&config_contents).map_err(|e| CliError::CodeGen(format!("Failed to load config from YAML: {:?}", e)))?),
+                            "yaml" | "yml" | "" => Some(GlueConfig::from_yaml(&config_contents).map_err(|e| CliError::CodeGen(format!("Failed to load config from YAML: {:?}", e)))?),
                             _ => return Err(CliError::BadInput("Config file must have .json, .yaml, or .yml extension".to_string())),
                         }
                     }
                     None => None,
                 };
 
-                let (resolved_config, resolved_output) = match (config.as_ref(), config_path.as_ref()) {
+                let (resolved_config, resolved_output) = match (config.as_ref(), effective_config_path.as_ref()) {
                     (Some(config), Some(config_path)) => Self::resolve_generation_config(config, config_path, input.as_ref())?,
                     _ => (None, None),
                 };
@@ -98,7 +99,7 @@ impl GlueCli {
                     }
                 }
 
-                if let Ok(Some(watermark)) = Self::generate_watemark(config_path, resolved_config, &source, &output, mode) {
+                if let Ok(Some(watermark)) = Self::generate_watemark(&effective_config_path, resolved_config, &source, &output, mode) {
                     generated_code = format!("{}{}", watermark, generated_code);
                 }
 
@@ -251,6 +252,20 @@ impl GlueCli {
             file_name: Box::leak(file_name.into_boxed_str()),
             file_contents: Box::leak(file_contents.into_boxed_str()),
         })
+    }
+
+    fn find_gluerc(input: Option<&Path>) -> Option<PathBuf> {
+        let dir = input
+            .and_then(|p| p.parent())
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+        for name in &[".gluerc", ".gluerc.yaml", ".gluerc.yml", ".gluerc.json"] {
+            let path = dir.join(name);
+            if path.exists() {
+                return Some(path);
+            }
+        }
+        None
     }
 
     fn resolve_generation_config(config: &GlueConfig, config_path: &Path, input_path: Option<&PathBuf>) -> Result<(Option<GlueConfigSchemaGeneration>, Option<PathBuf>), CliError> {

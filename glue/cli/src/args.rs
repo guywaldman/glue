@@ -24,7 +24,7 @@ pub struct CliGenArgs {
     #[arg(value_enum)]
     pub mode: CodeGenMode,
 
-    /// Optional config file for the code generator
+    /// Path to a custom config file. If not specified, the generator will automatically use `.gluerc`, `.gluerc.json`, or `.gluerc.yaml` from the input file's directory when available.
     #[arg(short = 'c', long)]
     pub config: Option<PathBuf>,
 }
