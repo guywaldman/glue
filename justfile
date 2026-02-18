@@ -1,3 +1,5 @@
+set shell := ["zsh", "-l", "-c"]
+
 assets_dir := "assets"
 config_schema := "assets/config_schema.glue"
 
@@ -56,8 +58,9 @@ test-extension:
 	cd extension && npm install && npm test
 
 # Package and install the extension locally for development.
-extension-dev:
-	cd extension && rm -rf out ./*.vsix && npm install && npm run package && code --install-extension glue-*.vsix
+# Optionally pass a VS Code profile name: just extension-dev Personal
+extension-dev profile="":
+	cd extension && rm -rf out && rm -f ./*.vsix(N) && npm install && npm run package && code --install-extension glue-*.vsix --force {{ if profile != "" { "--profile " + profile } else { "" } }}
 
 # Publish the extension to the marketplace.
 extension-publish:
