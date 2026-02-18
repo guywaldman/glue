@@ -2,7 +2,11 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use anyhow::Result;
-use lang::{AstNode, Endpoint, Enum, Field, LNode, LSyntaxKind, Model, Parser, RootNode, SemanticAnalyzer, SourceCodeMetadata, SymTable, TextSize, TokenAtOffset, Type};
+use lang::BUILTIN_DECORATORS;
+use lang::{
+    AstNode, Decorator, DecoratorArgDef, DecoratorDef, Endpoint, Enum, Field, LNode, LSyntaxKind, Model, Parser, RootNode, SemanticAnalyzer, SourceCodeMetadata, SymTable, TextSize, TokenAtOffset,
+    Type,
+};
 use log::{error, info};
 use miette::LabeledSpan;
 use miette::Severity as MietteSeverity;
@@ -268,6 +272,25 @@ impl Lsp {
     }
 
     /// Generate markdown hover content for a symbol
+    fn generate_decorator_hover_content(&self, def: &DecoratorDef) -> String {
+        let mut parts = Vec::new();
+        parts.push(format!("```glue\n@{}\n```", def.id));
+        parts.push("---".to_string());
+        parts.push(def.doc().to_string());
+        parts.join("\n\n")
+    }
+
+    fn generate_decorator_arg_hover_content(&self, def: &DecoratorDef, arg: &DecoratorArgDef) -> String {
+        let mut parts = Vec::new();
+        parts.push(format!("```glue\n@{} — {} ({})\n```", def.id, arg.id, arg.ty));
+        parts.push("---".to_string());
+        parts.push(arg.doc.to_string());
+        if arg.required {
+            parts.push("_Required._".to_string());
+        }
+        parts.join("\n\n")
+    }
+
     fn generate_hover_content(&self, info: &SymbolInfo) -> String {
         let mut parts = Vec::new();
 
@@ -301,7 +324,7 @@ impl LanguageServer for Lsp {
                 completion_provider: Some(lsp::CompletionOptions {
                     all_commit_characters: None,
                     resolve_provider: Some(false),
-                    trigger_characters: Some(vec![".".to_string(), ":".to_string()]),
+                    trigger_characters: Some(vec![".".to_string(), ":".to_string(), "(".to_string(), "@".to_string()]),
                     work_done_progress_options: lsp::WorkDoneProgressOptions { work_done_progress: None },
                     completion_item: Some(lsp::CompletionOptionsCompletionItem { label_details_support: Some(false) }),
                 }),
@@ -434,6 +457,53 @@ impl LanguageServer for Lsp {
         let ref_name = token.text().to_string();
         info!("Hover on identifier: {ref_name}");
 
+        // Check decorator context first: decorator name or named-arg key don't live in the
+        // symbol table, so handle them before symbol resolution.
+        if let Some(parent) = token.parent() {
+            match parent.kind() {
+                LSyntaxKind::DECORATOR => {
+                    // Cursor is on the decorator name, e.g. `field` in `@field(...)`
+                    let content = BUILTIN_DECORATORS.iter().find(|d| d.id == ref_name.as_str()).map(|d| self.generate_decorator_hover_content(d));
+                    return Ok(content.map(|value| lsp::Hover {
+                        contents: lsp::HoverContents::Markup(lsp::MarkupContent {
+                            kind: lsp::MarkupKind::Markdown,
+                            value,
+                        }),
+                        range: Some(lsp::Range {
+                            start: self.position_at_offset(&uri, token.text_range().start().into()),
+                            end: self.position_at_offset(&uri, token.text_range().end().into()),
+                        }),
+                    }));
+                }
+                LSyntaxKind::DECORATOR_NAMED_ARG => {
+                    // Cursor is on a named-arg key, e.g. `alias` in `@field(alias="foo")`
+                    // Parent chain: DECORATOR_NAMED_ARG -> DECORATOR
+                    if let Some(decorator_node) = parent.parent()
+                        && let Some(decorator) = Decorator::cast(decorator_node)
+                        && let Some(dec_name) = decorator.ident()
+                    {
+                        let content = BUILTIN_DECORATORS
+                            .iter()
+                            .find(|d| d.id == dec_name.as_str())
+                            .and_then(|d| d.args().into_iter().find(|a| a.id == ref_name.as_str()).map(|a| (d, a)))
+                            .map(|(d, a)| self.generate_decorator_arg_hover_content(d, a));
+                        return Ok(content.map(|value| lsp::Hover {
+                            contents: lsp::HoverContents::Markup(lsp::MarkupContent {
+                                kind: lsp::MarkupKind::Markdown,
+                                value,
+                            }),
+                            range: Some(lsp::Range {
+                                start: self.position_at_offset(&uri, token.text_range().start().into()),
+                                end: self.position_at_offset(&uri, token.text_range().end().into()),
+                            }),
+                        }));
+                    }
+                    return Ok(None);
+                }
+                _ => {}
+            }
+        }
+
         // Try to resolve the symbol with scope awareness
         let scope = self.find_scope_at_offset(&ast, offset, &symbols);
         let Some(sym_entry) = symbols.resolve(scope, &ref_name) else {
@@ -468,6 +538,44 @@ impl LanguageServer for Lsp {
         let pos = params.text_document_position.position;
         info!("Received completion request at position: {pos:?} in {uri}");
 
+        // Detect decorator-name context from raw source text.
+        // This must happen before parsing because `@fie` (partial decorator) causes a parse
+        // error, and we'd return Ok(None) before ever reaching the check if it came later.
+        {
+            let state = self.state.read().expect("Failed to acquire read lock on LSP state");
+            if let Some(source) = state.documents.get(&uri) {
+                let line_text = source.lines().nth(pos.line as usize).unwrap_or("");
+                let prefix = &line_text[..pos.character.min(line_text.len() as u32) as usize];
+                if let Some(at_pos) = prefix.rfind('@') {
+                    let partial = &prefix[at_pos + 1..];
+                    // Only treat as decorator-name context if everything after `@` is word chars
+                    if partial.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                        let items: Vec<lsp::CompletionItem> = BUILTIN_DECORATORS
+                            .iter()
+                            .filter(|d| d.id.starts_with(partial))
+                            .map(|d| lsp::CompletionItem {
+                                label: format!("@{}", d.id),
+                                kind: Some(lsp::CompletionItemKind::FUNCTION),
+                                detail: Some("decorator".to_string()),
+                                documentation: Some(lsp::Documentation::MarkupContent(lsp::MarkupContent {
+                                    kind: lsp::MarkupKind::Markdown,
+                                    value: d.doc().to_string(),
+                                })),
+                                insert_text: Some(format!("{}(${{0}})", d.id)),
+                                insert_text_format: Some(lsp::InsertTextFormat::SNIPPET),
+                                filter_text: Some(d.id.to_string()),
+                                sort_text: Some(format!("0{}", d.id)),
+                                ..Default::default()
+                            })
+                            .collect();
+                        if !items.is_empty() {
+                            return Ok(Some(lsp::CompletionResponse::Array(items)));
+                        }
+                    }
+                }
+            }
+        }
+
         let Ok((ast, symbols)) = self.parse_document_lenient(&uri) else {
             error!("Failed to parse document for completion: {uri}");
             return Ok(None);
@@ -481,6 +589,62 @@ impl LanguageServer for Lsp {
         // Find the current scope to prioritize nested types
         let offset = self.offset_at_position(&uri, pos);
         let current_scope = self.find_scope_at_offset(&ast, offset, &symbols);
+
+        // Detect decorator context by walking up from the token at cursor.
+        // If we're inside a DECORATOR node, offer named-arg completions instead of type completions.
+        let token_at_cursor = ast.token_at_offset(TextSize::new(offset));
+        let token_at_cursor = match token_at_cursor {
+            TokenAtOffset::Single(t) | TokenAtOffset::Between(_, t) => Some(t),
+            TokenAtOffset::None => None,
+        };
+        if let Some(ref tok) = token_at_cursor {
+            let mut parent = tok.parent();
+            let mut decorator_node: Option<LNode> = None;
+            while let Some(ref p) = parent {
+                if p.kind() == LSyntaxKind::DECORATOR {
+                    decorator_node = Some(p.clone());
+                    break;
+                }
+                // Stop ascending past field or model boundaries
+                if matches!(p.kind(), LSyntaxKind::FIELD | LSyntaxKind::MODEL | LSyntaxKind::ENDPOINT | LSyntaxKind::PROGRAM) {
+                    break;
+                }
+                parent = p.parent();
+            }
+
+            if let Some(dec_node) = decorator_node {
+                if let Some(decorator) = Decorator::cast(dec_node)
+                    && let Some(dec_name) = decorator.ident()
+                {
+                    // Collect already-used named arg names so we don't duplicate them
+                    let used_named_args: std::collections::HashSet<String> = decorator.named_args().iter().filter_map(|a| a.ident()).collect();
+
+                    if let Some(def) = BUILTIN_DECORATORS.iter().find(|d| d.id == dec_name.as_str()) {
+                        let items: Vec<lsp::CompletionItem> = def
+                            .named_args
+                            .iter()
+                            .filter(|a| !used_named_args.contains(a.id))
+                            .map(|a| lsp::CompletionItem {
+                                label: a.id.to_string(),
+                                kind: Some(lsp::CompletionItemKind::PROPERTY),
+                                detail: Some(format!("{}", a.ty)),
+                                documentation: Some(lsp::Documentation::MarkupContent(lsp::MarkupContent {
+                                    kind: lsp::MarkupKind::Markdown,
+                                    value: format!("{}{}", a.doc, if a.required { "\n\n_Required._" } else { "" }),
+                                })),
+                                insert_text: Some(format!("{}=${{1:{}}}", a.id, a.ty)),
+                                insert_text_format: Some(lsp::InsertTextFormat::SNIPPET),
+                                sort_text: Some(format!("0{}", a.id)),
+                                ..Default::default()
+                            })
+                            .collect();
+                        return Ok(Some(lsp::CompletionResponse::Array(items)));
+                    }
+                }
+                // Inside a decorator but unknown/empty — return nothing
+                return Ok(Some(lsp::CompletionResponse::Array(vec![])));
+            }
+        }
 
         let mut items: Vec<lsp::CompletionItem> = Vec::new();
 
@@ -1112,5 +1276,172 @@ mod tests {
         let labels: Vec<String> = items.iter().map(|item| item.label.clone()).collect();
         assert!(labels.contains(&"ErrorResponse".to_string()), "should contain ErrorResponse as a completion candidate");
         assert!(labels.contains(&"Foo".to_string()), "should contain Foo model");
+    }
+
+    #[tokio::test]
+    async fn test_hover_on_decorator_name() {
+        let src = indoc! {r#"
+            model Foo {
+                @field(alias = "my-name")
+                name: string
+            }
+        "#}
+        .trim();
+
+        let (lsp, uri) = setup_lsp(src).await;
+
+        // Hover on "field" in "@field(...)" - line 1, "field" starts at char 5
+        let params = lsp::HoverParams {
+            work_done_progress_params: Default::default(),
+            text_document_position_params: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri: uri.parse().unwrap() },
+                position: lsp::Position { line: 1, character: 6 },
+            },
+        };
+        let resp = lsp.hover(params).await;
+        let Ok(Some(hover)) = &resp else {
+            panic!("expected hover response for decorator name, got: {resp:?}");
+        };
+
+        let lsp::HoverContents::Markup(markup) = &hover.contents else {
+            panic!("expected markup content");
+        };
+        assert_eq!(markup.kind, lsp::MarkupKind::Markdown);
+        assert!(markup.value.contains("@field"), "should contain decorator name");
+        assert!(markup.value.contains("alias"), "should mention arguments");
+    }
+
+    #[tokio::test]
+    async fn test_hover_on_decorator_named_arg_key() {
+        let src = indoc! {r#"
+            model Foo {
+                @field(alias = "my-name")
+                name: string
+            }
+        "#}
+        .trim();
+
+        let (lsp, uri) = setup_lsp(src).await;
+
+        // Hover on "alias" in "@field(alias = ...)" - line 1, "alias" starts at char 11
+        let params = lsp::HoverParams {
+            work_done_progress_params: Default::default(),
+            text_document_position_params: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri: uri.parse().unwrap() },
+                position: lsp::Position { line: 1, character: 13 },
+            },
+        };
+        let resp = lsp.hover(params).await;
+        let Ok(Some(hover)) = &resp else {
+            panic!("expected hover response for decorator arg key, got: {resp:?}");
+        };
+
+        let lsp::HoverContents::Markup(markup) = &hover.contents else {
+            panic!("expected markup content");
+        };
+        assert_eq!(markup.kind, lsp::MarkupKind::Markdown);
+        assert!(markup.value.contains("alias"), "should contain arg name");
+        assert!(markup.value.contains("@field"), "should reference decorator name");
+    }
+
+    #[tokio::test]
+    async fn test_completion_inside_decorator_args() {
+        let src = indoc! {r#"
+            model Foo {
+                @field(alias = "my-name")
+                name: string
+            }
+        "#}
+        .trim();
+
+        let (lsp, uri) = setup_lsp(src).await;
+
+        // Completion at position inside @field(alias = ...) - on "alias".
+        // alias is already used so should NOT be in the results; example should be offered.
+        let params = lsp::CompletionParams {
+            text_document_position: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri: uri.parse().unwrap() },
+                position: lsp::Position { line: 1, character: 13 },
+            },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            context: None,
+        };
+        let resp = lsp.completion(params).await;
+        let Ok(Some(lsp::CompletionResponse::Array(items))) = &resp else {
+            panic!("expected completion items inside decorator, got: {resp:?}");
+        };
+
+        let labels: Vec<String> = items.iter().map(|i| i.label.clone()).collect();
+        assert!(labels.contains(&"example".to_string()), "should offer 'example' named arg");
+        assert!(!labels.contains(&"alias".to_string()), "should NOT offer 'alias' (already used)");
+
+        // Items should be PROPERTY kind
+        let example_item = items.iter().find(|i| i.label == "example").unwrap();
+        assert_eq!(example_item.kind, Some(lsp::CompletionItemKind::PROPERTY));
+        // Snippet insert text should be present
+        assert!(example_item.insert_text.as_deref().unwrap_or("").contains("example="), "insert text should contain 'example='");
+    }
+
+    #[tokio::test]
+    async fn test_completion_decorator_name_after_at() {
+        // Typing `@` alone — should offer all decorators
+        let src = indoc! {r#"
+            model Foo {
+                @
+                name: string
+            }
+        "#}
+        .trim();
+
+        let (lsp, uri) = setup_lsp(src).await;
+
+        let params = lsp::CompletionParams {
+            text_document_position: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri: uri.parse().unwrap() },
+                // Line 1: "    @"  — cursor after `@` at char 5
+                position: lsp::Position { line: 1, character: 5 },
+            },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            context: None,
+        };
+        let resp = lsp.completion(params).await;
+        let Ok(Some(lsp::CompletionResponse::Array(items))) = &resp else {
+            panic!("expected completion items after @, got: {resp:?}");
+        };
+
+        let labels: Vec<String> = items.iter().map(|i| i.label.clone()).collect();
+        assert!(labels.contains(&"@field".to_string()), "should offer @field");
+
+        let field_item = items.iter().find(|i| i.label == "@field").unwrap();
+        assert_eq!(field_item.kind, Some(lsp::CompletionItemKind::FUNCTION));
+        assert!(field_item.insert_text.as_deref().unwrap_or("").starts_with("field("), "insert text should start with 'field('");
+    }
+
+    #[tokio::test]
+    async fn test_completion_decorator_name_partial() {
+        // Typing `@fie` — should filter to just `@field`
+        let src = "model Foo {\n    @fie\n    name: string\n}";
+
+        let (lsp, uri) = setup_lsp(src).await;
+
+        let params = lsp::CompletionParams {
+            text_document_position: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri: uri.parse().unwrap() },
+                // Line 1: "    @fie" — cursor at char 8
+                position: lsp::Position { line: 1, character: 8 },
+            },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            context: None,
+        };
+        let resp = lsp.completion(params).await;
+        let Ok(Some(lsp::CompletionResponse::Array(items))) = &resp else {
+            panic!("expected completion items after @fie, got: {resp:?}");
+        };
+
+        let labels: Vec<String> = items.iter().map(|i| i.label.clone()).collect();
+        assert!(labels.contains(&"@field".to_string()), "@field should match prefix 'fie'");
     }
 }

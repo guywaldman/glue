@@ -10,7 +10,7 @@ mod semantic_analyzer;
 mod symbols;
 mod utils;
 
-pub use builtin_decorators::{BUILTIN_DECORATORS, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG, MODEL_FIELD_DECORATOR_EXAMPLE_ARG};
+pub use builtin_decorators::{BUILTIN_DECORATORS, DecoratorArgDef, DecoratorDef, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG, MODEL_FIELD_DECORATOR_EXAMPLE_ARG};
 pub use diagnostics::{Diagnostic, DiagnosticContext, DiagnosticSeverity, generate_report, generate_reports, print_report};
 pub use metadata::SourceCodeMetadata;
 pub use rowan::{TextRange, TextSize, TokenAtOffset};

@@ -297,7 +297,7 @@ impl<'a> OpenAPIGenerator<'a> {
             }
         }
 
-        // Duplicate 2XX → 200 for clients that expect it
+        // Duplicate 2XX + 200 for clients that expect it
         if responses.contains_key("2XX")
             && !responses.contains_key("200")
             && let Some(response) = responses.get("2XX").cloned()
