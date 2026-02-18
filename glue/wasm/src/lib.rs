@@ -90,12 +90,17 @@ fn generate_with_config_inner(mode: &str, code: &str, config: Option<GlueConfigS
 fn parse_generation_config(value: JsValue) -> Result<Option<GlueConfigSchemaGeneration>, String> {
     use config::GlueConfigSchema;
 
-    if let Ok(config) = serde_wasm_bindgen::from_value::<GlueConfigSchemaGeneration>(value.clone()) {
-        return Ok(Some(config));
+    // Try GlueConfigSchema (gluerc) first: it has known top-level keys (`global`, `gen`)
+    // that distinguish it from GlueConfigSchemaGeneration. Trying GlueConfigSchemaGeneration
+    // first would always succeed (all fields are optional), silently ignoring the gluerc context.
+    if let Ok(schema) = serde_wasm_bindgen::from_value::<GlueConfigSchema>(value.clone()) {
+        if schema.global.is_some() || schema.r#gen.is_some() {
+            return Ok(schema.global.and_then(|g| g.config));
+        }
     }
 
-    if let Ok(schema) = serde_wasm_bindgen::from_value::<GlueConfigSchema>(value) {
-        return Ok(schema.global.and_then(|g| g.config));
+    if let Ok(config) = serde_wasm_bindgen::from_value::<GlueConfigSchemaGeneration>(value) {
+        return Ok(Some(config));
     }
 
     Err("Expected GlueConfigSchemaGeneration or GlueConfigSchema".to_string())

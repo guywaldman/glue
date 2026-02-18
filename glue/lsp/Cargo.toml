@@ -11,4 +11,5 @@ log = { workspace = true }
 indoc = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
+miette = { workspace = true }
 pretty_assertions = { workspace = true }

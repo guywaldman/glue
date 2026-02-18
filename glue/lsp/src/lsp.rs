@@ -4,6 +4,8 @@ use std::sync::{Arc, RwLock};
 use anyhow::Result;
 use lang::{AstNode, Endpoint, Enum, Field, LNode, LSyntaxKind, Model, Parser, RootNode, SemanticAnalyzer, SourceCodeMetadata, SymTable, TextSize, TokenAtOffset, Type};
 use log::{error, info};
+use miette::LabeledSpan;
+use miette::Severity as MietteSeverity;
 use tower_lsp::{Client, LanguageServer, jsonrpc::Result as LspResult, lsp_types as lsp};
 
 /// Implementation of the Language Server Protocol.
@@ -38,6 +40,95 @@ impl Lsp {
     fn update_source(&self, uri: &str, text: &str) {
         let mut state = self.state.write().expect("Failed to acquire write lock on LSP state");
         state.documents.insert(uri.to_string(), text.to_string());
+    }
+
+    fn remove_source(&self, uri: &str) {
+        let mut state = self.state.write().expect("Failed to acquire write lock on LSP state");
+        state.documents.remove(uri);
+    }
+
+    fn map_severity(severity: Option<MietteSeverity>) -> lsp::DiagnosticSeverity {
+        match severity {
+            Some(MietteSeverity::Error) => lsp::DiagnosticSeverity::ERROR,
+            Some(MietteSeverity::Warning) => lsp::DiagnosticSeverity::WARNING,
+            Some(MietteSeverity::Advice) => lsp::DiagnosticSeverity::INFORMATION,
+            None => lsp::DiagnosticSeverity::ERROR,
+        }
+    }
+
+    fn diagnostics_from_report(&self, uri: &str, report: &miette::Report) -> Vec<lsp::Diagnostic> {
+        let severity = Self::map_severity(report.severity());
+        let message = report.to_string();
+
+        if let Some(labels) = report.labels() {
+            let diagnostics: Vec<lsp::Diagnostic> = labels
+                .map(|label: LabeledSpan| {
+                    let offset = label.offset();
+                    let len = label.len();
+                    let start = self.position_at_offset(uri, offset as u32);
+                    let end = self.position_at_offset(uri, (offset + len) as u32);
+                    lsp::Diagnostic {
+                        range: lsp::Range { start, end },
+                        severity: Some(severity),
+                        source: Some("glue".to_string()),
+                        message: label.label().map(ToString::to_string).unwrap_or_else(|| message.clone()),
+                        ..Default::default()
+                    }
+                })
+                .collect();
+
+            if !diagnostics.is_empty() {
+                return diagnostics;
+            }
+        }
+
+        vec![lsp::Diagnostic {
+            range: lsp::Range {
+                start: lsp::Position { line: 0, character: 0 },
+                end: lsp::Position { line: 0, character: 1 },
+            },
+            severity: Some(severity),
+            source: Some("glue".to_string()),
+            message,
+            ..Default::default()
+        }]
+    }
+
+    fn collect_document_diagnostics(&self, uri: &str) -> Vec<lsp::Diagnostic> {
+        let state = self.state.read().expect("Failed to acquire read lock on LSP state");
+        let Some(source) = state.documents.get(uri) else {
+            return Vec::new();
+        };
+
+        let metadata = SourceCodeMetadata {
+            file_name: uri,
+            file_contents: source,
+        };
+
+        let mut parser = Parser::new();
+        let parsed = match parser.parse(&metadata) {
+            Ok(parsed) => parsed,
+            Err(err) => return self.diagnostics_from_report(uri, err.report()),
+        };
+
+        match SemanticAnalyzer::new().analyze(&parsed, &metadata) {
+            Ok(_) => Vec::new(),
+            Err(errors) => errors.iter().flat_map(|err| self.diagnostics_from_report(uri, err.report())).collect(),
+        }
+    }
+
+    async fn publish_document_diagnostics(&self, uri: &str) {
+        let Some(client) = &self.client else {
+            return;
+        };
+
+        let Ok(parsed_uri) = uri.parse::<lsp::Url>() else {
+            error!("Failed to parse document URI for diagnostics: {uri}");
+            return;
+        };
+
+        let diagnostics = self.collect_document_diagnostics(uri);
+        client.publish_diagnostics(parsed_uri, diagnostics, None).await;
     }
 
     fn parse_document(&self, uri: &str) -> Result<(LNode, SymTable<LNode>)> {
@@ -235,12 +326,28 @@ impl LanguageServer for Lsp {
         let text = params.text_document.text;
         info!("Document opened: {uri}");
         self.update_source(&uri, &text);
+        self.publish_document_diagnostics(&uri).await;
     }
 
     async fn did_change(&self, params: lsp::DidChangeTextDocumentParams) {
         if let Some(change) = params.content_changes.into_iter().last() {
             let uri = params.text_document.uri.to_string();
             self.update_source(&uri, &change.text);
+            self.publish_document_diagnostics(&uri).await;
+        }
+    }
+
+    async fn did_save(&self, params: lsp::DidSaveTextDocumentParams) {
+        let uri = params.text_document.uri.to_string();
+        self.publish_document_diagnostics(&uri).await;
+    }
+
+    async fn did_close(&self, params: lsp::DidCloseTextDocumentParams) {
+        let uri = params.text_document.uri;
+        let uri_str = uri.to_string();
+        self.remove_source(&uri_str);
+        if let Some(client) = &self.client {
+            client.publish_diagnostics(uri, Vec::new(), None).await;
         }
     }
 
@@ -938,5 +1045,32 @@ mod tests {
         let labels: Vec<String> = items.iter().map(|item| item.label.clone()).collect();
         assert!(labels.contains(&"Bar".to_string()), "should contain Bar after update");
         assert!(!labels.contains(&"Foo".to_string()), "should not contain Foo after update");
+    }
+
+    #[tokio::test]
+    async fn test_collect_diagnostics_for_parse_error() {
+        let (lsp, uri) = setup_lsp("model Foo {").await;
+        let diagnostics = lsp.collect_document_diagnostics(&uri);
+
+        assert!(!diagnostics.is_empty(), "expected parse diagnostics");
+        assert!(
+            diagnostics.iter().any(|d| d.severity == Some(lsp::DiagnosticSeverity::ERROR)),
+            "expected at least one error severity diagnostic"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_collect_diagnostics_for_semantic_error() {
+        let src = indoc! {r#"
+            model Foo {
+                bar: UnknownType
+            }
+        "#}
+        .trim();
+        let (lsp, uri) = setup_lsp(src).await;
+        let diagnostics = lsp.collect_document_diagnostics(&uri);
+
+        assert!(!diagnostics.is_empty(), "expected semantic diagnostics");
+        assert!(diagnostics.iter().any(|d| d.message.contains("Undefined type reference")), "expected undefined type diagnostic");
     }
 }

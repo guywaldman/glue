@@ -10,6 +10,10 @@ build-wasm:
 	cd glue && cargo run --bin glue -- gen typescript -i {{config_schema}} -o {{assets_dir}}/config_schema.ts
 	cd glue/wasm && wasm-pack build --release --target web
 	cp glue/assets/config_schema.ts glue/wasm/pkg/config_schema.ts
+	cp glue/assets/config_schema.json glue/wasm/pkg/config_schema.json
+	# Patch wasm.d.ts to use typed config from the Glue-generated config_schema.ts
+	sed -i '' '1s/^/import type { GlueConfigSchema, GlueConfigSchemaGeneration } from ".\/config_schema";\n/' glue/wasm/pkg/wasm.d.ts
+	sed -i '' 's/config\?: any | null/config?: GlueConfigSchemaGeneration | GlueConfigSchema | null/' glue/wasm/pkg/wasm.d.ts
 
 # Generate schema artifacts from the config schema.
 generate: build

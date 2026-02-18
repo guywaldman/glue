@@ -933,6 +933,7 @@ dependencies = [
  "indoc",
  "lang",
  "log",
+ "miette",
  "pretty_assertions",
  "thiserror",
  "tokio",
