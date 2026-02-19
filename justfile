@@ -63,7 +63,10 @@ codecov:
 	#!/usr/bin/env bash
 	set -euo pipefail
 	cd glue
-	cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info --quiet >/dev/null
+	cargo llvm-cov clean --workspace
+	cargo llvm-cov --workspace --exclude cli --all-features --no-report --quiet >/dev/null
+	cargo llvm-cov -p cli --lib --no-clean --quiet >/dev/null
+	cargo llvm-cov report --lcov --output-path lcov.info
 	cargo llvm-cov report --summary-only --fail-under-lines "${COVERAGE_THRESHOLD:-60}"
 
 # Run lint and formatting checks for Rust.
