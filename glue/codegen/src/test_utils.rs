@@ -1,4 +1,4 @@
-use lang::{AnalyzedProgram, Parser, SemanticAnalyzer, SourceCodeMetadata, print_report};
+use lang::{AnalyzedProgram, GlueIr, Parser, SemanticAnalyzer, SourceCodeMetadata, print_report};
 
 use config::GlueConfigSchemaGeneration;
 
@@ -35,7 +35,8 @@ pub fn gen_test(codegen: &dyn CodeGenerator, src: &str) -> String {
 
 pub fn gen_test_with_config(codegen: &dyn CodeGenerator, src: &str, config: Option<GlueConfigSchemaGeneration>) -> String {
     let (program, source) = analyze_test_glue_file(src);
-    codegen.generate(program, &source, config).unwrap_or_else(|e| match e {
+    let ir = GlueIr::from_analyzed(source.file_name, program);
+    codegen.generate(ir, &source, config).unwrap_or_else(|e| match e {
         CodeGenError::InternalError(msg) => panic!("Internal error: {}", msg),
         CodeGenError::GenerationError(diag) => {
             print_report(&diag).expect("Failed to print diagnostic");

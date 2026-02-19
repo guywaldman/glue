@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use config::GlueConfigSchemaGeneration;
 use convert_case::Case;
 use lang::{
-    AnalyzedProgram, AnonModel, AstNode, Endpoint, Field, Literal, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG, MODEL_FIELD_DECORATOR_EXAMPLE_ARG, Model, SourceCodeMetadata, Type, TypeAtom,
+    AnonModel, AstNode, Endpoint, Field, GlueIr, Literal, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG, MODEL_FIELD_DECORATOR_EXAMPLE_ARG, Model, SourceCodeMetadata, Type, TypeAtom,
 };
 use serde_json::Number;
 
@@ -16,7 +16,10 @@ use crate::models::openapi;
 pub struct CodeGenOpenAPI;
 
 impl CodeGenerator for CodeGenOpenAPI {
-    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, _config: Option<GlueConfigSchemaGeneration>) -> CodeGenResult<String> {
+    fn generate(&self, ir: GlueIr, source: &SourceCodeMetadata, _config: Option<GlueConfigSchemaGeneration>) -> CodeGenResult<String> {
+        let program = ir
+            .into_analyzed_program()
+            .ok_or_else(|| crate::CodeGenError::InternalError("Glue IR does not contain an analyzed program".to_string()))?;
         let ctx = CodeGenContext::new(program.ast_root.clone(), program.symbols, source, None);
         let generator = OpenAPIGenerator::new(ctx);
         generator.generate()
@@ -314,7 +317,7 @@ mod tests {
     use super::*;
     use indoc::indoc;
     use insta::{assert_json_snapshot, assert_snapshot};
-    use lang::SourceCodeMetadata;
+    use lang::{GlueIr, SourceCodeMetadata};
     use serde_json::Value;
 
     use crate::{CodeGenerator, test_utils::analyze_test_glue_file};
@@ -335,10 +338,11 @@ mod tests {
             }
         "#};
         let (program, source) = analyze_test_glue_file(src);
+        let ir = GlueIr::from_analyzed(source.file_name, program);
         let codegen = CodeGenOpenAPI;
         let result = codegen
             .generate(
-                program,
+                ir,
                 &SourceCodeMetadata {
                     file_name: source.file_name,
                     file_contents: source.file_contents,
@@ -363,10 +367,11 @@ mod tests {
         "#};
 
         let (program, source) = analyze_test_glue_file(src);
+        let ir = GlueIr::from_analyzed(source.file_name, program);
         let codegen = CodeGenOpenAPI;
         let result = codegen
             .generate(
-                program,
+                ir,
                 &SourceCodeMetadata {
                     file_name: source.file_name,
                     file_contents: source.file_contents,

@@ -13,8 +13,12 @@ pub struct Cli {
 #[derive(clap::Args)]
 pub struct CliGenArgs {
     /// Path to the input .glue file (defaults to stdin if not provided)
-    #[arg(short = 'i', long)]
+    #[arg(short = 'i', long, conflicts_with = "input_positional")]
     pub input: Option<PathBuf>,
+
+    /// Path to the input .glue file (positional alternative to --input)
+    #[arg(index = 2, conflicts_with = "input")]
+    pub input_positional: Option<PathBuf>,
 
     /// Output directory for generated code
     #[arg(short = 'o', long)]
@@ -42,5 +46,17 @@ pub enum CliSubcommand {
     Gen {
         #[command(flatten)]
         args: CliGenArgs,
+    },
+
+    /// Emits Glue IR as JSON
+    #[command(name = "ast")]
+    Ast {
+        /// Path to the input .glue file (defaults to stdin if not provided)
+        #[arg(short = 'i', long, conflicts_with = "input_positional")]
+        input: Option<PathBuf>,
+
+        /// Path to the input .glue file (positional alternative to --input)
+        #[arg(index = 1, conflicts_with = "input")]
+        input_positional: Option<PathBuf>,
     },
 }

@@ -9,7 +9,7 @@ use std::{
 use thiserror::Error;
 
 use clap::Parser as ClapParser;
-use lang::{AnalyzedProgram, Parser, SemanticAnalyzer, SourceCodeMetadata, print_report};
+use lang::{AnalyzedProgram, GlueIr, Parser, SemanticAnalyzer, SourceCodeMetadata, diagnostic_to_ir_error, parser_error_to_ir_error, print_report, semantic_error_to_ir_error};
 use log::debug;
 
 use crate::args::{Cli, CliGenArgs, CliSubcommand};
@@ -40,14 +40,24 @@ impl GlueCli {
             CliSubcommand::Check { input } => {
                 let _analyzed_program = Self::analyze(input.clone())?;
             }
+            CliSubcommand::Ast { input, input_positional } => {
+                let input = input.clone().or(input_positional.clone());
+                let source = Self::handle_file(input.clone())?;
+                let glue_ir = Self::build_glue_ir(&source);
+                let ir_json = serde_json::to_string_pretty(&glue_ir).map_err(|e| CliError::CodeGen(format!("Failed to serialize Glue IR: {}", e)))?;
+                Self::write_to_file_or_stdout(&None, ir_json)?;
+            }
             CliSubcommand::Gen {
-                args: CliGenArgs {
-                    input,
-                    output,
-                    config: config_path,
-                    mode,
-                },
+                args:
+                    CliGenArgs {
+                        input,
+                        input_positional,
+                        output,
+                        config: config_path,
+                        mode,
+                    },
             } => {
+                let input = input.clone().or(input_positional.clone());
                 let mut output = output.clone();
                 let effective_config_path: Option<PathBuf> = config_path.clone().or_else(|| Self::find_gluerc(input.as_deref()));
                 let config = match &effective_config_path {
@@ -205,6 +215,35 @@ impl GlueCli {
                     print_report(e.report()).expect("Rendering report failed");
                 }
                 Err(CliError::SemanticAnalysisError)
+            }
+        }
+    }
+
+    fn build_glue_ir(source: &SourceCodeMetadata) -> GlueIr {
+        let mut parser = Parser::new();
+        match parser.parse(source) {
+            Ok(parsed) => {
+                let parser_errors = parser.diagnostics.iter().map(diagnostic_to_ir_error);
+                match SemanticAnalyzer::new().analyze(&parsed, source) {
+                    Ok(analyzed_program) => {
+                        let mut ir = GlueIr::from_analyzed(source.file_name, analyzed_program);
+                        ir.add_errors(parser_errors);
+                        ir
+                    }
+                    Err(semantic_errors) => {
+                        let mut ir = GlueIr::from_parsed(source.file_name, &parsed.ast_root);
+                        ir.add_errors(parser_errors);
+                        ir.add_errors(semantic_errors.iter().map(semantic_error_to_ir_error));
+                        ir
+                    }
+                }
+            }
+            Err(parse_error) => {
+                let mut errors = parser.diagnostics.iter().map(diagnostic_to_ir_error).collect::<Vec<_>>();
+                if errors.is_empty() {
+                    errors.push(parser_error_to_ir_error(&parse_error));
+                }
+                GlueIr::from_errors_only(source.file_name, errors)
             }
         }
     }

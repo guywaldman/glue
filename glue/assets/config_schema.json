@@ -48,11 +48,15 @@
             "properties": {
                 "go": {
                     "$ref": "#/$defs/GlueConfigSchema::Generation::Go",
-                    "description": "Configurations for Go code generation (`glue gen go [...]`)"
+                    "description": "Configurations for Go code generation"
                 },
                 "lint_suppressions": {
                     "type": "boolean",
                     "description": "Whether to emit lint suppression comments in generated files. Defaults to true."
+                },
+                "protobuf": {
+                    "$ref": "#/$defs/GlueConfigSchema::Generation::Protobuf",
+                    "description": "Configurations for Protobuf code generation"
                 },
                 "python": {
                     "$ref": "#/$defs/GlueConfigSchema::Generation::Python",
@@ -60,7 +64,7 @@
                 },
                 "rust": {
                     "$ref": "#/$defs/GlueConfigSchema::Generation::Rust",
-                    "description": "Configurations for Rust code generation (`glue gen rust [...]`)"
+                    "description": "Configurations for Rust code generation"
                 },
                 "typescript": {
                     "$ref": "#/$defs/GlueConfigSchema::Generation::TypeScript",
@@ -77,7 +81,16 @@
             "properties": {
                 "package_name": {
                     "type": "string",
-                    "description": "The Go package name emitted at the top of generated files. Defaults to \"models\"."
+                    "description": "The Go package name emitted at the top of generated files. Defaults to \"glue\"."
+                }
+            }
+        },
+        "GlueConfigSchema::Generation::Protobuf": {
+            "type": "object",
+            "properties": {
+                "package_name": {
+                    "type": "string",
+                    "description": "The protobuf package name. Defaults to \"glue\"."
                 }
             }
         },

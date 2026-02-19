@@ -1,5 +1,5 @@
 use config::GlueConfigSchemaGeneration;
-use lang::{AnalyzedProgram, AstNode, SourceCodeMetadata, Type, TypeAtom};
+use lang::{AstNode, GlueIr, SourceCodeMetadata, Type, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
@@ -11,7 +11,10 @@ use crate::{
 pub struct CodeGenProtobuf;
 
 impl CodeGenerator for CodeGenProtobuf {
-    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, config: Option<GlueConfigSchemaGeneration>) -> Result<String, CodeGenError> {
+    fn generate(&self, ir: GlueIr, source: &SourceCodeMetadata, config: Option<GlueConfigSchemaGeneration>) -> Result<String, CodeGenError> {
+        let program = ir
+            .into_analyzed_program()
+            .ok_or_else(|| CodeGenError::InternalError("Glue IR does not contain an analyzed program".to_string()))?;
         let protobuf_config = config.as_ref().and_then(|c| c.protobuf.clone()).unwrap_or_default();
         let package_name = protobuf_config.package_name.as_deref().unwrap_or("glue");
         let ctx = CodeGenContext::new(program.ast_root.clone(), program.symbols, source, config.as_ref());
@@ -67,7 +70,7 @@ mod tests {
     use super::*;
     use indoc::indoc;
     use insta::assert_snapshot;
-    use lang::SourceCodeMetadata;
+    use lang::{GlueIr, SourceCodeMetadata};
 
     use crate::{CodeGenerator, test_utils::analyze_test_glue_file};
 
@@ -80,10 +83,11 @@ mod tests {
             }
         "#};
         let (program, source) = analyze_test_glue_file(src);
+        let ir = GlueIr::from_analyzed(source.file_name, program);
         let codegen = CodeGenProtobuf::default();
         let result = codegen
             .generate(
-                program,
+                ir,
                 &SourceCodeMetadata {
                     file_name: source.file_name,
                     file_contents: source.file_contents,

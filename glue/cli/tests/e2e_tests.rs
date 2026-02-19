@@ -84,6 +84,23 @@ impl GlueTestFixture {
         self.run_codegen("rust", "rs")
     }
 
+    fn generate_glue_ir_json(&self) -> Result<serde_json::Value> {
+        let output = Command::new("cargo")
+            .args(["run", "--bin", "glue", "--", "ast", "-i", self.source_path.to_str().unwrap()])
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .output()
+            .map_err(|e| anyhow!("Failed to run glue ast CLI: {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            return Err(anyhow!("Glue ast failed:\nstdout: {}\nstderr: {}", stdout, stderr));
+        }
+
+        let stdout = String::from_utf8(output.stdout)?;
+        serde_json::from_str(&stdout).context("Failed to parse Glue IR JSON output")
+    }
+
     fn run_codegen(&self, mode: &str, ext: &str) -> Result<PathBuf> {
         let output_name = format!("{}_{}.{}", self.source_path.file_stem().unwrap().to_string_lossy(), mode, ext);
         let output_path = self.temp_dir.join(&output_name);
@@ -140,6 +157,19 @@ fn e2e_python_pydantic_todos() -> Result<()> {
     validate_python_types(&output_path)?;
 
     cleanup(&output_path);
+    Ok(())
+}
+
+#[test]
+fn e2e_ast_subcommand_outputs_glue_ir_json() -> Result<()> {
+    let fixture = GlueTestFixture::new("ast_json", "movies.glue")?;
+    let ir = fixture.generate_glue_ir_json()?;
+
+    assert_eq!(ir.get("version").and_then(|v| v.as_str()), Some("1"));
+    assert_eq!(ir.get("file_name").and_then(|v| v.as_str()), fixture.source_path.to_str());
+    assert!(ir.get("root").is_some(), "Expected AST root in Glue IR");
+    assert!(ir.get("errors").and_then(|v| v.as_array()).is_some(), "Expected errors array in Glue IR");
+
     Ok(())
 }
 

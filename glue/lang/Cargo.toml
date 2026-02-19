@@ -18,3 +18,4 @@ regex = { workspace = true }
 rowan = { version = "0.16.1" }
 slotmap = { workspace = true }
 thiserror = { workspace = true }
+serde = { workspace = true, features = ["derive"] }

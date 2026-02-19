@@ -39,6 +39,18 @@ impl Diagnostic {
             severity,
         }
     }
+
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    pub fn span(&self) -> TextRange {
+        self.span
+    }
+
+    pub fn severity(&self) -> DiagnosticSeverity {
+        self.severity
+    }
 }
 
 impl DiagnosticContext {

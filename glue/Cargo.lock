@@ -888,6 +888,7 @@ dependencies = [
  "rayon",
  "regex",
  "rowan",
+ "serde",
  "slotmap",
  "thiserror",
 ]

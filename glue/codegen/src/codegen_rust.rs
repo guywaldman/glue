@@ -1,6 +1,6 @@
 use config::GlueConfigSchemaGeneration;
 use convert_case::{Case, Casing};
-use lang::{AnalyzedProgram, AstNode, Enum, Field, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
+use lang::{AstNode, Enum, Field, GlueIr, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
@@ -12,7 +12,10 @@ use crate::{
 pub struct CodeGenRust;
 
 impl CodeGenerator for CodeGenRust {
-    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, config: Option<GlueConfigSchemaGeneration>) -> Result<String, CodeGenError> {
+    fn generate(&self, ir: GlueIr, source: &SourceCodeMetadata, config: Option<GlueConfigSchemaGeneration>) -> Result<String, CodeGenError> {
+        let program = ir
+            .into_analyzed_program()
+            .ok_or_else(|| CodeGenError::InternalError("Glue IR does not contain an analyzed program".to_string()))?;
         let ctx = CodeGenContext::new(program.ast_root.clone(), program.symbols, source, config.as_ref());
         let mut generator = RustGenerator::new(ctx);
         generator.generate()

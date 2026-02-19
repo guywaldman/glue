@@ -1,5 +1,5 @@
 use config::GlueConfigSchemaGeneration;
-use lang::{AnalyzedProgram, Parser, ParserError, SemanticAnalyzer, SemanticAnalyzerError, SourceCodeMetadata};
+use lang::{GlueIr, Parser, ParserError, SemanticAnalyzer, SemanticAnalyzerError, SourceCodeMetadata};
 
 use log::debug;
 use thiserror::Error;
@@ -24,7 +24,7 @@ pub enum CodeGenError {
 }
 
 pub trait CodeGenerator {
-    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, config: Option<GlueConfigSchemaGeneration>) -> Result<String, CodeGenError>;
+    fn generate(&self, ir: GlueIr, source: &SourceCodeMetadata, config: Option<GlueConfigSchemaGeneration>) -> Result<String, CodeGenError>;
 }
 
 pub type CodeGenResult<T> = Result<T, CodeGenError>;
@@ -105,11 +105,12 @@ impl TryFrom<&str> for CodeGenMode {
 pub struct CodeGen;
 
 impl CodeGen {
-    fn analyze(mode: CodeGenMode, source: &SourceCodeMetadata) -> Result<(Box<dyn CodeGenerator>, AnalyzedProgram), CodeGenError> {
+    fn analyze(mode: CodeGenMode, source: &SourceCodeMetadata) -> Result<(Box<dyn CodeGenerator>, GlueIr), CodeGenError> {
         debug!("Parsing source code");
         let parsed_program = Parser::new().parse(source).map_err(CodeGenError::ParserError)?;
         debug!("Starting semantic analysis");
         let analyzed_program = SemanticAnalyzer::new().analyze(&parsed_program, source).map_err(CodeGenError::SemanticAnalysisError)?;
+        let ir = GlueIr::from_analyzed_program(source.file_name, analyzed_program);
         let codegen: Box<dyn CodeGenerator> = match mode {
             CodeGenMode::JsonSchema => Box::<CodeGenJsonSchema>::default(),
             CodeGenMode::OpenApi => Box::<CodeGenOpenAPI>::default(),
@@ -119,11 +120,11 @@ impl CodeGen {
             CodeGenMode::Protobuf => Box::<CodeGenProtobuf>::default(),
             CodeGenMode::Go => Box::<CodeGenGo>::default(),
         };
-        Ok((codegen, analyzed_program))
+        Ok((codegen, ir))
     }
 
     pub fn generate(mode: CodeGenMode, source: &SourceCodeMetadata, config: Option<GlueConfigSchemaGeneration>) -> Result<String, CodeGenError> {
-        let (codegen, analyzed_program) = Self::analyze(mode, source)?;
-        codegen.generate(analyzed_program, source, config)
+        let (codegen, ir) = Self::analyze(mode, source)?;
+        codegen.generate(ir, source, config)
     }
 }

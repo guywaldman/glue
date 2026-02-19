@@ -1,6 +1,6 @@
 use config::{GlueConfigSchemaGeneration, GlueConfigSchemaGenerationGo};
 use convert_case::{Case, Casing};
-use lang::{AnalyzedProgram, AstNode, Enum, Field, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
+use lang::{AstNode, Enum, Field, GlueIr, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
@@ -12,7 +12,10 @@ use crate::{
 pub struct CodeGenGo;
 
 impl CodeGenerator for CodeGenGo {
-    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, config: Option<GlueConfigSchemaGeneration>) -> Result<String, CodeGenError> {
+    fn generate(&self, ir: GlueIr, source: &SourceCodeMetadata, config: Option<GlueConfigSchemaGeneration>) -> Result<String, CodeGenError> {
+        let program = ir
+            .into_analyzed_program()
+            .ok_or_else(|| CodeGenError::InternalError("Glue IR does not contain an analyzed program".to_string()))?;
         let go_config = config.as_ref().and_then(|c| c.go.clone()).unwrap_or_default();
         let ctx = CodeGenContext::new(program.ast_root.clone(), program.symbols, source, config.as_ref());
         let mut generator = GoGenerator::new(ctx, go_config);

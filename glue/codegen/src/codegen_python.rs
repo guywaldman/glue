@@ -1,6 +1,6 @@
 use config::{GlueConfigSchemaGeneration, GlueConfigSchemaGenerationPython, GlueConfigSchemaGenerationPythonDataModelLibrary};
 use convert_case::{Case, Casing};
-use lang::{AnalyzedProgram, AstNode, Enum, Field, Literal, LiteralExpr, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
+use lang::{AstNode, Enum, Field, GlueIr, Literal, LiteralExpr, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
@@ -90,7 +90,10 @@ impl PyModelLibrary {
 pub struct CodeGenPython;
 
 impl CodeGenerator for CodeGenPython {
-    fn generate(&self, program: AnalyzedProgram, source: &SourceCodeMetadata, config: Option<GlueConfigSchemaGeneration>) -> Result<String, CodeGenError> {
+    fn generate(&self, ir: GlueIr, source: &SourceCodeMetadata, config: Option<GlueConfigSchemaGeneration>) -> Result<String, CodeGenError> {
+        let program = ir
+            .into_analyzed_program()
+            .ok_or_else(|| CodeGenError::InternalError("Glue IR does not contain an analyzed program".to_string()))?;
         let lint_suppressions = config.as_ref().and_then(|g| g.lint_suppressions).unwrap_or(true);
         let py_config = config.and_then(|g| g.python).unwrap_or_default();
 
