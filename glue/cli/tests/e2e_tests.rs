@@ -8,6 +8,11 @@ use std::process::Command;
 
 use anyhow::{Context, Result, anyhow};
 
+const SHARED_SIMPLE_GLUE_SOURCE: &str = include_str!("e2e/fixtures/glue/simple.glue");
+const SHARED_NESTED_GLUE_SOURCE: &str = include_str!("e2e/fixtures/glue/nested.glue");
+const PYTHON_IMPORT_INSTANTIATE_TEMPLATE: &str = include_str!("e2e/fixtures/python/import_instantiate.tmpl.py");
+const PYTHON_MSGSPEC_INSTANTIATE_TEMPLATE: &str = include_str!("e2e/fixtures/python/msgspec_instantiate.tmpl.py");
+
 /// Run a command via `uv run` with the given Python dependencies.
 fn uv_run(deps: &[&str]) -> Command {
     let mut cmd = Command::new("uv");
@@ -189,17 +194,7 @@ fn e2e_ast_subcommand_outputs_glue_ir_json() -> Result<()> {
 
 #[test]
 fn e2e_ast_valid_literals_emit_no_error_nodes() -> Result<()> {
-    let fixture = GlueTestFixture::from_source(
-        "ast_no_error_literals",
-        "literals.glue",
-        r#"
-model A {
-  x: int = 1
-  y: bool = true
-  z: string = "hi"
-}
-"#,
-    )?;
+    let fixture = GlueTestFixture::from_source("ast_no_error_literals", "simple.glue", SHARED_SIMPLE_GLUE_SOURCE)?;
 
     let ir = fixture.generate_glue_ir_json()?;
     let error_nodes = count_ir_error_nodes(&ir);
@@ -224,30 +219,9 @@ fn e2e_python_import_and_instantiate() -> Result<()> {
     let fixture = GlueTestFixture::new("python_import", "todos.glue")?;
     let output_path = fixture.generate_python()?;
 
-    // Create a test script that imports and uses the generated models
-    let test_script = format!(
-        r#"
-import sys
-sys.path.insert(0, "{parent_dir}")
-
-from {module} import *
-
-# Test that we can instantiate the models
-# (Pydantic will validate the types)
-try:
-    # Test Error model
-    error = Error(message="test error")
-    assert error.message == "test error"
-    print("SUCCESS")
-except Exception as e:
-    print(f"ERROR: Error model failed: {{e}}")
-    sys.exit(1)
-
-print("All Python E2E tests passed!")
-"#,
-        parent_dir = output_path.parent().unwrap().display(),
-        module = output_path.file_stem().unwrap().to_string_lossy(),
-    );
+    let test_script = PYTHON_IMPORT_INSTANTIATE_TEMPLATE
+        .replace("__PARENT_DIR__", &output_path.parent().unwrap().display().to_string())
+        .replace("__MODULE__", &output_path.file_stem().unwrap().to_string_lossy());
 
     let test_script_path = output_path.with_extension("test.py");
     std::fs::write(&test_script_path, test_script)?;
@@ -262,15 +236,7 @@ print("All Python E2E tests passed!")
 
 #[test]
 fn e2e_python_dataclasses() -> Result<()> {
-    let source = r#"
-model User {
-    name: string
-    age: int
-    email?: string
-    active: bool = true
-}
-"#;
-    let fixture = GlueTestFixture::from_source("python_dataclasses", "dc_test.glue", source)?;
+    let fixture = GlueTestFixture::from_source("python_dataclasses", "simple.glue", SHARED_SIMPLE_GLUE_SOURCE)?;
     fixture.write_config("global:\n  config:\n    python:\n      data_model_library: dataclasses\n")?;
     let output_path = fixture.generate_python()?;
 
@@ -288,15 +254,7 @@ model User {
 
 #[test]
 fn e2e_python_msgspec() -> Result<()> {
-    let source = r#"
-model User {
-    name: string
-    age: int
-    email?: string
-    active: bool = true
-}
-"#;
-    let fixture = GlueTestFixture::from_source("python_msgspec", "ms_test.glue", source)?;
+    let fixture = GlueTestFixture::from_source("python_msgspec", "simple.glue", SHARED_SIMPLE_GLUE_SOURCE)?;
     fixture.write_config("global:\n  config:\n    python:\n      data_model_library: msgspec\n")?;
     let output_path = fixture.generate_python()?;
 
@@ -307,21 +265,9 @@ model User {
     assert!(content.contains("msgspec.Struct"), "Expected msgspec.Struct base class");
     assert!(!content.contains("BaseModel"), "Should not contain BaseModel");
 
-    // Import and instantiate
-    let test_script = format!(
-        r#"
-import sys
-sys.path.insert(0, "{parent_dir}")
-from {module} import *
-
-user = User(name="Alice", age=30)
-assert user.name == "Alice"
-assert user.age == 30
-print("msgspec OK")
-"#,
-        parent_dir = output_path.parent().unwrap().display(),
-        module = output_path.file_stem().unwrap().to_string_lossy(),
-    );
+    let test_script = PYTHON_MSGSPEC_INSTANTIATE_TEMPLATE
+        .replace("__PARENT_DIR__", &output_path.parent().unwrap().display().to_string())
+        .replace("__MODULE__", &output_path.file_stem().unwrap().to_string_lossy());
 
     let script_path = output_path.with_extension("test.py");
     std::fs::write(&script_path, test_script)?;
@@ -392,18 +338,7 @@ fn e2e_openapi_validate_with_spectral() -> Result<()> {
 
 #[test]
 fn e2e_jsonschema_valid() -> Result<()> {
-    // JSON Schema requires a @root model when multiple models exist.
-    // Use inline source with a single model for simplicity.
-    let source = r#"
-/// A simple user model
-@root
-model User {
-    id: int
-    name: string
-    email?: string
-}
-"#;
-    let fixture = GlueTestFixture::from_source("jsonschema", "jsonschema_test.glue", source)?;
+    let fixture = GlueTestFixture::from_source("jsonschema", "simple.glue", SHARED_SIMPLE_GLUE_SOURCE)?;
     let output_path = fixture.generate_jsonschema()?;
 
     let content = std::fs::read_to_string(&output_path)?;
@@ -418,23 +353,7 @@ model User {
 
 #[test]
 fn e2e_protobuf_valid_syntax() -> Result<()> {
-    // Use inline source for protobuf - the todos.glue has endpoints which
-    // may not be fully supported by the protobuf generator
-    let source = r#"
-/// A simple user model
-model User {
-    id: int
-    name: string
-    email?: string
-}
-
-/// An error response
-model Error {
-    message: string
-    code?: int
-}
-"#;
-    let fixture = GlueTestFixture::from_source("protobuf_syntax", "protobuf_test.glue", source)?;
+    let fixture = GlueTestFixture::from_source("protobuf_syntax", "nested.glue", SHARED_NESTED_GLUE_SOURCE)?;
     let output_path = fixture.generate_protobuf()?;
 
     // Check that the file contains valid protobuf syntax markers
@@ -448,21 +367,7 @@ model Error {
 
 #[test]
 fn e2e_protobuf_compile_with_protoc() -> Result<()> {
-    let source = r#"
-/// A simple user model
-model User {
-    id: int
-    name: string
-    email?: string
-}
-
-/// An error response
-model Error {
-    message: string
-    code?: int
-}
-"#;
-    let fixture = GlueTestFixture::from_source("protobuf_compile", "protobuf_compile_test.glue", source)?;
+    let fixture = GlueTestFixture::from_source("protobuf_compile", "nested.glue", SHARED_NESTED_GLUE_SOURCE)?;
     let output_path = fixture.generate_protobuf()?;
 
     let output = Command::new("protoc")

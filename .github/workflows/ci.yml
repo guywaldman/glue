@@ -72,6 +72,7 @@ jobs:
           key: ${{ runner.os }}-cargo-lint-${{ hashFiles('**/Cargo.lock') }}
 
       - uses: j178/prek-action@v1
+
   e2e-tests:
     name: E2E tests
     runs-on: ubuntu-latest
@@ -94,11 +95,58 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install just
+        uses: taiki-e/install-action@just
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
 
       - name: Run E2E tests
-        run: cargo test --test e2e_tests -- --test-threads=1
-        working-directory: glue
+        run: just test-e2e-cli
+        working-directory: .
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    env:
+      COVERAGE_THRESHOLD: "60"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            glue/target
+          key: ${{ runner.os }}-cargo-coverage-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Install just
+        uses: taiki-e/install-action@just
+
+      - name: Run tests with coverage
+        run: just codecov
+        working-directory: .
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: glue/lcov.info
+          if-no-files-found: error
 
   extension-test:
     name: VS Code Extension Tests
@@ -140,7 +188,7 @@ jobs:
   extension:
     name: VS Code extension | ${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
-    needs: [test, lint, extension-test]
+    needs: [test, lint, extension-test, coverage]
     if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
     strategy:
       fail-fast: false
@@ -228,7 +276,7 @@ jobs:
   extension-vsix:
     name: VS Code VSIX | ${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
-    needs: [test, lint, extension-test]
+    needs: [test, lint, extension-test, coverage]
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
@@ -330,7 +378,7 @@ jobs:
   build-artifacts:
     name: Build | ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
-    needs: [test, lint, e2e-tests]
+    needs: [test, lint, e2e-tests, coverage]
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}

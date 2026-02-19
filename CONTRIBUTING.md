@@ -20,22 +20,6 @@ Glue is in early beta, so for areas like the language, parser, semantic analyzer
 
 Consult the [justfile](justfile) for available tasks which should be self-explanatory.  
 
-```shell
-❯ just -l
-Available recipes:
-    build             # Build the Rust workspace with all features.
-    build-wasm        # Build the wasm package and sync generated schema bindings.
-    extension-dev     # Package and install the extension locally for development.
-    extension-publish # Publish the extension to the marketplace.
-    fix-cli           # Auto-fix Rust formatting and clippy warnings.
-    generate          # Generate schema artifacts from the config schema.
-    install-cli       # Build and install the CLI locally.
-    lint-cli          # Run lint and formatting checks for Rust.
-    precommit         # Run all precommit hooks.
-    test-e2e-cli      # Run CLI E2E tests.
-    test-extension    # Run VS Code extension tests.
-    test-unit-cli     # Run Rust workspace unit tests.
-```
 
 ## AI usage
 

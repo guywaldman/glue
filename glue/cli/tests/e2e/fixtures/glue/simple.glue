@@ -1,0 +1,6 @@
+model User {
+    name: string
+    age: int
+    email?: string
+    active: bool = true
+}

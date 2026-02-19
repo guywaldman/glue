@@ -1,4 +1,4 @@
-set shell := ["zsh", "-l", "-c"]
+set shell := ["bash", "-lc"]
 
 default:
 	@just --list
@@ -44,7 +44,30 @@ test-unit-cli:
 
 # Run CLI E2E tests.
 test-e2e-cli:
-	cd glue && cargo test e2e -- --nocapture
+	#!/usr/bin/env bash
+	set -euo pipefail
+	cd glue
+	targets=$(find cli/tests -maxdepth 1 -type f -name 'e2e_tests*.rs' -exec basename {} .rs \; | sort)
+	if [ -z "$targets" ]; then
+	  echo "No E2E test targets found matching cli/tests/e2e_tests*.rs"
+	  exit 1
+	fi
+
+	for target in $targets; do
+	  echo "Running E2E target: $target"
+	  cargo test --test "$target" -- --test-threads=1
+	done
+
+# Run codecoverage pipeline and generate lcov.info.
+codecov:
+	#!/usr/bin/env bash
+	set -euo pipefail
+	cd glue
+	cargo llvm-cov clean --workspace
+	cargo llvm-cov --workspace --exclude cli --all-features --no-report --quiet >/dev/null
+	cargo llvm-cov -p cli --lib --no-clean --quiet >/dev/null
+	cargo llvm-cov report --lcov --output-path lcov.info
+	cargo llvm-cov report --summary-only --fail-under-lines "${COVERAGE_THRESHOLD:-60}"
 
 # Run lint and formatting checks for Rust.
 lint-cli:
@@ -62,7 +85,7 @@ test-extension:
 
 # Package and install the extension locally for development.
 extension-dev profile="":
-	cd extension && rm -rf out && rm -f ./*.vsix(N) && npm install && npm run package && code --install-extension glue-*.vsix --force {{ if profile != "" { "--profile " + profile } else { "" } }}
+	cd extension && rm -rf out && find . -maxdepth 1 -type f -name '*.vsix' -delete && npm install && npm run package && code --install-extension glue-*.vsix --force {{ if profile != "" { "--profile " + profile } else { "" } }}
 
 # Publish the extension to the marketplace.
 extension-publish:
