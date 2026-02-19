@@ -1,4 +1,11 @@
+# Artifacts
 /target
+
+# Testing
+lcov.info
+
+# OS
 .DS_Store
 
+# Misc.
 temp

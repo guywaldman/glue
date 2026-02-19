@@ -46,6 +46,14 @@ test-unit-cli:
 test-e2e-cli:
 	cd glue && cargo test e2e -- --nocapture
 
+# Run codecoverage pipeline and generate lcov.info.
+codecov:
+	#!/usr/bin/env bash
+	set -euo pipefail
+	cd glue
+	cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info --quiet >/dev/null
+	cargo llvm-cov report --summary-only --fail-under-lines "${COVERAGE_THRESHOLD:-60}"
+
 # Run lint and formatting checks for Rust.
 lint-cli:
 	cd glue && cargo clippy --workspace --all
