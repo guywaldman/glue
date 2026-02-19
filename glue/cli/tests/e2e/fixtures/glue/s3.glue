@@ -1,0 +1,63 @@
+model BucketRef {
+    name: string
+}
+
+model ObjectTag {
+    key: string
+    value: string
+}
+
+model PutObjectRequest {
+    bucket: string
+    key: string
+    body: string
+    content_type?: string
+    metadata?: Record<string, string>
+    tags?: ObjectTag[]
+}
+
+model PutObjectResult {
+    key: string
+    e_tag: string
+}
+
+model CreateBucketResult {
+    bucket: string
+    status_code: int
+}
+
+model GetObjectResult {
+    key: string
+    body: string
+    content_length: int
+}
+
+model ListedObject {
+    key: string
+    size: int
+    e_tag: string
+}
+
+model HeadObjectResult {
+    key: string
+    content_length: int
+    content_type?: string
+    metadata: Record<string, string>
+}
+
+model CopyObjectRequest {
+    src_bucket: string
+    src_key: string
+    dst_bucket: string
+    dst_key: string
+}
+
+model DeleteObjectsRequest {
+    bucket: string
+    keys: string[]
+}
+
+model DeleteObjectResult {
+    key: string
+    status_code: int
+}

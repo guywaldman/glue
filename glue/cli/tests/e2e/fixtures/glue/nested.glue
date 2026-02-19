@@ -1,0 +1,16 @@
+model Address {
+    city: string
+    country: string
+}
+
+model User {
+    id: int
+    name: string
+    email?: string
+    address?: Address
+}
+
+model Error {
+    message: string
+    code?: int
+}
