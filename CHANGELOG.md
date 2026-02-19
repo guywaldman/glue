@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/guywaldman/glue/compare/v0.2.0...v0.3.0) (2026-02-18)
+
+
+### Features
+
+* add auto-discovery for .gluerc files ([c004cd0](https://github.com/guywaldman/glue/commit/c004cd008d10f0faada3fb05915b1595a33eed96))
+* make package name configurable for Go & Protobuf ([900f756](https://github.com/guywaldman/glue/commit/900f7565e373c091628f704068ebf055e9672bb9))
+
 ## [0.2.0](https://github.com/guywaldman/glue/compare/v0.1.1...v0.2.0) (2026-02-18)
 
 
