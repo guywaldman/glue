@@ -2,9 +2,6 @@
 //!
 //! These tests verify that generated code is valid and can be used with actual
 //! language tooling (Python, protoc, OpenAPI validators, etc.).
-//!
-//! Requires: `uv` and `protoc` on PATH.
-//! Run: `just test-e2e`
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -148,6 +145,23 @@ fn cleanup(path: &PathBuf) {
     let _ = std::fs::remove_file(path);
 }
 
+fn count_ir_error_nodes(value: &serde_json::Value) -> usize {
+    fn walk(node: &serde_json::Value) -> usize {
+        let mut count = 0;
+        if node.get("kind").and_then(|k| k.as_str()) == Some("error") {
+            count += 1;
+        }
+        if let Some(children) = node.get("children").and_then(|c| c.as_array()) {
+            for child in children {
+                count += walk(child);
+            }
+        }
+        count
+    }
+
+    value.get("root").map(walk).unwrap_or(0)
+}
+
 #[test]
 fn e2e_python_pydantic_todos() -> Result<()> {
     let fixture = GlueTestFixture::new("python_todos", "todos.glue")?;
@@ -170,6 +184,26 @@ fn e2e_ast_subcommand_outputs_glue_ir_json() -> Result<()> {
     assert!(ir.get("root").is_some(), "Expected AST root in Glue IR");
     assert!(ir.get("errors").and_then(|v| v.as_array()).is_some(), "Expected errors array in Glue IR");
 
+    Ok(())
+}
+
+#[test]
+fn e2e_ast_valid_literals_emit_no_error_nodes() -> Result<()> {
+    let fixture = GlueTestFixture::from_source(
+        "ast_no_error_literals",
+        "literals.glue",
+        r#"
+model A {
+  x: int = 1
+  y: bool = true
+  z: string = "hi"
+}
+"#,
+    )?;
+
+    let ir = fixture.generate_glue_ir_json()?;
+    let error_nodes = count_ir_error_nodes(&ir);
+    assert_eq!(error_nodes, 0, "valid literal defaults should not produce error nodes in IR");
     Ok(())
 }
 

@@ -122,15 +122,21 @@ pub enum GlueIrNodeKind {
     DecoratorArgs,
     DecoratorNamedArg,
     DecoratorPositionalArg,
+    Literal,
+    TrueLiteral,
+    FalseLiteral,
     Ident,
     BuiltinType,
     OptionalModifier,
     Record,
     StringLiteral,
+    StringLiteralInner,
+    Char,
     IntLiteral,
     BoolLiteral,
     ListLiteral,
     DocBlock,
+    Unknown,
     Error,
 }
 
@@ -155,7 +161,17 @@ impl GlueIrNodeKind {
             LSyntaxKind::DECORATOR_ARGS => Self::DecoratorArgs,
             LSyntaxKind::DECORATOR_NAMED_ARG => Self::DecoratorNamedArg,
             LSyntaxKind::DECORATOR_POSITIONAL_ARG => Self::DecoratorPositionalArg,
-            _ => Self::Error,
+            LSyntaxKind::LITERAL => Self::Literal,
+            LSyntaxKind::TRUE_LITERAL => Self::TrueLiteral,
+            LSyntaxKind::FALSE_LITERAL => Self::FalseLiteral,
+            LSyntaxKind::BOOL_LITERAL => Self::BoolLiteral,
+            LSyntaxKind::INT_LITERAL => Self::IntLiteral,
+            LSyntaxKind::LIST_LITERAL => Self::ListLiteral,
+            LSyntaxKind::STRING_LITERAL => Self::StringLiteral,
+            LSyntaxKind::STRING_LITERAL_INNER => Self::StringLiteralInner,
+            LSyntaxKind::CHAR => Self::Char,
+            LSyntaxKind::ERROR => Self::Error,
+            _ => Self::Unknown,
         }
     }
 
@@ -166,8 +182,12 @@ impl GlueIrNodeKind {
             LSyntaxKind::OPTIONAL_MODIFIER => Some(Self::OptionalModifier),
             LSyntaxKind::RECORD => Some(Self::Record),
             LSyntaxKind::STRING_LITERAL => Some(Self::StringLiteral),
+            LSyntaxKind::STRING_LITERAL_INNER => Some(Self::StringLiteralInner),
+            LSyntaxKind::CHAR => Some(Self::Char),
             LSyntaxKind::INT_LITERAL => Some(Self::IntLiteral),
             LSyntaxKind::BOOL_LITERAL => Some(Self::BoolLiteral),
+            LSyntaxKind::TRUE_LITERAL => Some(Self::TrueLiteral),
+            LSyntaxKind::FALSE_LITERAL => Some(Self::FalseLiteral),
             LSyntaxKind::LIST_LITERAL => Some(Self::ListLiteral),
             LSyntaxKind::DOC_BLOCK => Some(Self::DocBlock),
             _ => None,
@@ -179,18 +199,13 @@ impl GlueIrNodeKind {
 pub struct GlueIrSpan {
     pub start: u32,
     pub end: u32,
-    pub length: u32,
 }
 
 impl GlueIrSpan {
     fn from_range(range: rowan::TextRange) -> Self {
         let start = u32::from(range.start());
         let end = u32::from(range.end());
-        Self {
-            start,
-            end,
-            length: end.saturating_sub(start),
-        }
+        Self { start, end }
     }
 }
 
