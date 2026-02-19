@@ -92,10 +92,10 @@ fn ensure_go_available() -> Result<()> {
 }
 
 #[test]
-fn e2e_openapi_generated_go_server_and_client_roundtrip() -> Result<()> {
+fn e2e_openapi_generated_go_server_and_client() -> Result<()> {
     ensure_go_available()?;
 
-    let fixture = GlueTestFixture::from_source("openapi_go_roundtrip", "api_comprehensive.glue", API_GLUE_SOURCE)?;
+    let fixture = GlueTestFixture::from_source("openapi_go", "api_comprehensive.glue", API_GLUE_SOURCE)?;
     fixture.write_config("global:\n  config:\n    watermark: none\n")?;
     let output_path = fixture.generate_openapi()?;
 
@@ -119,7 +119,7 @@ fn e2e_openapi_generated_go_server_and_client_roundtrip() -> Result<()> {
     assert!(spec.pointer("/paths/~1users~1{user_id}/get/responses/4XX").is_some(), "Missing 4XX response for GET /users/{{user_id}}");
     assert!(spec.pointer("/paths/~1users~1{user_id}/get/responses/5XX").is_some(), "Missing 5XX response for GET /users/{{user_id}}");
 
-    let go_dir = fixture.temp_dir.join("go_openapi_roundtrip");
+    let go_dir = fixture.temp_dir.join("go_openapi");
     std::fs::create_dir_all(&go_dir)?;
 
     let go_spec_path = go_dir.join("openapi.json");

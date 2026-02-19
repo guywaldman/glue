@@ -95,11 +95,19 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install just
+        uses: taiki-e/install-action@just
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
 
       - name: Run E2E tests
-        run: cargo test --test e2e_tests -- --test-threads=1
-        working-directory: glue
+        run: just test-e2e-cli
+        working-directory: .
 
   coverage:
     name: Coverage
@@ -126,14 +134,12 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
+      - name: Install just
+        uses: taiki-e/install-action@just
+
       - name: Run tests with coverage
-        working-directory: glue
-        run: |
-          cargo llvm-cov clean --workspace
-          cargo llvm-cov --workspace --exclude cli --all-features --no-report --quiet >/dev/null
-          cargo llvm-cov -p cli --lib --no-clean --quiet >/dev/null
-          cargo llvm-cov report --lcov --output-path lcov.info
-          cargo llvm-cov report --summary-only --fail-under-lines "$COVERAGE_THRESHOLD"
+        run: just codecov
+        working-directory: .
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
