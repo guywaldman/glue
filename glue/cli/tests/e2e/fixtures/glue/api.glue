@@ -1,0 +1,104 @@
+
+/// Fetch user by id
+endpoint "GET /users/{user_id}" GetUser {
+    responses: {
+        200: UserResponse
+        4XX: ApiError
+        5XX: ApiError
+    }
+}
+
+/// List all users
+endpoint "GET /users" ListUsers {
+    responses: {
+        200: UserListResponse
+    }
+}
+
+/// List posts for a user
+endpoint "GET /users/{user_id}/posts" ListUserPosts {
+    responses: {
+        200: PostListResponse
+        4XX: ApiError
+        5XX: ApiError
+    }
+}
+
+/// Health probe endpoint
+endpoint "GET /health" HealthCheck {
+    responses: {
+        2XX: HealthResponse
+    }
+}
+
+/// Physical address details
+model Address {
+    street: string
+    city: string
+    country: string
+    postal_code?: string
+}
+
+/// A domain user model with rich field types
+model User {
+    /// Public user id
+    @field(alias="userId", example="user_123")
+    user_id: string
+
+    /// Display name
+    name: string
+
+    /// Age in years
+    @field(example=32)
+    age: int
+
+    /// Whether user is currently active
+    active: bool = true
+
+    /// User role value
+    @field(example="admin")
+    role: string
+
+    /// User tags
+    tags: string[]
+
+    /// Arbitrary preference map
+    preferences: Record<string, string>
+
+    /// Optional nested model
+    address?: Address
+}
+
+model Post {
+    @field(alias="postId", example="p_001")
+    post_id: string
+    title: string
+    published: bool
+}
+
+model UserResponse {
+    user: User
+    @field(alias="requestId", example="req-1")
+    request_id: string
+}
+
+model UserListResponse {
+    users: User[]
+    total: int
+}
+
+model PostListResponse {
+    posts: Post[]
+    total: int
+}
+
+model HealthResponse {
+    status: string
+    version: string
+}
+
+model ApiError {
+    code: int
+    message: string
+    details?: Record<string, string>
+}
