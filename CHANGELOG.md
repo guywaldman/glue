@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/guywaldman/glue/compare/v0.3.0...v0.3.1) (2026-02-19)
+
+
+### Bug Fixes
+
+* add missing node types in IR and remove false error nodes ([10d9554](https://github.com/guywaldman/glue/commit/10d955489c206ab6395f78521aa32c69d89dd698))
+
 ## [0.3.0](https://github.com/guywaldman/glue/compare/v0.2.0...v0.3.0) (2026-02-18)
 
 
