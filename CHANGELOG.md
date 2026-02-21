@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.0](https://github.com/guywaldman/glue/compare/v0.3.1...v0.4.0) (2026-02-21)
+
+
+### Features
+
+* add VS Code file explorer icons ([#14](https://github.com/guywaldman/glue/issues/14)) ([9c94420](https://github.com/guywaldman/glue/commit/9c944202d8df8e7dc122d4866a0bc6b3660d590a))
+* support imports ([#13](https://github.com/guywaldman/glue/issues/13)) ([72833d8](https://github.com/guywaldman/glue/commit/72833d8a1a2f2b483a94158a3ff602d72c155bde))
+* support URL inputs ([#16](https://github.com/guywaldman/glue/issues/16)) ([d7dce79](https://github.com/guywaldman/glue/commit/d7dce79265d3a3692ec3ab768dc117d6925e627a))
+
 ## [0.3.1](https://github.com/guywaldman/glue/compare/v0.3.0...v0.3.1) (2026-02-19)
 
 
