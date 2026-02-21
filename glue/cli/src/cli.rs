@@ -8,6 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use thiserror::Error;
+use url::Url;
 
 use clap::Parser as ClapParser;
 use lang::{AnalyzedProgram, AstNode, GlueIr, Parser, RootNode, SemanticAnalyzer, SourceCodeMetadata, diagnostic_to_ir_error, parser_error_to_ir_error, print_report, semantic_error_to_ir_error};
@@ -278,8 +279,14 @@ impl GlueCli {
         };
         let file_contents = {
             if let Some(input) = input {
-                let mut visited = HashSet::new();
-                Self::read_file_with_imports(&input, &mut visited)?
+                let input_value = input.to_string_lossy().to_string();
+                if Self::is_http_url(&input_value) {
+                    let mut visited = HashSet::new();
+                    Self::read_url_with_imports(&input_value, &mut visited)?
+                } else {
+                    let mut visited = HashSet::new();
+                    Self::read_file_with_imports(&input, &mut visited)?
+                }
             } else {
                 let mut buffer = String::new();
                 std::io::stdin().read_to_string(&mut buffer)?;
@@ -290,6 +297,64 @@ impl GlueCli {
             file_name: Box::leak(file_name.into_boxed_str()),
             file_contents: Box::leak(file_contents.into_boxed_str()),
         })
+    }
+
+    fn is_http_url(input: &str) -> bool {
+        input.starts_with("http://") || input.starts_with("https://")
+    }
+
+    fn fetch_url_source(url: &str) -> Result<String, CliError> {
+        let response = reqwest::blocking::get(url)
+            .map_err(|e| CliError::BadInput(format!("Failed to fetch input URL '{}': {}", url, e)))?;
+
+        if !response.status().is_success() {
+            return Err(CliError::BadInput(format!("Failed to fetch input URL '{}': HTTP {}", url, response.status())));
+        }
+
+        response
+            .text()
+            .map_err(|e| CliError::BadInput(format!("Failed to read input URL body '{}': {}", url, e)))
+    }
+
+    fn resolve_import_url(base_url: &Url, import_path: &str) -> Result<Url, CliError> {
+        if Self::is_http_url(import_path) {
+            Url::parse(import_path).map_err(|e| CliError::BadInput(format!("Invalid import URL '{}': {}", import_path, e)))
+        } else {
+            base_url
+                .join(import_path)
+                .map_err(|e| CliError::BadInput(format!("Failed to resolve import '{}' from '{}': {}", import_path, base_url, e)))
+        }
+    }
+
+    fn read_url_with_imports(url: &str, visited: &mut HashSet<String>) -> Result<String, CliError> {
+        let base_url = Url::parse(url).map_err(|e| CliError::BadInput(format!("Invalid input URL '{}': {}", url, e)))?;
+        if !matches!(base_url.scheme(), "http" | "https") {
+            return Err(CliError::BadInput(format!("Unsupported URL scheme for input '{}': {}", url, base_url.scheme())));
+        }
+
+        let normalized_url = base_url.to_string();
+        if visited.contains(&normalized_url) {
+            return Ok(String::new());
+        }
+        visited.insert(normalized_url.clone());
+
+        let source = Self::fetch_url_source(&normalized_url)?;
+
+        let imports = Self::collect_imports(&normalized_url, &source);
+        let mut combined = String::new();
+        for (import_path, _) in &imports {
+            let resolved_import_url = Self::resolve_import_url(&base_url, import_path)?;
+            let imported_source = Self::read_url_with_imports(resolved_import_url.as_str(), visited)?;
+            if !imported_source.trim().is_empty() {
+                combined.push_str(&imported_source);
+                combined.push('\n');
+            }
+        }
+
+        let aliases: Vec<String> = imports.into_iter().filter_map(|(_, alias)| alias).collect();
+        let transformed_source = Self::normalize_source_after_import_resolution(&source, &aliases);
+        combined.push_str(&transformed_source);
+        Ok(combined)
     }
 
     fn read_file_with_imports(path: &Path, visited: &mut HashSet<PathBuf>) -> Result<String, CliError> {
