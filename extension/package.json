@@ -24,13 +24,13 @@
     "languages": [
       {
         "id": "glue",
-        "aliases": [
-          "glue",
-          "glue"
-        ],
         "extensions": [
           ".glue"
         ],
+        "icon": {
+          "light": "./images/glue-file-icon-light.svg",
+          "dark": "./images/glue-file-icon-dark.svg"
+        },
         "configuration": "./language-configuration.json"
       }
     ],
