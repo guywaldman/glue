@@ -1,0 +1,12 @@
+model Person {
+	name: string
+	age: int
+	address: Address
+
+	model Address {
+		street: string
+		city: string
+		country_code: string
+		zipcode: string
+	}
+}

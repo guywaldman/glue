@@ -2,6 +2,8 @@ use anyhow::{Result, anyhow};
 use insta::{assert_json_snapshot, assert_snapshot};
 use std::cell::OnceCell;
 use std::collections::HashMap;
+use std::io::{Read, Write};
+use std::net::TcpListener;
 use std::{env::temp_dir, path::PathBuf};
 
 use crate::cli::GlueCli;
@@ -149,4 +151,36 @@ fn test_gluerc_auto_discovery() {
         with_explicit_config, with_auto_discovery,
         "Auto-discovered .gluerc.yaml should produce identical output to explicit --config"
     );
+}
+
+#[test]
+fn test_check_from_url() {
+    let path = load_glue_fixture(MOVIES_FIXTURE_NAME).unwrap();
+    let source = std::fs::read_to_string(path).unwrap();
+    let url = serve_single_response(source);
+
+    let cli = GlueCli;
+    let args = &["glue", "check", &url];
+    cli.run(args).expect("CLI should support URL input for check");
+}
+
+fn serve_single_response(body: String) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind test server");
+    let addr = listener.local_addr().expect("Failed to get local test server address");
+
+    std::thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let mut request_buf = [0_u8; 1024];
+            let _ = stream.read(&mut request_buf);
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = stream.write_all(response.as_bytes());
+            let _ = stream.flush();
+        }
+    });
+
+    format!("http://{}/input.glue", addr)
 }
