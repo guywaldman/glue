@@ -1,0 +1,5 @@
+/// This is some model.
+model SomeModel {
+    /// This is the name.
+    name: string
+}

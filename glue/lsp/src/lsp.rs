@@ -1,11 +1,12 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use anyhow::Result;
 use lang::BUILTIN_DECORATORS;
 use lang::{
-    AstNode, Decorator, DecoratorArgDef, DecoratorDef, Endpoint, Enum, Field, LNode, LSyntaxKind, Model, Parser, RootNode, SemanticAnalyzer, SourceCodeMetadata, SymTable, TextSize, TokenAtOffset,
-    Type,
+    AstNode, Decorator, DecoratorArgDef, DecoratorDef, Endpoint, Enum, Field, LNode, LSyntaxKind, Model, Parser, RootNode, SemanticAnalyzer, SemanticAnalyzerError, SourceCodeMetadata, SymTable,
+    TextSize, TokenAtOffset, Type,
 };
 use log::{error, info};
 use miette::LabeledSpan;
@@ -99,26 +100,175 @@ impl Lsp {
     }
 
     fn collect_document_diagnostics(&self, uri: &str) -> Vec<lsp::Diagnostic> {
-        let state = self.state.read().expect("Failed to acquire read lock on LSP state");
-        let Some(source) = state.documents.get(uri) else {
+        let Some(source) = self.load_document_or_file(uri) else {
             return Vec::new();
         };
 
+        let mut extra_diags = self.collect_missing_import_path_diagnostics(uri, &source);
+
         let metadata = SourceCodeMetadata {
             file_name: uri,
-            file_contents: source,
+            file_contents: &source,
         };
 
         let mut parser = Parser::new();
         let parsed = match parser.parse(&metadata) {
             Ok(parsed) => parsed,
-            Err(err) => return self.diagnostics_from_report(uri, err.report()),
+            Err(err) => {
+                let mut diags = self.diagnostics_from_report(uri, err.report());
+                diags.append(&mut extra_diags);
+                return diags;
+            }
         };
 
         match SemanticAnalyzer::new().analyze(&parsed, &metadata) {
-            Ok(_) => Vec::new(),
-            Err(errors) => errors.iter().flat_map(|err| self.diagnostics_from_report(uri, err.report())).collect(),
+            Ok(_) => extra_diags,
+            Err(errors) => {
+                let mut semantic_diags: Vec<lsp::Diagnostic> = errors
+                    .iter()
+                    .filter(|err| !self.is_undefined_reference_resolved_by_import(uri, err))
+                    .flat_map(|err| self.diagnostics_from_report(uri, err.report()))
+                    .collect();
+                semantic_diags.append(&mut extra_diags);
+                semantic_diags
+            }
         }
+    }
+
+    fn collect_missing_import_path_diagnostics(&self, uri: &str, source: &str) -> Vec<lsp::Diagnostic> {
+        let mut diagnostics = Vec::new();
+        let Some(base_path) = Self::uri_to_file_path(uri) else {
+            return diagnostics;
+        };
+        let base_dir = base_path.parent().unwrap_or_else(|| Path::new("."));
+
+        for (line_idx, line) in source.lines().enumerate() {
+            let Some((import_path, path_start, path_end)) = Self::extract_import_path_with_range(line) else {
+                continue;
+            };
+
+            let exists = base_dir.join(&import_path).exists();
+            if exists {
+                continue;
+            }
+
+            diagnostics.push(lsp::Diagnostic {
+                range: lsp::Range {
+                    start: lsp::Position {
+                        line: line_idx as u32,
+                        character: path_start as u32,
+                    },
+                    end: lsp::Position {
+                        line: line_idx as u32,
+                        character: path_end as u32,
+                    },
+                },
+                severity: Some(lsp::DiagnosticSeverity::ERROR),
+                source: Some("glue".to_string()),
+                message: format!("Import path does not exist: '{}'", import_path),
+                ..Default::default()
+            });
+        }
+
+        diagnostics
+    }
+
+    fn extract_import_path_with_range(line: &str) -> Option<(String, usize, usize)> {
+        let trimmed = line.trim_start();
+        if !trimmed.starts_with("import ") || !trimmed.contains(" from ") {
+            return None;
+        }
+        let leading_ws = line.len() - trimmed.len();
+        let from_idx = trimmed.find(" from ")?;
+        let after_from = &trimmed[from_idx + 6..];
+        let quote_idx = after_from.find('"')?;
+        let rest = &after_from[quote_idx + 1..];
+        let end_quote_idx = rest.find('"')?;
+        let import_path = rest[..end_quote_idx].to_string();
+
+        let path_start = leading_ws + from_idx + 6 + quote_idx + 1;
+        let path_end = path_start + end_quote_idx;
+        Some((import_path, path_start, path_end))
+    }
+
+    fn import_path_completion_context(line: &str, pos: lsp::Position) -> Option<String> {
+        let cursor = pos.character.min(line.len() as u32) as usize;
+        let prefix = &line[..cursor];
+        if !prefix.trim_start().starts_with("import ") || !prefix.contains(" from ") {
+            return None;
+        }
+
+        let quote_idx = prefix.rfind('"')?;
+        if prefix[quote_idx + 1..].contains('"') {
+            return None;
+        }
+        Some(prefix[quote_idx + 1..].to_string())
+    }
+
+    fn import_path_completion_items(&self, uri: &str, typed_prefix: &str) -> Vec<lsp::CompletionItem> {
+        let Some(file_path) = Self::uri_to_file_path(uri) else {
+            return Vec::new();
+        };
+        let base_dir = file_path.parent().unwrap_or_else(|| Path::new("."));
+
+        let (dir_part, name_prefix) = match typed_prefix.rsplit_once('/') {
+            Some((dir_part, name_prefix)) => (format!("{dir_part}/"), name_prefix),
+            None => (String::new(), typed_prefix),
+        };
+
+        let target_dir = base_dir.join(dir_part.trim_end_matches('/'));
+        let Ok(entries) = std::fs::read_dir(&target_dir) else {
+            return Vec::new();
+        };
+
+        let mut items = Vec::new();
+        for entry in entries.flatten() {
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !name.starts_with(name_prefix) {
+                continue;
+            }
+
+            if file_type.is_dir() {
+                items.push(lsp::CompletionItem {
+                    label: format!("{}{}{}", dir_part, name, "/"),
+                    kind: Some(lsp::CompletionItemKind::FOLDER),
+                    sort_text: Some(format!("0{}", name)),
+                    ..Default::default()
+                });
+            } else if name.ends_with(".glue") {
+                items.push(lsp::CompletionItem {
+                    label: format!("{}{}", dir_part, name),
+                    kind: Some(lsp::CompletionItemKind::FILE),
+                    sort_text: Some(format!("1{}", name)),
+                    ..Default::default()
+                });
+            }
+        }
+
+        items.sort_by(|a, b| a.label.cmp(&b.label));
+        items
+    }
+
+    fn is_undefined_reference_resolved_by_import(&self, uri: &str, err: &SemanticAnalyzerError) -> bool {
+        let SemanticAnalyzerError::UndefinedTypeReference(report) = err else {
+            return false;
+        };
+
+        let message = report.to_string();
+        let marker = "Undefined type reference '";
+        let Some(start) = message.find(marker) else {
+            return false;
+        };
+        let rest = &message[start + marker.len()..];
+        let Some(end) = rest.find('"').or_else(|| rest.find('\'')) else {
+            return false;
+        };
+        let ty_name = &rest[..end];
+
+        self.resolve_imported_location(uri, ty_name).is_some()
     }
 
     async fn publish_document_diagnostics(&self, uri: &str) {
@@ -152,6 +302,387 @@ impl Lsp {
         Ok((analyzed.ast_root, analyzed.symbols))
     }
 
+    fn parse_source_lenient(file_name: &str, source: &str) -> Result<(LNode, SymTable<LNode>)> {
+        let metadata = SourceCodeMetadata { file_name, file_contents: source };
+        let mut parser = Parser::new();
+        let parsed = parser.parse(&metadata).map_err(|e| anyhow::anyhow!("Parse error: {:?}", e))?;
+        let analyzer = SemanticAnalyzer::new();
+        let analyzed = analyzer.analyze_lenient(&parsed, &metadata);
+        Ok((analyzed.ast_root, analyzed.symbols))
+    }
+
+    fn uri_to_file_path(uri: &str) -> Option<PathBuf> {
+        let parsed = lsp::Url::parse(uri).ok()?;
+        parsed.to_file_path().ok()
+    }
+
+    fn file_path_to_uri(path: &Path) -> Option<String> {
+        let url = lsp::Url::from_file_path(path).ok()?;
+        Some(url.to_string())
+    }
+
+    fn load_document_or_file(&self, uri: &str) -> Option<String> {
+        {
+            let state = self.state.read().expect("Failed to acquire read lock on LSP state");
+            if let Some(source) = state.documents.get(uri) {
+                return Some(source.clone());
+            }
+        }
+
+        let path = Self::uri_to_file_path(uri)?;
+        std::fs::read_to_string(path).ok()
+    }
+
+    fn position_at_offset_in_source(source: &str, offset: u32) -> lsp::Position {
+        let mut current = 0u32;
+        for (i, line) in source.lines().enumerate() {
+            let line_len = line.len() as u32 + 1;
+            if current + line_len > offset {
+                return lsp::Position {
+                    line: i as u32,
+                    character: offset - current,
+                };
+            }
+            current += line_len;
+        }
+        lsp::Position { line: 0, character: 0 }
+    }
+
+    fn resolve_imported_location(&self, from_uri: &str, reference_name: &str) -> Option<lsp::Location> {
+        let source = self.load_document_or_file(from_uri)?;
+        let (ast, _) = Self::parse_source_lenient(from_uri, &source).ok()?;
+        let root = RootNode::cast(ast)?;
+
+        let (qualifier, symbol_name) = if let Some((left, right)) = reference_name.split_once('.') {
+            (Some(left), right)
+        } else {
+            (None, reference_name)
+        };
+
+        for import_stmt in root.top_level_imports() {
+            let Some(import_path) = import_stmt.source_path() else {
+                continue;
+            };
+            let Some(target_uri) = Self::resolve_import_uri(from_uri, &import_path) else {
+                continue;
+            };
+
+            let target_symbol = if let Some(qualifier) = qualifier {
+                if import_stmt.is_wildcard() && import_stmt.wildcard_alias().as_deref() == Some(qualifier) {
+                    Some(symbol_name.to_string())
+                } else {
+                    None
+                }
+            } else {
+                let mut target = None;
+                if import_stmt.is_wildcard() && import_stmt.wildcard_alias().is_none() {
+                    target = Some(symbol_name.to_string());
+                }
+                for (imported_name, alias) in import_stmt.named_item_specs() {
+                    let visible_name = alias.unwrap_or_else(|| imported_name.clone());
+                    if visible_name == symbol_name {
+                        target = Some(imported_name);
+                        break;
+                    }
+                }
+                target
+            };
+
+            let Some(target_symbol) = target_symbol else {
+                continue;
+            };
+            if let Some(location) = self.find_top_level_symbol_location(&target_uri, &target_symbol) {
+                return Some(location);
+            }
+        }
+
+        None
+    }
+
+    fn resolve_import_uri(base_uri: &str, import_path: &str) -> Option<String> {
+        let base_path = Self::uri_to_file_path(base_uri)?;
+        let resolved = base_path.parent().unwrap_or_else(|| Path::new(".")).join(import_path);
+        let canonical = resolved.canonicalize().ok()?;
+        Self::file_path_to_uri(&canonical)
+    }
+
+    fn find_top_level_symbol_location(&self, uri: &str, symbol_name: &str) -> Option<lsp::Location> {
+        let source = self.load_document_or_file(uri)?;
+        let (ast, _) = Self::parse_source_lenient(uri, &source).ok()?;
+        let root = RootNode::cast(ast)?;
+
+        let maybe_node = root
+            .top_level_models()
+            .into_iter()
+            .find_map(|model| (model.ident().as_deref() == Some(symbol_name)).then(|| model.syntax().clone()))
+            .or_else(|| {
+                root.top_level_enums()
+                    .into_iter()
+                    .find_map(|enum_| (enum_.ident().as_deref() == Some(symbol_name)).then(|| enum_.syntax().clone()))
+            });
+
+        let node = maybe_node?;
+        let start = node.text_range().start();
+        let end = node.text_range().end();
+        let uri = lsp::Url::parse(uri).ok()?;
+
+        Some(lsp::Location {
+            uri,
+            range: lsp::Range {
+                start: Self::position_at_offset_in_source(&source, start.into()),
+                end: Self::position_at_offset_in_source(&source, end.into()),
+            },
+        })
+    }
+
+    fn imported_symbol_info(&self, from_uri: &str, reference_name: &str) -> Option<SymbolInfo> {
+        let location = self.resolve_imported_location(from_uri, reference_name)?;
+        let target_uri = location.uri.to_string();
+        let source = self.load_document_or_file(&target_uri)?;
+        let (ast, _) = Self::parse_source_lenient(&target_uri, &source).ok()?;
+        let root = RootNode::cast(ast)?;
+
+        let symbol_name = reference_name.split('.').next_back()?;
+
+        let node = root
+            .top_level_models()
+            .into_iter()
+            .find_map(|model| (model.ident().as_deref() == Some(symbol_name)).then(|| model.syntax().clone()))
+            .or_else(|| {
+                root.top_level_enums()
+                    .into_iter()
+                    .find_map(|enum_| (enum_.ident().as_deref() == Some(symbol_name)).then(|| enum_.syntax().clone()))
+            })?;
+
+        self.extract_symbol_info(&node)
+    }
+
+    fn import_alias_location(&self, uri: &str, alias: &str) -> Option<lsp::Location> {
+        let source = self.load_document_or_file(uri)?;
+        let (ast, _) = Self::parse_source_lenient(uri, &source).ok()?;
+        let root = RootNode::cast(ast)?;
+
+        let import_node = root
+            .top_level_imports()
+            .into_iter()
+            .find(|import_stmt| import_stmt.wildcard_alias().as_deref() == Some(alias))?
+            .syntax()
+            .clone();
+
+        let start = import_node.text_range().start();
+        let end = import_node.text_range().end();
+        let uri = lsp::Url::parse(uri).ok()?;
+
+        Some(lsp::Location {
+            uri,
+            range: lsp::Range {
+                start: Self::position_at_offset_in_source(&source, start.into()),
+                end: Self::position_at_offset_in_source(&source, end.into()),
+            },
+        })
+    }
+
+    fn import_alias_info(&self, uri: &str, alias: &str) -> Option<(String, String)> {
+        let source = self.load_document_or_file(uri)?;
+        let (ast, _) = Self::parse_source_lenient(uri, &source).ok()?;
+        let root = RootNode::cast(ast)?;
+        let import_stmt = root.top_level_imports().into_iter().find(|import_stmt| import_stmt.wildcard_alias().as_deref() == Some(alias))?;
+        let path = import_stmt.source_path()?;
+        Some((alias.to_string(), path))
+    }
+
+    fn top_level_symbol_completions(&self, uri: &str) -> Vec<(String, lsp::CompletionItemKind)> {
+        let Some(source) = self.load_document_or_file(uri) else {
+            return Vec::new();
+        };
+        let Ok((ast, _)) = Self::parse_source_lenient(uri, &source) else {
+            return Vec::new();
+        };
+        let Some(root) = RootNode::cast(ast) else {
+            return Vec::new();
+        };
+
+        let mut out = Vec::new();
+        for model in root.top_level_models() {
+            if let Some(name) = model.ident() {
+                out.push((name, lsp::CompletionItemKind::STRUCT));
+            }
+        }
+        for enum_def in root.top_level_enums() {
+            if let Some(name) = enum_def.ident() {
+                out.push((name, lsp::CompletionItemKind::ENUM));
+            }
+        }
+        out
+    }
+
+    fn namespace_member_context(&self, uri: &str, pos: lsp::Position) -> Option<(String, String)> {
+        let source = self.load_document_or_file(uri)?;
+        let line = source.lines().nth(pos.line as usize)?;
+        Self::namespace_member_context_from_line(line, pos)
+    }
+
+    fn namespace_member_context_from_line(line: &str, pos: lsp::Position) -> Option<(String, String)> {
+        let prefix = &line[..pos.character.min(line.len() as u32) as usize];
+        let dot_idx = prefix.rfind('.')?;
+        let left = &prefix[..dot_idx];
+        let right = &prefix[dot_idx + 1..];
+
+        if !right.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            return None;
+        }
+
+        let alias_rev: String = left.chars().rev().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+        let alias: String = alias_rev.chars().rev().collect();
+        if alias.is_empty() {
+            return None;
+        }
+        Some((alias, right.to_string()))
+    }
+
+    fn wildcard_alias_import_uri_from_source(from_uri: &str, source: &str, alias: &str) -> Option<String> {
+        for line in source.lines() {
+            let trimmed = line.trim();
+            if !trimmed.starts_with("import * as ") {
+                continue;
+            }
+
+            let rest = trimmed.strip_prefix("import * as ")?.trim_start();
+            let alias_end = rest.find(char::is_whitespace)?;
+            let parsed_alias = &rest[..alias_end];
+            if parsed_alias != alias {
+                continue;
+            }
+
+            let from_idx = rest.find("from")?;
+            let after_from = rest.get(from_idx + 4..)?.trim();
+            let start = after_from.find('"')?;
+            let path_rest = after_from.get(start + 1..)?;
+            let end = path_rest.find('"')?;
+            let import_path = &path_rest[..end];
+            return Self::resolve_import_uri(from_uri, import_path);
+        }
+        None
+    }
+
+    fn wildcard_alias_import_uri(&self, from_uri: &str, alias: &str) -> Option<String> {
+        let source = self.load_document_or_file(from_uri)?;
+        let (ast, _) = Self::parse_source_lenient(from_uri, &source).ok()?;
+        let root = RootNode::cast(ast)?;
+        let import_stmt = root.top_level_imports().into_iter().find(|i| i.wildcard_alias().as_deref() == Some(alias))?;
+        let import_path = import_stmt.source_path()?;
+        Self::resolve_import_uri(from_uri, &import_path)
+    }
+
+    fn imported_file_location_for_alias_at_offset(&self, ast: &LNode, uri: &str, offset: u32) -> Option<lsp::Location> {
+        let token = ast.token_at_offset(TextSize::new(offset));
+        let token = match token {
+            TokenAtOffset::Single(t) => t,
+            TokenAtOffset::Between(_, t) => t,
+            TokenAtOffset::None => return None,
+        };
+
+        if token.kind() != LSyntaxKind::IDENT {
+            return None;
+        }
+
+        let mut current = token.parent();
+        let mut import_stmt_node = None;
+        while let Some(node) = current {
+            if node.kind() == LSyntaxKind::IMPORT_STMT {
+                import_stmt_node = Some(node);
+                break;
+            }
+            current = node.parent();
+        }
+        let import_stmt_node = import_stmt_node?;
+        let import_stmt = lang::ImportStmt::cast(import_stmt_node)?;
+
+        let alias = token.text().to_string();
+        let is_matching_alias = import_stmt.wildcard_alias().as_deref() == Some(alias.as_str())
+            || import_stmt
+                .named_item_specs()
+                .iter()
+                .any(|(imported, alias_opt)| alias_opt.as_deref() == Some(alias.as_str()) || imported == &alias);
+        if !is_matching_alias {
+            return None;
+        }
+
+        let import_path = import_stmt.source_path()?;
+        let target_uri = Self::resolve_import_uri(uri, &import_path)?;
+
+        Some(lsp::Location {
+            uri: lsp::Url::parse(&target_uri).ok()?,
+            range: lsp::Range {
+                start: lsp::Position { line: 0, character: 0 },
+                end: lsp::Position { line: 0, character: 0 },
+            },
+        })
+    }
+
+    fn imported_file_location_for_path_at_offset(&self, ast: &LNode, uri: &str, offset: u32) -> Option<lsp::Location> {
+        let token = ast.token_at_offset(TextSize::new(offset));
+        let token = match token {
+            TokenAtOffset::Single(t) => t,
+            TokenAtOffset::Between(_, t) => t,
+            TokenAtOffset::None => return None,
+        };
+
+        let mut current = token.parent();
+        let mut import_stmt_node = None;
+        let mut inside_string_literal = false;
+
+        while let Some(node) = current {
+            if node.kind() == LSyntaxKind::STRING_LITERAL {
+                inside_string_literal = true;
+            }
+            if node.kind() == LSyntaxKind::IMPORT_STMT {
+                import_stmt_node = Some(node);
+                break;
+            }
+            current = node.parent();
+        }
+
+        if !inside_string_literal {
+            return None;
+        }
+
+        let import_stmt_node = import_stmt_node?;
+        let import_stmt = lang::ImportStmt::cast(import_stmt_node)?;
+        let import_path = import_stmt.source_path()?;
+        let target_uri = Self::resolve_import_uri(uri, &import_path)?;
+
+        Some(lsp::Location {
+            uri: lsp::Url::parse(&target_uri).ok()?,
+            range: lsp::Range {
+                start: lsp::Position { line: 0, character: 0 },
+                end: lsp::Position { line: 0, character: 0 },
+            },
+        })
+    }
+
+    fn import_path_origin_range_at_position(&self, uri: &str, pos: lsp::Position) -> Option<lsp::Range> {
+        let source = self.load_document_or_file(uri)?;
+        let line = source.lines().nth(pos.line as usize)?;
+        let (_, path_start, path_end) = Self::extract_import_path_with_range(line)?;
+
+        let ch = pos.character as usize;
+        if ch < path_start || ch > path_end {
+            return None;
+        }
+
+        Some(lsp::Range {
+            start: lsp::Position {
+                line: pos.line,
+                character: path_start as u32,
+            },
+            end: lsp::Position {
+                line: pos.line,
+                character: path_end as u32,
+            },
+        })
+    }
+
     fn offset_at_position(&self, uri: &str, pos: lsp::Position) -> u32 {
         let state = self.state.read().expect("Failed to acquire read lock");
         let source = match state.documents.get(uri) {
@@ -166,6 +697,49 @@ impl Lsp {
             offset += line.len() as u32 + 1; // +1 for newline
         }
         offset
+    }
+
+    fn reference_name_at_offset(&self, ast: &LNode, offset: u32) -> Option<String> {
+        let token = ast.token_at_offset(TextSize::new(offset));
+        let token = match token {
+            TokenAtOffset::Single(t) => t,
+            TokenAtOffset::Between(_, t) => t,
+            TokenAtOffset::None => return None,
+        };
+
+        if token.kind() != LSyntaxKind::IDENT {
+            return None;
+        }
+
+        if let Some(parent) = token.parent()
+            && parent.kind() == LSyntaxKind::TYPE_REF
+        {
+            return Some(parent.text().to_string());
+        }
+
+        Some(token.text().to_string())
+    }
+
+    fn namespace_alias_at_offset(&self, ast: &LNode, offset: u32) -> Option<String> {
+        let token = ast.token_at_offset(TextSize::new(offset));
+        let token = match token {
+            TokenAtOffset::Single(t) => t,
+            TokenAtOffset::Between(_, t) => t,
+            TokenAtOffset::None => return None,
+        };
+
+        if token.kind() != LSyntaxKind::IDENT {
+            return None;
+        }
+
+        let parent = token.parent()?;
+        if parent.kind() != LSyntaxKind::TYPE_REF {
+            return None;
+        }
+
+        let full = parent.text().to_string();
+        let (qualifier, _) = full.split_once('.')?;
+        (qualifier == token.text()).then(|| qualifier.to_string())
     }
 
     fn position_at_offset(&self, uri: &str, offset: u32) -> lsp::Position {
@@ -324,7 +898,7 @@ impl LanguageServer for Lsp {
                 completion_provider: Some(lsp::CompletionOptions {
                     all_commit_characters: None,
                     resolve_provider: Some(false),
-                    trigger_characters: Some(vec![".".to_string(), ":".to_string(), "(".to_string(), "@".to_string()]),
+                    trigger_characters: Some(vec![".".to_string(), ":".to_string(), "(".to_string(), "@".to_string(), "/".to_string(), "\"".to_string()]),
                     work_done_progress_options: lsp::WorkDoneProgressOptions { work_done_progress: None },
                     completion_item: Some(lsp::CompletionOptionsCompletionItem { label_details_support: Some(false) }),
                 }),
@@ -388,44 +962,61 @@ impl LanguageServer for Lsp {
         };
 
         let offset = self.offset_at_position(&uri, pos);
-        let token = ast.token_at_offset(TextSize::new(offset));
-        let token = match token {
-            TokenAtOffset::Single(t) => t,
-            TokenAtOffset::Between(_, t) => t,
-            TokenAtOffset::None => {
-                info!("No token at position");
-                return Ok(None);
-            }
-        };
 
-        // Look for an identifier token that might be a type reference
-        if token.kind() != LSyntaxKind::IDENT {
-            return Ok(None);
+        if let Some(location) = self.imported_file_location_for_path_at_offset(&ast, &uri, offset) {
+            if let Some(origin_range) = self.import_path_origin_range_at_position(&uri, pos) {
+                let target_uri = location.uri.clone();
+                let target_range = location.range;
+                return Ok(Some(lsp::GotoDefinitionResponse::Link(vec![lsp::LocationLink {
+                    origin_selection_range: Some(origin_range),
+                    target_uri,
+                    target_range,
+                    target_selection_range: target_range,
+                }])));
+            }
+            return Ok(Some(lsp::GotoDefinitionResponse::Scalar(location)));
         }
 
-        let ref_name = token.text().to_string();
+        if let Some(location) = self.imported_file_location_for_alias_at_offset(&ast, &uri, offset) {
+            return Ok(Some(lsp::GotoDefinitionResponse::Scalar(location)));
+        }
+
+        let Some(ref_name) = self.reference_name_at_offset(&ast, offset) else {
+            return Ok(None);
+        };
+
+        if let Some(namespace_alias) = self.namespace_alias_at_offset(&ast, offset)
+            && let Some(location) = self.import_alias_location(&uri, &namespace_alias)
+        {
+            return Ok(Some(lsp::GotoDefinitionResponse::Scalar(location)));
+        }
+
         info!("Looking for definition of: {ref_name}");
 
         // Find the enclosing scope to resolve nested types
         let scope = self.find_scope_at_offset(&ast, offset, &symbols);
         info!("Enclosing scope: {scope:?}");
 
-        let Some(sym_entry) = symbols.resolve(scope, &ref_name) else {
-            info!("No symbol found for: {ref_name}");
-            return Ok(None);
-        };
+        if let Some(sym_entry) = symbols.resolve(scope, &ref_name) {
+            let def_node = &sym_entry.data;
+            let start_offset = def_node.text_range().start();
+            let end_offset = def_node.text_range().end();
+            return Ok(Some(lsp::GotoDefinitionResponse::Scalar(lsp::Location {
+                uri: params.text_document_position_params.text_document.uri.clone(),
+                range: lsp::Range {
+                    start: self.position_at_offset(&uri, start_offset.into()),
+                    end: self.position_at_offset(&uri, end_offset.into()),
+                },
+            })));
+        }
 
-        let def_node = &sym_entry.data;
-        let start_offset = def_node.text_range().start();
-        let end_offset = def_node.text_range().end();
+        let imported = self.resolve_imported_location(&uri, &ref_name);
+        if let Some(location) = imported {
+            return Ok(Some(lsp::GotoDefinitionResponse::Scalar(location)));
+        }
 
-        Ok(Some(lsp::GotoDefinitionResponse::Scalar(lsp::Location {
-            uri: params.text_document_position_params.text_document.uri.clone(),
-            range: lsp::Range {
-                start: self.position_at_offset(&uri, start_offset.into()),
-                end: self.position_at_offset(&uri, end_offset.into()),
-            },
-        })))
+        info!("No symbol found for: {ref_name}");
+        Ok(None)
     }
 
     async fn hover(&self, params: lsp::HoverParams) -> LspResult<Option<lsp::Hover>> {
@@ -455,7 +1046,24 @@ impl LanguageServer for Lsp {
         }
 
         let ref_name = token.text().to_string();
+        let ref_name_for_import_resolution = self.reference_name_at_offset(&ast, offset).unwrap_or_else(|| ref_name.clone());
         info!("Hover on identifier: {ref_name}");
+
+        if let Some(namespace_alias) = self.namespace_alias_at_offset(&ast, offset)
+            && let Some((alias, path)) = self.import_alias_info(&uri, &namespace_alias)
+        {
+            let value = format!("```glue\nnamespace {}\n```\n\n---\n\nImported from `{}`", alias, path);
+            return Ok(Some(lsp::Hover {
+                contents: lsp::HoverContents::Markup(lsp::MarkupContent {
+                    kind: lsp::MarkupKind::Markdown,
+                    value,
+                }),
+                range: Some(lsp::Range {
+                    start: self.position_at_offset(&uri, token.text_range().start().into()),
+                    end: self.position_at_offset(&uri, token.text_range().end().into()),
+                }),
+            }));
+        }
 
         // Check decorator context first: decorator name or named-arg key don't live in the
         // symbol table, so handle them before symbol resolution.
@@ -506,14 +1114,14 @@ impl LanguageServer for Lsp {
 
         // Try to resolve the symbol with scope awareness
         let scope = self.find_scope_at_offset(&ast, offset, &symbols);
-        let Some(sym_entry) = symbols.resolve(scope, &ref_name) else {
-            info!("No symbol found for hover: {ref_name}");
-            return Ok(None);
+        let info = if let Some(sym_entry) = symbols.resolve(scope, &ref_name) {
+            self.extract_symbol_info(&sym_entry.data)
+        } else {
+            self.imported_symbol_info(&uri, &ref_name_for_import_resolution)
         };
 
-        // Extract symbol info from the definition node
-        let Some(info) = self.extract_symbol_info(&sym_entry.data) else {
-            info!("Could not extract symbol info for: {ref_name}");
+        let Some(info) = info else {
+            info!("No symbol found for hover: {ref_name}");
             return Ok(None);
         };
 
@@ -573,6 +1181,30 @@ impl LanguageServer for Lsp {
                         }
                     }
                 }
+
+                if let Some(prefix) = Self::import_path_completion_context(line_text, pos) {
+                    let items = self.import_path_completion_items(&uri, &prefix);
+                    if !items.is_empty() {
+                        return Ok(Some(lsp::CompletionResponse::Array(items)));
+                    }
+                }
+
+                if let Some((alias, member_prefix)) = Self::namespace_member_context_from_line(line_text, pos)
+                    && let Some(target_uri) = Self::wildcard_alias_import_uri_from_source(&uri, source, &alias)
+                {
+                    let items: Vec<lsp::CompletionItem> = self
+                        .top_level_symbol_completions(&target_uri)
+                        .into_iter()
+                        .filter(|(name, _)| name.starts_with(&member_prefix))
+                        .map(|(name, kind)| lsp::CompletionItem {
+                            label: name.clone(),
+                            kind: Some(kind),
+                            sort_text: Some(format!("0{}", name)),
+                            ..Default::default()
+                        })
+                        .collect();
+                    return Ok(Some(lsp::CompletionResponse::Array(items)));
+                }
             }
         }
 
@@ -580,6 +1212,23 @@ impl LanguageServer for Lsp {
             error!("Failed to parse document for completion: {uri}");
             return Ok(None);
         };
+
+        if let Some((alias, member_prefix)) = self.namespace_member_context(&uri, pos)
+            && let Some(target_uri) = self.wildcard_alias_import_uri(&uri, &alias)
+        {
+            let items: Vec<lsp::CompletionItem> = self
+                .top_level_symbol_completions(&target_uri)
+                .into_iter()
+                .filter(|(name, _)| name.starts_with(&member_prefix))
+                .map(|(name, kind)| lsp::CompletionItem {
+                    label: name.clone(),
+                    kind: Some(kind),
+                    sort_text: Some(format!("0{}", name)),
+                    ..Default::default()
+                })
+                .collect();
+            return Ok(Some(lsp::CompletionResponse::Array(items)));
+        }
 
         let root = RootNode::cast(ast.clone());
         let Some(root) = root else {
@@ -711,6 +1360,36 @@ impl LanguageServer for Lsp {
             }
         }
 
+        // Add imported symbols and aliases
+        for import_stmt in root.top_level_imports() {
+            let Some(import_path) = import_stmt.source_path() else {
+                continue;
+            };
+            let Some(target_uri) = Self::resolve_import_uri(&uri, &import_path) else {
+                continue;
+            };
+
+            if import_stmt.is_wildcard() {
+                if let Some(alias) = import_stmt.wildcard_alias() {
+                    items.push(make_completion(alias, lsp::CompletionItemKind::MODULE, false));
+                } else {
+                    for (name, kind) in self.top_level_symbol_completions(&target_uri) {
+                        items.push(make_completion(name, kind, false));
+                    }
+                }
+            } else {
+                let exported = self.top_level_symbol_completions(&target_uri);
+                for (imported_name, alias_opt) in import_stmt.named_item_specs() {
+                    let visible_name = alias_opt.unwrap_or_else(|| imported_name.clone());
+                    let kind = exported.iter().find(|(name, _)| *name == imported_name).map(|(_, k)| *k).unwrap_or(lsp::CompletionItemKind::CLASS);
+                    items.push(make_completion(visible_name, kind, false));
+                }
+            }
+        }
+
+        let mut seen = HashSet::new();
+        items.retain(|item| seen.insert(item.label.clone()));
+
         Ok(Some(lsp::CompletionResponse::Array(items)))
     }
 }
@@ -736,6 +1415,51 @@ mod tests {
         })
         .await;
         (lsp, uri.to_string())
+    }
+
+    fn position_of(haystack: &str, needle: &str) -> lsp::Position {
+        let offset = haystack.find(needle).expect("needle not found in test source");
+        let mut line = 0u32;
+        let mut col = 0u32;
+        for ch in haystack[..offset].chars() {
+            if ch == '\n' {
+                line += 1;
+                col = 0;
+            } else {
+                col += 1;
+            }
+        }
+        lsp::Position { line, character: col + 1 }
+    }
+
+    fn position_of_last(haystack: &str, needle: &str) -> lsp::Position {
+        let offset = haystack.rfind(needle).expect("needle not found in test source");
+        let mut line = 0u32;
+        let mut col = 0u32;
+        for ch in haystack[..offset].chars() {
+            if ch == '\n' {
+                line += 1;
+                col = 0;
+            } else {
+                col += 1;
+            }
+        }
+        lsp::Position { line, character: col + 1 }
+    }
+
+    fn position_after_last(haystack: &str, needle: &str) -> lsp::Position {
+        let offset = haystack.rfind(needle).expect("needle not found in test source") + needle.len();
+        let mut line = 0u32;
+        let mut col = 0u32;
+        for ch in haystack[..offset].chars() {
+            if ch == '\n' {
+                line += 1;
+                col = 0;
+            } else {
+                col += 1;
+            }
+        }
+        lsp::Position { line, character: col }
     }
 
     #[tokio::test]
@@ -833,6 +1557,285 @@ mod tests {
 
         assert_eq!(loc.uri, uri.parse().unwrap());
         assert_eq!(loc.range.start.line, 3, "should jump to nested model definition");
+    }
+
+    #[tokio::test]
+    async fn test_goto_definition_named_import_reference() {
+        let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("glue_lsp_import_named_{unique}"));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let imported_path = temp_dir.join("aws_models.glue");
+        let imported_src = "model SomeModel {\n    id: string\n}\n";
+        std::fs::write(&imported_path, imported_src).unwrap();
+
+        let main_path = temp_dir.join("main.glue");
+        let main_src = "import { SomeModel } from \"./aws_models.glue\"\nmodel Root {\n    item: SomeModel\n}\n";
+        std::fs::write(&main_path, main_src).unwrap();
+
+        let uri = lsp::Url::from_file_path(&main_path).unwrap();
+        let imported_uri = lsp::Url::from_file_path(&imported_path).unwrap();
+
+        let lsp = Lsp::default();
+        lsp.did_open(lsp::DidOpenTextDocumentParams {
+            text_document: lsp::TextDocumentItem {
+                uri: uri.clone(),
+                language_id: "glue".into(),
+                version: 1,
+                text: main_src.into(),
+            },
+        })
+        .await;
+
+        let params = lsp::GotoDefinitionParams {
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            text_document_position_params: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri: uri.clone() },
+                position: position_of_last(main_src, "SomeModel"),
+            },
+        };
+
+        let resp = lsp.goto_definition(params).await;
+        let Ok(Some(lsp::GotoDefinitionResponse::Scalar(loc))) = &resp else {
+            panic!("unexpected response: {resp:?}");
+        };
+
+        let actual_path = loc.uri.to_file_path().unwrap().canonicalize().unwrap();
+        let expected_path = imported_uri.to_file_path().unwrap().canonicalize().unwrap();
+        assert_eq!(actual_path, expected_path);
+        assert_eq!(loc.range.start.line, 0);
+    }
+
+    #[tokio::test]
+    async fn test_goto_definition_wildcard_alias_import_reference() {
+        let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("glue_lsp_import_alias_{unique}"));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let imported_path = temp_dir.join("models.glue");
+        let imported_src = "model Account {\n    id: string\n}\n";
+        std::fs::write(&imported_path, imported_src).unwrap();
+
+        let main_path = temp_dir.join("main.glue");
+        let main_src = "import * as Models from \"./models.glue\"\nmodel Root {\n    account: Models.Account\n}\n";
+        std::fs::write(&main_path, main_src).unwrap();
+
+        let uri = lsp::Url::from_file_path(&main_path).unwrap();
+        let imported_uri = lsp::Url::from_file_path(&imported_path).unwrap();
+
+        let lsp = Lsp::default();
+        lsp.did_open(lsp::DidOpenTextDocumentParams {
+            text_document: lsp::TextDocumentItem {
+                uri: uri.clone(),
+                language_id: "glue".into(),
+                version: 1,
+                text: main_src.into(),
+            },
+        })
+        .await;
+
+        let params = lsp::GotoDefinitionParams {
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            text_document_position_params: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri: uri.clone() },
+                position: position_of(main_src, "Account"),
+            },
+        };
+
+        let resp = lsp.goto_definition(params).await;
+        let Ok(Some(lsp::GotoDefinitionResponse::Scalar(loc))) = &resp else {
+            panic!("unexpected response: {resp:?}");
+        };
+
+        let actual_path = loc.uri.to_file_path().unwrap().canonicalize().unwrap();
+        let expected_path = imported_uri.to_file_path().unwrap().canonicalize().unwrap();
+        assert_eq!(actual_path, expected_path);
+        assert_eq!(loc.range.start.line, 0);
+    }
+
+    #[tokio::test]
+    async fn test_goto_definition_import_path_jumps_to_file() {
+        let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("glue_lsp_import_path_def_{unique}"));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let imported_path = temp_dir.join("models.glue");
+        let imported_src = "model Account {\n    id: string\n}\n";
+        std::fs::write(&imported_path, imported_src).unwrap();
+
+        let main_path = temp_dir.join("main.glue");
+        let main_src = "import * as Dep02 from \"./models.glue\"\nmodel Root {\n    account: Dep02.Account\n}\n";
+        std::fs::write(&main_path, main_src).unwrap();
+
+        let uri = lsp::Url::from_file_path(&main_path).unwrap();
+        let imported_uri = lsp::Url::from_file_path(&imported_path).unwrap();
+
+        let lsp = Lsp::default();
+        lsp.did_open(lsp::DidOpenTextDocumentParams {
+            text_document: lsp::TextDocumentItem {
+                uri: uri.clone(),
+                language_id: "glue".into(),
+                version: 1,
+                text: main_src.into(),
+            },
+        })
+        .await;
+
+        let params = lsp::GotoDefinitionParams {
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            text_document_position_params: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri: uri.clone() },
+                position: position_of(main_src, "models.glue"),
+            },
+        };
+
+        let resp = lsp.goto_definition(params).await;
+        let (loc, origin_selection) = match resp {
+            Ok(Some(lsp::GotoDefinitionResponse::Scalar(loc))) => (loc, None),
+            Ok(Some(lsp::GotoDefinitionResponse::Link(links))) => {
+                let link = links.first().expect("expected at least one location link");
+                (
+                    lsp::Location {
+                        uri: link.target_uri.clone(),
+                        range: link.target_selection_range,
+                    },
+                    link.origin_selection_range,
+                )
+            }
+            _ => panic!("unexpected response: {resp:?}"),
+        };
+
+        if let Some(origin) = origin_selection {
+            let first_line = main_src.lines().next().unwrap();
+            let expected_start = first_line.find("./models.glue").unwrap() as u32;
+            let expected_end = expected_start + "./models.glue".len() as u32;
+            assert_eq!(origin.start.line, 0);
+            assert_eq!(origin.start.character, expected_start);
+            assert_eq!(origin.end.character, expected_end);
+        }
+
+        let actual_path = loc.uri.to_file_path().unwrap().canonicalize().unwrap();
+        let expected_path = imported_uri.to_file_path().unwrap().canonicalize().unwrap();
+        assert_eq!(actual_path, expected_path);
+        assert_eq!(loc.range.start.line, 0);
+        assert_eq!(loc.range.start.character, 0);
+    }
+
+    #[tokio::test]
+    async fn test_goto_definition_named_import_path_jumps_to_file() {
+        let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("glue_lsp_named_import_path_def_{unique}"));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let imported_path = temp_dir.join("models.glue");
+        let imported_src = "model Account {\n    id: string\n}\n";
+        std::fs::write(&imported_path, imported_src).unwrap();
+
+        let main_path = temp_dir.join("main.glue");
+        let main_src = "import { Account } from \"./models.glue\"\nmodel Root {\n    account: Account\n}\n";
+        std::fs::write(&main_path, main_src).unwrap();
+
+        let uri = lsp::Url::from_file_path(&main_path).unwrap();
+        let imported_uri = lsp::Url::from_file_path(&imported_path).unwrap();
+
+        let lsp = Lsp::default();
+        lsp.did_open(lsp::DidOpenTextDocumentParams {
+            text_document: lsp::TextDocumentItem {
+                uri: uri.clone(),
+                language_id: "glue".into(),
+                version: 1,
+                text: main_src.into(),
+            },
+        })
+        .await;
+
+        let params = lsp::GotoDefinitionParams {
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            text_document_position_params: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri: uri.clone() },
+                position: position_of(main_src, "models.glue"),
+            },
+        };
+
+        let resp = lsp.goto_definition(params).await;
+        let (loc, origin_selection) = match resp {
+            Ok(Some(lsp::GotoDefinitionResponse::Scalar(loc))) => (loc, None),
+            Ok(Some(lsp::GotoDefinitionResponse::Link(links))) => {
+                let link = links.first().expect("expected at least one location link");
+                (
+                    lsp::Location {
+                        uri: link.target_uri.clone(),
+                        range: link.target_selection_range,
+                    },
+                    link.origin_selection_range,
+                )
+            }
+            _ => panic!("unexpected response: {resp:?}"),
+        };
+
+        if let Some(origin) = origin_selection {
+            let first_line = main_src.lines().next().unwrap();
+            let expected_start = first_line.find("./models.glue").unwrap() as u32;
+            let expected_end = expected_start + "./models.glue".len() as u32;
+            assert_eq!(origin.start.line, 0);
+            assert_eq!(origin.start.character, expected_start);
+            assert_eq!(origin.end.character, expected_end);
+        }
+
+        let actual_path = loc.uri.to_file_path().unwrap().canonicalize().unwrap();
+        let expected_path = imported_uri.to_file_path().unwrap().canonicalize().unwrap();
+        assert_eq!(actual_path, expected_path);
+        assert_eq!(loc.range.start.line, 0);
+        assert_eq!(loc.range.start.character, 0);
+    }
+
+    #[tokio::test]
+    async fn test_goto_definition_namespace_alias_points_to_import() {
+        let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("glue_lsp_import_ns_alias_{unique}"));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let imported_path = temp_dir.join("models.glue");
+        let imported_src = "model Account {\n    id: string\n}\n";
+        std::fs::write(&imported_path, imported_src).unwrap();
+
+        let main_path = temp_dir.join("main.glue");
+        let main_src = "import * as Dep02 from \"./models.glue\"\nmodel Root {\n    account: Dep02.Account\n}\n";
+        std::fs::write(&main_path, main_src).unwrap();
+
+        let uri = lsp::Url::from_file_path(&main_path).unwrap();
+
+        let lsp = Lsp::default();
+        lsp.did_open(lsp::DidOpenTextDocumentParams {
+            text_document: lsp::TextDocumentItem {
+                uri: uri.clone(),
+                language_id: "glue".into(),
+                version: 1,
+                text: main_src.into(),
+            },
+        })
+        .await;
+
+        let params = lsp::GotoDefinitionParams {
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            text_document_position_params: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri: uri.clone() },
+                position: position_of_last(main_src, "Dep02"),
+            },
+        };
+
+        let resp = lsp.goto_definition(params).await;
+        let Ok(Some(lsp::GotoDefinitionResponse::Scalar(loc))) = &resp else {
+            panic!("unexpected response: {resp:?}");
+        };
+
+        assert_eq!(loc.uri, uri);
+        assert_eq!(loc.range.start.line, 0);
     }
 
     #[tokio::test]
@@ -1177,6 +2180,223 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_completion_includes_imported_symbols_and_aliases() {
+        let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("glue_lsp_completion_imports_{unique}"));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        std::fs::write(temp_dir.join("imports_dep01.glue"), "model SomeModel {\n  id: string\n}\n").unwrap();
+        std::fs::write(temp_dir.join("imports_dep02.glue"), "model Account {\n  id: string\n}\n").unwrap();
+        std::fs::write(
+            temp_dir.join("imports_dep03.glue"),
+            "model SomeOtherModel {\n  value: string\n}\nmodel AnotherModel {\n  value: string\n}\n",
+        )
+        .unwrap();
+
+        let main_src = indoc! {r#"
+            import * from "./imports_dep01.glue"
+            import * as Dep02 from "./imports_dep02.glue"
+            import { SomeOtherModel, AnotherModel as RenamedModel } from "./imports_dep03.glue"
+
+            @root
+            model Root {
+                value: Som
+            }
+        "#}
+        .trim()
+        .to_string();
+        let main_path = temp_dir.join("main.glue");
+        std::fs::write(&main_path, &main_src).unwrap();
+
+        let uri = lsp::Url::from_file_path(&main_path).unwrap();
+        let lsp = Lsp::default();
+        lsp.did_open(lsp::DidOpenTextDocumentParams {
+            text_document: lsp::TextDocumentItem {
+                uri: uri.clone(),
+                language_id: "glue".into(),
+                version: 1,
+                text: main_src.clone(),
+            },
+        })
+        .await;
+
+        let params = lsp::CompletionParams {
+            text_document_position: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri },
+                position: position_after_last(&main_src, "Som"),
+            },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            context: None,
+        };
+        let resp = lsp.completion(params).await;
+        let Ok(Some(lsp::CompletionResponse::Array(items))) = &resp else {
+            panic!("unexpected response: {resp:?}");
+        };
+
+        let labels: Vec<String> = items.iter().map(|item| item.label.clone()).collect();
+        assert!(labels.contains(&"SomeModel".to_string()), "should include wildcard-imported model");
+        assert!(labels.contains(&"SomeOtherModel".to_string()), "should include directly imported model");
+        assert!(labels.contains(&"RenamedModel".to_string()), "should include aliased named import");
+        assert!(labels.contains(&"Dep02".to_string()), "should include wildcard namespace alias");
+    }
+
+    #[tokio::test]
+    async fn test_completion_for_namespace_members() {
+        let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("glue_lsp_completion_ns_{unique}"));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        std::fs::write(temp_dir.join("imports_dep02.glue"), "model Account {\n  id: string\n}\nenum Status: \"ok\" | \"bad\"\n").unwrap();
+
+        let main_src = indoc! {r#"
+            import * as Dep02 from "./imports_dep02.glue"
+
+            model Root {
+                namespaced: Dep02.Acc
+            }
+        "#}
+        .trim()
+        .to_string();
+        let main_path = temp_dir.join("main.glue");
+        std::fs::write(&main_path, &main_src).unwrap();
+
+        let uri = lsp::Url::from_file_path(&main_path).unwrap();
+        let lsp = Lsp::default();
+        lsp.did_open(lsp::DidOpenTextDocumentParams {
+            text_document: lsp::TextDocumentItem {
+                uri: uri.clone(),
+                language_id: "glue".into(),
+                version: 1,
+                text: main_src.clone(),
+            },
+        })
+        .await;
+
+        let params = lsp::CompletionParams {
+            text_document_position: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri },
+                position: position_after_last(&main_src, "Dep02."),
+            },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            context: None,
+        };
+        let resp = lsp.completion(params).await;
+        let Ok(Some(lsp::CompletionResponse::Array(items))) = &resp else {
+            panic!("unexpected response: {resp:?}");
+        };
+
+        let labels: Vec<String> = items.iter().map(|item| item.label.clone()).collect();
+        assert!(labels.contains(&"Account".to_string()), "should include members of wildcard alias import");
+        assert!(labels.contains(&"Status".to_string()), "should include enum members from aliased import file");
+    }
+
+    #[tokio::test]
+    async fn test_completion_for_namespace_members_on_dot_only() {
+        let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("glue_lsp_completion_ns_dot_{unique}"));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        std::fs::write(temp_dir.join("imports_dep02.glue"), "model Account {\n  id: string\n}\nenum Status: \"ok\" | \"bad\"\n").unwrap();
+
+        let main_src = indoc! {r#"
+            import * as Dep02 from "./imports_dep02.glue"
+
+            model Root {
+                namespaced: Dep02.
+            }
+        "#}
+        .trim()
+        .to_string();
+        let main_path = temp_dir.join("main.glue");
+        std::fs::write(&main_path, &main_src).unwrap();
+
+        let uri = lsp::Url::from_file_path(&main_path).unwrap();
+        let lsp = Lsp::default();
+        lsp.did_open(lsp::DidOpenTextDocumentParams {
+            text_document: lsp::TextDocumentItem {
+                uri: uri.clone(),
+                language_id: "glue".into(),
+                version: 1,
+                text: main_src.clone(),
+            },
+        })
+        .await;
+
+        let params = lsp::CompletionParams {
+            text_document_position: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri },
+                position: position_after_last(&main_src, "Dep02."),
+            },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            context: None,
+        };
+        let resp = lsp.completion(params).await;
+        let Ok(Some(lsp::CompletionResponse::Array(items))) = &resp else {
+            panic!("unexpected response: {resp:?}");
+        };
+
+        let labels: Vec<String> = items.iter().map(|item| item.label.clone()).collect();
+        assert!(labels.contains(&"Account".to_string()), "should include model members when completing on namespace dot");
+        assert!(labels.contains(&"Status".to_string()), "should include enum members when completing on namespace dot");
+    }
+
+    #[tokio::test]
+    async fn test_completion_for_import_paths() {
+        let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("glue_lsp_completion_import_paths_{unique}"));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        std::fs::create_dir_all(temp_dir.join("sub")).unwrap();
+        std::fs::write(temp_dir.join("imports_dep01.glue"), "model A { x: string }\n").unwrap();
+        std::fs::write(temp_dir.join("sub").join("imports_dep02.glue"), "model B { x: string }\n").unwrap();
+
+        let main_src = indoc! {r#"
+            import * from "./imp"
+
+            @root
+            model Root {
+                x: string
+            }
+        "#}
+        .trim()
+        .to_string();
+        let main_path = temp_dir.join("main.glue");
+        std::fs::write(&main_path, &main_src).unwrap();
+
+        let uri = lsp::Url::from_file_path(&main_path).unwrap();
+        let lsp = Lsp::default();
+        lsp.did_open(lsp::DidOpenTextDocumentParams {
+            text_document: lsp::TextDocumentItem {
+                uri: uri.clone(),
+                language_id: "glue".into(),
+                version: 1,
+                text: main_src.clone(),
+            },
+        })
+        .await;
+
+        let params = lsp::CompletionParams {
+            text_document_position: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri },
+                position: position_after_last(&main_src, "./imp"),
+            },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            context: None,
+        };
+
+        let resp = lsp.completion(params).await;
+        let Ok(Some(lsp::CompletionResponse::Array(items))) = &resp else {
+            panic!("unexpected response: {resp:?}");
+        };
+
+        let labels: Vec<String> = items.iter().map(|item| item.label.clone()).collect();
+        assert!(labels.contains(&"./imports_dep01.glue".to_string()), "should suggest matching .glue file path");
+    }
+
+    #[tokio::test]
     async fn test_did_change_updates_source() {
         let (lsp, uri) = setup_lsp("model Foo { x: int }").await;
 
@@ -1239,6 +2459,97 @@ mod tests {
 
         assert!(!diagnostics.is_empty(), "expected semantic diagnostics");
         assert!(diagnostics.iter().any(|d| d.message.contains("Undefined type reference")), "expected undefined type diagnostic");
+    }
+
+    #[tokio::test]
+    async fn test_collect_diagnostics_resolves_imported_types() {
+        let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("glue_lsp_import_diags_{unique}"));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let dep01_path = temp_dir.join("imports_dep01.glue");
+        std::fs::write(&dep01_path, "model SomeModel {\n  id: string\n}\n").unwrap();
+
+        let dep02_path = temp_dir.join("imports_dep02.glue");
+        std::fs::write(&dep02_path, "model Account {\n  id: string\n}\n").unwrap();
+
+        let dep03_path = temp_dir.join("imports_dep03.glue");
+        std::fs::write(&dep03_path, "model SomeOtherModel {\n  value: string\n}\n").unwrap();
+
+        let main_src = indoc! {r#"
+            import * from "./imports_dep01.glue"
+            import * as Dep02 from "./imports_dep02.glue"
+            import { SomeOtherModel } from "./imports_dep03.glue"
+
+            @root
+            model Root {
+                wildcard: SomeModel
+                direct: SomeOtherModel
+                namespaced: Dep02.Account
+            }
+        "#}
+        .trim()
+        .to_string();
+
+        let main_path = temp_dir.join("main.glue");
+        std::fs::write(&main_path, &main_src).unwrap();
+
+        let uri = lsp::Url::from_file_path(&main_path).unwrap();
+        let lsp = Lsp::default();
+        lsp.did_open(lsp::DidOpenTextDocumentParams {
+            text_document: lsp::TextDocumentItem {
+                uri: uri.clone(),
+                language_id: "glue".into(),
+                version: 1,
+                text: main_src,
+            },
+        })
+        .await;
+
+        let diagnostics = lsp.collect_document_diagnostics(uri.as_str());
+        assert!(
+            !diagnostics.iter().any(|d| d.message.contains("Undefined type reference")),
+            "imported types should not emit undefined type diagnostics: {diagnostics:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_collect_diagnostics_for_missing_import_path() {
+        let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("glue_lsp_missing_import_diag_{unique}"));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let main_src = indoc! {r#"
+            import * from "./does_not_exist.glue"
+
+            @root
+            model Root {
+                x: string
+            }
+        "#}
+        .trim()
+        .to_string();
+
+        let main_path = temp_dir.join("main.glue");
+        std::fs::write(&main_path, &main_src).unwrap();
+
+        let uri = lsp::Url::from_file_path(&main_path).unwrap();
+        let lsp = Lsp::default();
+        lsp.did_open(lsp::DidOpenTextDocumentParams {
+            text_document: lsp::TextDocumentItem {
+                uri: uri.clone(),
+                language_id: "glue".into(),
+                version: 1,
+                text: main_src,
+            },
+        })
+        .await;
+
+        let diagnostics = lsp.collect_document_diagnostics(uri.as_str());
+        assert!(
+            diagnostics.iter().any(|d| d.message.contains("Import path does not exist")),
+            "expected informative missing-import diagnostic, got: {diagnostics:?}"
+        );
     }
 
     #[tokio::test]
@@ -1309,6 +2620,147 @@ mod tests {
         assert_eq!(markup.kind, lsp::MarkupKind::Markdown);
         assert!(markup.value.contains("@field"), "should contain decorator name");
         assert!(markup.value.contains("alias"), "should mention arguments");
+    }
+
+    #[tokio::test]
+    async fn test_hover_on_namespace_alias() {
+        let src = indoc! {r#"
+            import * as Dep02 from "./imports_dep02.glue"
+
+            model Root {
+                account: Dep02.Account
+            }
+        "#}
+        .trim();
+
+        let (lsp, uri) = setup_lsp(src).await;
+
+        let params = lsp::HoverParams {
+            work_done_progress_params: Default::default(),
+            text_document_position_params: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri: uri.parse().unwrap() },
+                position: position_of_last(src, "Dep02"),
+            },
+        };
+        let resp = lsp.hover(params).await;
+        let Ok(Some(hover)) = &resp else {
+            panic!("expected hover response for namespace alias, got: {resp:?}");
+        };
+
+        let lsp::HoverContents::Markup(markup) = &hover.contents else {
+            panic!("expected markup content");
+        };
+        assert!(markup.value.contains("namespace Dep02"), "should contain namespace heading");
+        assert!(markup.value.contains("imports_dep02.glue"), "should mention imported file path");
+    }
+
+    #[tokio::test]
+    async fn test_hover_on_named_imported_symbol() {
+        let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("glue_lsp_hover_named_import_{unique}"));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let dep_path = temp_dir.join("models.glue");
+        let dep_src = "/// Imported account model\nmodel Account {\n  id: string\n}\n";
+        std::fs::write(&dep_path, dep_src).unwrap();
+
+        let main_src = indoc! {r#"
+            import { Account } from "./models.glue"
+
+            model Root {
+                account: Account
+            }
+        "#}
+        .trim()
+        .to_string();
+        let main_path = temp_dir.join("main.glue");
+        std::fs::write(&main_path, &main_src).unwrap();
+
+        let uri = lsp::Url::from_file_path(&main_path).unwrap();
+        let lsp = Lsp::default();
+        lsp.did_open(lsp::DidOpenTextDocumentParams {
+            text_document: lsp::TextDocumentItem {
+                uri: uri.clone(),
+                language_id: "glue".into(),
+                version: 1,
+                text: main_src.clone(),
+            },
+        })
+        .await;
+
+        let params = lsp::HoverParams {
+            work_done_progress_params: Default::default(),
+            text_document_position_params: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri },
+                position: position_of_last(&main_src, "Account"),
+            },
+        };
+
+        let resp = lsp.hover(params).await;
+        let Ok(Some(hover)) = &resp else {
+            panic!("expected hover response for named imported symbol, got: {resp:?}");
+        };
+
+        let lsp::HoverContents::Markup(markup) = &hover.contents else {
+            panic!("expected markup content");
+        };
+        assert!(markup.value.contains("model Account"), "should contain imported model name");
+        assert!(markup.value.contains("Imported account model"), "should contain imported model docs");
+    }
+
+    #[tokio::test]
+    async fn test_hover_on_namespaced_imported_symbol_member() {
+        let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("glue_lsp_hover_ns_import_{unique}"));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let dep_path = temp_dir.join("models.glue");
+        let dep_src = "/// Imported status enum\nenum Status: \"ok\" | \"bad\"\n";
+        std::fs::write(&dep_path, dep_src).unwrap();
+
+        let main_src = indoc! {r#"
+            import * as Dep02 from "./models.glue"
+
+            model Root {
+                status: Dep02.Status
+            }
+        "#}
+        .trim()
+        .to_string();
+        let main_path = temp_dir.join("main.glue");
+        std::fs::write(&main_path, &main_src).unwrap();
+
+        let uri = lsp::Url::from_file_path(&main_path).unwrap();
+        let lsp = Lsp::default();
+        lsp.did_open(lsp::DidOpenTextDocumentParams {
+            text_document: lsp::TextDocumentItem {
+                uri: uri.clone(),
+                language_id: "glue".into(),
+                version: 1,
+                text: main_src.clone(),
+            },
+        })
+        .await;
+
+        let params = lsp::HoverParams {
+            work_done_progress_params: Default::default(),
+            text_document_position_params: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri },
+                position: position_of_last(&main_src, "Status"),
+            },
+        };
+
+        let resp = lsp.hover(params).await;
+        let Ok(Some(hover)) = &resp else {
+            panic!("expected hover response for namespaced imported symbol, got: {resp:?}");
+        };
+
+        let lsp::HoverContents::Markup(markup) = &hover.contents else {
+            panic!("expected markup content");
+        };
+        assert!(markup.value.contains("enum Status"), "should contain imported enum name");
+        assert!(markup.value.contains("ok"), "should contain imported enum variants");
+        assert!(markup.value.contains("Imported status enum"), "should contain imported enum docs");
     }
 
     #[tokio::test]
