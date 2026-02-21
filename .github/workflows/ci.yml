@@ -148,7 +148,12 @@ jobs:
       - name: Measure baseline codegen perf
         run: |
           cd "$RUNNER_TEMP/base_checkout/glue"
-          GLUE_BENCH_JSON_OUT="$RUNNER_TEMP/base_perf.json" cargo bench -p cli --bench codegen_perf
+          if [ ! -f "cli/benches/codegen_perf.rs" ] || ! grep -q 'name = "codegen_perf"' "cli/Cargo.toml"; then
+            echo "WARNING: Base commit does not include cli/codegen_perf benchmark target; using HEAD results as temporary baseline."
+            cp "$RUNNER_TEMP/head_perf.json" "$RUNNER_TEMP/base_perf.json"
+          else
+            GLUE_BENCH_JSON_OUT="$RUNNER_TEMP/base_perf.json" cargo bench -p cli --bench codegen_perf
+          fi
 
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y jq
