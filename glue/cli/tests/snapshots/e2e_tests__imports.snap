@@ -9,11 +9,17 @@ from enum import StrEnum
 from typing import Any, Annotated, Optional, Union
 
 class SomeModel(BaseModel):
+    """This is some model."""
     name: Annotated[str, Field()]
+    """This is the name."""
 
 
 class Account(BaseModel):
     id: Annotated[str, Field()]
+
+
+class Bar(BaseModel):
+    barfield: Annotated[int, Field()]
 
 
 class SomeOtherModel(BaseModel):
