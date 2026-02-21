@@ -304,16 +304,13 @@ impl GlueCli {
     }
 
     fn fetch_url_source(url: &str) -> Result<String, CliError> {
-        let response = reqwest::blocking::get(url)
-            .map_err(|e| CliError::BadInput(format!("Failed to fetch input URL '{}': {}", url, e)))?;
+        let response = reqwest::blocking::get(url).map_err(|e| CliError::BadInput(format!("Failed to fetch input URL '{}': {}", url, e)))?;
 
         if !response.status().is_success() {
             return Err(CliError::BadInput(format!("Failed to fetch input URL '{}': HTTP {}", url, response.status())));
         }
 
-        response
-            .text()
-            .map_err(|e| CliError::BadInput(format!("Failed to read input URL body '{}': {}", url, e)))
+        response.text().map_err(|e| CliError::BadInput(format!("Failed to read input URL body '{}': {}", url, e)))
     }
 
     fn resolve_import_url(base_url: &Url, import_path: &str) -> Result<Url, CliError> {
