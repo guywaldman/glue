@@ -30,6 +30,10 @@ macro_rules! ast_node {
 ast_node!(RootNode, LSyntaxKind::PROGRAM);
 
 impl RootNode {
+    pub fn top_level_imports(&self) -> Vec<ImportStmt> {
+        self.0.children().filter(|n| n.kind() == LSyntaxKind::IMPORT_STMT).filter_map(ImportStmt::cast).collect()
+    }
+
     pub fn top_level_models(&self) -> Vec<Model> {
         self.0.children().filter(|n| n.kind() == LSyntaxKind::MODEL).filter_map(Model::cast).collect()
     }
@@ -40,6 +44,89 @@ impl RootNode {
 
     pub fn top_level_enums(&self) -> Vec<Enum> {
         self.0.children().filter(|n| n.kind() == LSyntaxKind::ENUM).filter_map(Enum::cast).collect()
+    }
+}
+
+ast_node!(ImportStmt, LSyntaxKind::IMPORT_STMT);
+ast_node!(ImportNamedItem, LSyntaxKind::IMPORT_NAMED_ITEM);
+
+impl ImportNamedItem {
+    pub fn imported_name(&self) -> Option<String> {
+        self.0
+            .children_with_tokens()
+            .filter_map(|n| n.into_token())
+            .find(|t| t.kind() == LSyntaxKind::IDENT)
+            .map(|t| t.text().to_string())
+    }
+
+    pub fn alias(&self) -> Option<String> {
+        self.0
+            .children_with_tokens()
+            .filter_map(|n| n.into_token())
+            .filter(|t| t.kind() == LSyntaxKind::IDENT)
+            .nth(1)
+            .map(|t| t.text().to_string())
+    }
+}
+
+impl ImportStmt {
+    pub fn source_path(&self) -> Option<String> {
+        let text = self.0.text().to_string();
+        let from_idx = text.find("from")?;
+        let after_from = text.get(from_idx + 4..)?.trim();
+        let start = after_from.find('"')?;
+        let rest = after_from.get(start + 1..)?;
+        let end = rest.find('"')?;
+        Some(rest[..end].to_string())
+    }
+
+    pub fn wildcard_alias(&self) -> Option<String> {
+        let text = self.0.text().to_string();
+        let stripped = text.trim();
+        if !stripped.starts_with("import *") {
+            return None;
+        }
+        let (_, rest) = stripped.split_once("import *")?;
+        let rest = rest.trim_start();
+        if !rest.starts_with("as ") {
+            return None;
+        }
+        let rest = rest.trim_start_matches("as ");
+        let alias = rest.split_whitespace().next()?;
+        (!alias.is_empty()).then(|| alias.to_string())
+    }
+
+    pub fn is_wildcard(&self) -> bool {
+        self.0.text().to_string().trim_start().starts_with("import *")
+    }
+
+    pub fn named_item_specs(&self) -> Vec<(String, Option<String>)> {
+        let text = self.0.text().to_string();
+        let Some(start) = text.find('{') else {
+            return Vec::new();
+        };
+        let Some(end) = text[start + 1..].find('}') else {
+            return Vec::new();
+        };
+        let inside = &text[start + 1..start + 1 + end];
+        inside
+            .split(',')
+            .filter_map(|part| {
+                let item = part.trim();
+                if item.is_empty() {
+                    return None;
+                }
+                if let Some((imported, alias)) = item.split_once(" as ") {
+                    Some((imported.trim().to_string(), Some(alias.trim().to_string())))
+                } else {
+                    Some((item.to_string(), None))
+                }
+            })
+            .collect()
+    }
+
+    pub fn named_items(&self) -> Vec<ImportNamedItem> {
+        self.0.descendants().filter(|n| n.kind() == LSyntaxKind::IMPORT_NAMED_ITEM).filter_map(ImportNamedItem::cast).collect()
     }
 }
 
@@ -648,7 +735,21 @@ impl TypeAtom {
     }
 
     pub fn as_ref_token(&self) -> Option<LToken> {
+        if let Some(type_ref) = self.0.children().find(|n| n.kind() == LSyntaxKind::TYPE_REF)
+            && let Some(token) = type_ref.children_with_tokens().find(|n| n.kind() == LSyntaxKind::IDENT).and_then(|ident_node| ident_node.into_token())
+        {
+            return Some(token);
+        }
+
         self.0.children_with_tokens().find(|n| n.kind() == LSyntaxKind::IDENT).and_then(|ident_node| ident_node.into_token())
+    }
+
+    pub fn as_ref_name(&self) -> Option<String> {
+        self.0
+            .children()
+            .find(|n| n.kind() == LSyntaxKind::TYPE_REF)
+            .map(|n| n.text().to_string())
+            .or_else(|| self.as_ref_token().map(|t| t.text().to_string()))
     }
 
     pub fn as_anon_model(&self) -> Option<LNode> {
@@ -742,5 +843,32 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_import_statements_with_aliases() {
+        let src = indoc! { r#"
+            import * from "./models.glue"
+            import { SomeModel } from "./aws_models.glue"
+            import * as Models from "./models.glue"
+
+            model Root {
+                item: Models.SomeModel
+            }
+        "# };
+
+        let metadata = SourceCodeMetadata {
+            file_name: "test.glue",
+            file_contents: src,
+        };
+
+        let parsed = Parser::new().parse(&metadata).expect("expected parser to accept import statements");
+        let root = RootNode::cast(parsed.ast_root).expect("expected RootNode");
+        let imports = root.top_level_imports();
+        assert_eq!(imports.len(), 3);
+        assert!(imports[0].is_wildcard());
+        assert_eq!(imports[0].wildcard_alias(), None);
+        assert_eq!(imports[1].named_item_specs(), vec![("SomeModel".to_string(), None)]);
+        assert_eq!(imports[2].wildcard_alias().as_deref(), Some("Models"));
     }
 }

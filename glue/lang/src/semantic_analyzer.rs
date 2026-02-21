@@ -19,12 +19,13 @@ use crate::{
 pub enum SemanticAnalyzerError {
     DuplicateField(Report),
     UndefinedTypeReference(Report),
+    ImportNotAtTop(Report),
 }
 
 impl SemanticAnalyzerError {
     pub fn report(&self) -> &miette::Report {
         match self {
-            SemanticAnalyzerError::DuplicateField(report) | SemanticAnalyzerError::UndefinedTypeReference(report) => report,
+            SemanticAnalyzerError::DuplicateField(report) | SemanticAnalyzerError::UndefinedTypeReference(report) | SemanticAnalyzerError::ImportNotAtTop(report) => report,
         }
     }
 }
@@ -47,6 +48,7 @@ impl SemanticAnalyzer {
         let mut errors = Vec::new();
 
         let root = parsed.ast_root.clone();
+        Self::check_imports_are_top_level(&root, &mut errors, diagnostic_ctx.clone());
         let targets: Vec<_> = root
             .children()
             .filter(|n| matches!(n.kind(), LSyntaxKind::MODEL | LSyntaxKind::ENDPOINT))
@@ -83,8 +85,32 @@ impl SemanticAnalyzer {
         let diagnostic_ctx = DiagnosticContext::new(source_code_metadata.file_name, source_code_metadata.file_contents);
         let mut errors = Vec::new();
         let root = parsed.ast_root.clone();
+        Self::check_imports_are_top_level(&root, &mut errors, diagnostic_ctx.clone());
         let symbols = Self::generate_symbol_table(parsed, &mut errors, diagnostic_ctx);
         AnalyzedProgram { ast_root: root, symbols }
+    }
+
+    fn check_imports_are_top_level(root: &LNode, errors: &mut Vec<SemanticAnalyzerError>, diag: DiagnosticContext) {
+        let mut seen_non_import_declaration = false;
+
+        for child in root.children() {
+            match child.kind() {
+                LSyntaxKind::IMPORT_STMT => {
+                    if seen_non_import_declaration {
+                        let report = diag.error_with_help(
+                            child.text_range(),
+                            "Import statements must appear at the top of the file",
+                            "Move this import above all model, endpoint, and enum declarations.",
+                        );
+                        errors.push(SemanticAnalyzerError::ImportNotAtTop(report));
+                    }
+                }
+                LSyntaxKind::MODEL | LSyntaxKind::ENDPOINT | LSyntaxKind::ENUM => {
+                    seen_non_import_declaration = true;
+                }
+                _ => {}
+            }
+        }
     }
 
     fn check_model(node: LNode, symbols: &SymTable<LNode>, scope: Option<SymId>, errors: &mut Vec<SemanticAnalyzerError>, diag: DiagnosticContext) {
@@ -174,37 +200,40 @@ impl SemanticAnalyzer {
                     }
                 } else {
                     // Not a literal type - must be a ref
-                    let ref_name = type_atom.as_ref_token().unwrap().text().to_string();
-                    let ref_sym = symbols.resolve_id(scope, &ref_name).expect("Expected referenced symbol to exist");
-                    let ref_entry = symbols.get(ref_sym).expect("Expected symbol entry to exist");
+                    if let Some(ref_name) = type_atom.as_ref_name()
+                        && !ref_name.contains('.')
+                    {
+                        let ref_sym = symbols.resolve_id(scope, &ref_name).expect("Expected referenced symbol to exist");
+                        let ref_entry = symbols.get(ref_sym).expect("Expected symbol entry to exist");
 
-                    match (&ref_entry.data.kind(), &default_value) {
-                        (LSyntaxKind::ENUM, Literal::StringLiteral(string_lit_node)) => {
-                            let enum_node = ref_entry.data.clone();
-                            let enum_model = Enum::cast(enum_node.clone()).unwrap();
-                            let enum_ident_token = enum_model.ident_token().unwrap();
-                            let enum_name_str = enum_ident_token.text().to_string();
-                            let variant_literal = string_lit_node.value().unwrap();
-                            let variant_exists = enum_model.variant_nodes().iter().any(|curr_variant_node| {
-                                let curr_variant = EnumVariant::cast(curr_variant_node.clone()).unwrap();
-                                let curr_variant_name = curr_variant.value().unwrap();
-                                *variant_literal == curr_variant_name
-                            });
-                            if !variant_exists {
-                                let report_label = diag.labeled_span(enum_node.text_range(), &format!("Enum '{}' defined here", enum_name_str));
-                                let report = diag.error_with_labels(
-                                    string_lit_node.syntax().text_range(),
-                                    &format!("Enum variant '{}' does not exist in enum '{}'", variant_literal, enum_name_str),
-                                    None,
-                                    None,
-                                    vec![report_label],
-                                );
+                        match (&ref_entry.data.kind(), &default_value) {
+                            (LSyntaxKind::ENUM, Literal::StringLiteral(string_lit_node)) => {
+                                let enum_node = ref_entry.data.clone();
+                                let enum_model = Enum::cast(enum_node.clone()).unwrap();
+                                let enum_ident_token = enum_model.ident_token().unwrap();
+                                let enum_name_str = enum_ident_token.text().to_string();
+                                let variant_literal = string_lit_node.value().unwrap();
+                                let variant_exists = enum_model.variant_nodes().iter().any(|curr_variant_node| {
+                                    let curr_variant = EnumVariant::cast(curr_variant_node.clone()).unwrap();
+                                    let curr_variant_name = curr_variant.value().unwrap();
+                                    *variant_literal == curr_variant_name
+                                });
+                                if !variant_exists {
+                                    let report_label = diag.labeled_span(enum_node.text_range(), &format!("Enum '{}' defined here", enum_name_str));
+                                    let report = diag.error_with_labels(
+                                        string_lit_node.syntax().text_range(),
+                                        &format!("Enum variant '{}' does not exist in enum '{}'", variant_literal, enum_name_str),
+                                        None,
+                                        None,
+                                        vec![report_label],
+                                    );
+                                    errors.push(SemanticAnalyzerError::DuplicateField(report));
+                                }
+                            }
+                            _ => {
+                                let report = diag.error(field_default_value_node.text_range(), "Type of default value does not match field type");
                                 errors.push(SemanticAnalyzerError::DuplicateField(report));
                             }
-                        }
-                        _ => {
-                            let report = diag.error(field_default_value_node.text_range(), "Type of default value does not match field type");
-                            errors.push(SemanticAnalyzerError::DuplicateField(report));
                         }
                     }
                 }
@@ -217,9 +246,13 @@ impl SemanticAnalyzer {
         let type_atom_nodes = type_expr.type_atom_nodes();
         for type_atom_node in type_atom_nodes {
             let type_atom = TypeAtom::cast(type_atom_node.clone()).unwrap();
-            if let Some(ident_token) = type_atom.as_ref_token() {
+            if let Some(ref_name) = type_atom.as_ref_name() {
                 // Ident - could be a non-existent primitive type, or a ref
-                let type_name = ident_token.text().to_string();
+                if ref_name.contains('.') {
+                    continue;
+                }
+                let ident_token = type_atom.as_ref_token();
+                let type_name = ref_name;
                 if let Some(scope) = scope
                     && symbols.resolve_id(Some(scope), &type_name).is_none()
                 {
@@ -230,15 +263,13 @@ impl SemanticAnalyzer {
                     if let Some(suggested_name) = suggested_names.first()
                         && suggested_name.1 >= 50
                     {
-                        let report = diag.error_with_help(
-                            ident_token.text_range(),
-                            &format!("Undefined type reference '{}'", type_name),
-                            &format!("Did you mean '{}'?", suggested_name.0),
-                        );
+                        let span = ident_token.as_ref().map(|t| t.text_range()).unwrap_or(type_atom.syntax().text_range());
+                        let report = diag.error_with_help(span, &format!("Undefined type reference '{}'", type_name), &format!("Did you mean '{}'?", suggested_name.0));
                         errors.push(SemanticAnalyzerError::UndefinedTypeReference(report));
                         continue;
                     }
-                    let report = diag.error(ident_token.text_range(), &format!("Undefined type reference '{}'", type_name));
+                    let span = ident_token.as_ref().map(|t| t.text_range()).unwrap_or(type_atom.syntax().text_range());
+                    let report = diag.error(span, &format!("Undefined type reference '{}'", type_name));
                     errors.push(SemanticAnalyzerError::UndefinedTypeReference(report));
                 }
             }
@@ -608,5 +639,30 @@ mod tests {
         let parsed = Parser::new().parse(&metadata).unwrap();
         let result = SemanticAnalyzer::new().analyze(&parsed, &metadata);
         assert!(result.is_ok(), "Expected analysis to pass for valid endpoint response types");
+    }
+
+    #[test]
+    fn test_import_must_be_at_top() {
+        let src = indoc! { r#"
+            model Root {
+                id: string
+            }
+
+            import * from "./models.glue"
+        "# };
+
+        let metadata = SourceCodeMetadata {
+            file_name: "test.glue",
+            file_contents: src,
+        };
+        let parsed = Parser::new().parse(&metadata).unwrap();
+        let result = SemanticAnalyzer::new().analyze(&parsed, &metadata);
+
+        assert!(result.is_err(), "Expected analysis to fail when import is not at top");
+        let errors = result.err().unwrap();
+        assert!(
+            errors.iter().any(|e| e.report().to_string().contains("Import statements must appear at the top of the file")),
+            "Expected informative import-order error"
+        );
     }
 }

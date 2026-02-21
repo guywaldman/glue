@@ -3,13 +3,14 @@ use codegen::{CodeGen, CodeGenError, CodeGenMode};
 use config::{GlueConfig, GlueConfigSchemaGenConfig, GlueConfigSchemaGeneration, GlueConfigSchemaGenerationWatermark};
 use globset::{Glob, GlobSetBuilder};
 use std::{
+    collections::HashSet,
     io::Read,
     path::{Path, PathBuf},
 };
 use thiserror::Error;
 
 use clap::Parser as ClapParser;
-use lang::{AnalyzedProgram, GlueIr, Parser, SemanticAnalyzer, SourceCodeMetadata, diagnostic_to_ir_error, parser_error_to_ir_error, print_report, semantic_error_to_ir_error};
+use lang::{AnalyzedProgram, AstNode, GlueIr, Parser, RootNode, SemanticAnalyzer, SourceCodeMetadata, diagnostic_to_ir_error, parser_error_to_ir_error, print_report, semantic_error_to_ir_error};
 use log::debug;
 
 use crate::args::{Cli, CliGenArgs, CliSubcommand};
@@ -277,10 +278,8 @@ impl GlueCli {
         };
         let file_contents = {
             if let Some(input) = input {
-                std::fs::read_to_string(input).map_err(|e| {
-                    log::error!("Failed to read input file '{}': {}", file_name, e);
-                    CliError::Io(e)
-                })?
+                let mut visited = HashSet::new();
+                Self::read_file_with_imports(&input, &mut visited)?
             } else {
                 let mut buffer = String::new();
                 std::io::stdin().read_to_string(&mut buffer)?;
@@ -291,6 +290,76 @@ impl GlueCli {
             file_name: Box::leak(file_name.into_boxed_str()),
             file_contents: Box::leak(file_contents.into_boxed_str()),
         })
+    }
+
+    fn read_file_with_imports(path: &Path, visited: &mut HashSet<PathBuf>) -> Result<String, CliError> {
+        let canonical_path = std::fs::canonicalize(path).map_err(|e| {
+            log::error!("Failed to resolve input file '{}': {}", path.display(), e);
+            CliError::Io(e)
+        })?;
+        if visited.contains(&canonical_path) {
+            return Ok(String::new());
+        }
+        visited.insert(canonical_path.clone());
+
+        let source = std::fs::read_to_string(&canonical_path).map_err(|e| {
+            log::error!("Failed to read input file '{}': {}", canonical_path.display(), e);
+            CliError::Io(e)
+        })?;
+
+        let imports = Self::collect_imports(canonical_path.to_string_lossy().as_ref(), &source);
+        let mut combined = String::new();
+        for (import_path, _) in &imports {
+            let resolved_import_path = canonical_path
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join(import_path)
+                .canonicalize()
+                .map_err(|e| CliError::BadInput(format!("Failed to resolve import '{}' from '{}': {}", import_path, canonical_path.display(), e)))?;
+            let imported_source = Self::read_file_with_imports(&resolved_import_path, visited)?;
+            if !imported_source.trim().is_empty() {
+                combined.push_str(&imported_source);
+                combined.push('\n');
+            }
+        }
+
+        let aliases: Vec<String> = imports.into_iter().filter_map(|(_, alias)| alias).collect();
+        let transformed_source = Self::normalize_source_after_import_resolution(&source, &aliases);
+        combined.push_str(&transformed_source);
+        Ok(combined)
+    }
+
+    fn collect_imports(file_name: &str, source: &str) -> Vec<(String, Option<String>)> {
+        let metadata = SourceCodeMetadata { file_name, file_contents: source };
+        let mut parser = Parser::new();
+        let Ok(parsed) = parser.parse(&metadata) else {
+            return Vec::new();
+        };
+        let Some(root) = RootNode::cast(parsed.ast_root) else {
+            return Vec::new();
+        };
+
+        root.top_level_imports()
+            .into_iter()
+            .filter_map(|import_stmt| import_stmt.source_path().map(|path| (path, import_stmt.wildcard_alias())))
+            .collect()
+    }
+
+    fn normalize_source_after_import_resolution(source: &str, aliases: &[String]) -> String {
+        let mut transformed = source.to_string();
+        for alias in aliases {
+            transformed = transformed.replace(&format!("{}.", alias), "");
+        }
+
+        let mut filtered = String::new();
+        for line in transformed.lines() {
+            if line.trim_start().starts_with("import ") {
+                continue;
+            }
+            filtered.push_str(line);
+            filtered.push('\n');
+        }
+        filtered
     }
 
     fn find_gluerc(input: Option<&Path>) -> Option<PathBuf> {

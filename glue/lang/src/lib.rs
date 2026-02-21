@@ -19,6 +19,6 @@ pub use rowan::{TextRange, TextSize, TokenAtOffset};
 pub use semantic_analyzer::{AnalyzedProgram, SemanticAnalyzer, SemanticAnalyzerError};
 pub use symbols::{SymEntry, SymId, SymTable, symbol_name_to_parts};
 pub use syntax::{
-    AnonModel, AstNode, AstVisitor, ConstExprType, Decorator, DecoratorArg, Endpoint, Enum, EnumVariant, Field, LNode, LSyntaxKind, Literal, LiteralExpr, Model, Parser, ParserError, PrimitiveType,
-    RootNode, Type, TypeAtom,
+    AnonModel, AstNode, AstVisitor, ConstExprType, Decorator, DecoratorArg, Endpoint, Enum, EnumVariant, Field, ImportNamedItem, ImportStmt, LNode, LSyntaxKind, Literal, LiteralExpr, Model, Parser,
+    ParserError, PrimitiveType, RootNode, Type, TypeAtom,
 };

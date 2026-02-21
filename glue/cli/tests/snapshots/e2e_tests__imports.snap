@@ -1,0 +1,32 @@
+---
+source: cli/tests/e2e_tests.rs
+expression: generated
+---
+# pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring
+from pydantic import BaseModel
+from pydantic import Field
+from enum import StrEnum
+from typing import Any, Annotated, Optional, Union
+
+class SomeModel(BaseModel):
+    """This is some model."""
+    name: Annotated[str, Field()]
+    """This is the name."""
+
+
+class Account(BaseModel):
+    id: Annotated[str, Field()]
+
+
+class Bar(BaseModel):
+    barfield: Annotated[int, Field()]
+
+
+class SomeOtherModel(BaseModel):
+    id: Annotated[str, Field()]
+
+
+class Foo(BaseModel):
+    wildcard: Annotated["SomeModel", Field()]
+    namespaced: Annotated["Account", Field()]
+    direct: Annotated["SomeOtherModel", Field()]

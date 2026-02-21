@@ -4,6 +4,9 @@
 	"scopeName": "source.glue",
 	"patterns": [
 		{
+			"include": "#imports"
+		},
+		{
 			"include": "#annotations"
 		},
 		{
@@ -26,6 +29,96 @@
 		}
 	],
 	"repository": {
+		"imports": {
+			"patterns": [
+				{
+					"name": "meta.import.glue",
+					"begin": "^\\s*import\\b",
+					"end": "$",
+					"beginCaptures": {
+						"0": {
+							"name": "keyword.control.import.glue"
+						}
+					},
+					"patterns": [
+						{
+							"name": "meta.import.named-list.glue",
+							"begin": "\\{",
+							"beginCaptures": {
+								"0": {
+									"name": "punctuation.definition.brace.begin.glue"
+								}
+							},
+							"end": "\\}",
+							"endCaptures": {
+								"0": {
+									"name": "punctuation.definition.brace.end.glue"
+								}
+							},
+							"patterns": [
+								{
+									"name": "entity.name.type.imported.glue",
+									"match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b(?=\\s*(?:,|\\}|\\bas\\b))"
+								},
+								{
+									"name": "entity.name.namespace.alias.glue",
+									"match": "(?<=\\bas\\s+)[A-Za-z_][A-Za-z0-9_]*\\b"
+								},
+								{
+									"name": "keyword.control.import.glue",
+									"match": "\\bas\\b"
+								},
+								{
+									"name": "punctuation.separator.comma.glue",
+									"match": ","
+								}
+							]
+						},
+						{
+							"name": "keyword.operator.wildcard.glue",
+							"match": "\\*"
+						},
+						{
+							"name": "entity.name.namespace.alias.glue",
+							"match": "(?<=\\bimport\\s+\\*\\s+as\\s+)[A-Za-z_][A-Za-z0-9_]*\\b"
+						},
+						{
+							"name": "string.quoted.double.import-path.glue",
+							"begin": "\"",
+							"end": "\"",
+							"beginCaptures": {
+								"0": {
+									"name": "punctuation.definition.string.begin.glue"
+								}
+							},
+							"endCaptures": {
+								"0": {
+									"name": "punctuation.definition.string.end.glue"
+								}
+							},
+							"patterns": [
+								{
+									"name": "constant.character.escape.glue",
+									"match": "\\\\."
+								},
+								{
+									"name": "punctuation.separator.path.glue",
+									"match": "[/\\.]"
+								}
+							]
+						},
+						{
+							"name": "keyword.control.import.glue",
+							"match": "\\b(from|as)\\b"
+						},
+						{
+							"name": "punctuation.separator.comma.glue",
+							"match": ","
+						}
+					]
+				}
+			]
+		},
 		"keywords": {
 			"patterns": [
 				{

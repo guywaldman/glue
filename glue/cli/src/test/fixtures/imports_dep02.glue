@@ -1,0 +1,7 @@
+model Account {
+    id: string
+}
+
+model Bar {
+    barfield: int
+}
