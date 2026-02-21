@@ -188,15 +188,29 @@ impl SemanticAnalyzer {
                 let type_atom = TypeAtom::cast(type_atom_nodes[0].clone()).unwrap();
 
                 if let Some(primitive_type) = type_atom.as_primitive_type() {
-                    match (primitive_type, default_value) {
-                        (PrimitiveType::Bool, Literal::BoolLiteral { .. }) => {}
-                        (PrimitiveType::Int, Literal::IntLiteral { .. }) => {}
-                        (PrimitiveType::Float, Literal::FloatLiteral { .. }) => {}
-                        (PrimitiveType::String, Literal::StringLiteral { .. }) => {}
-                        _ => {
+                    let value_matches_primitive = |literal: &Literal| {
+                        matches!(
+                            (primitive_type, literal),
+                            (PrimitiveType::Bool, Literal::BoolLiteral { .. })
+                                | (PrimitiveType::Int, Literal::IntLiteral { .. })
+                                | (PrimitiveType::Float, Literal::FloatLiteral { .. })
+                                | (PrimitiveType::String, Literal::StringLiteral { .. })
+                        )
+                    };
+
+                    if type_atom.is_array() {
+                        let is_valid_array_default = match &default_value {
+                            Literal::ListLiteral(list_literal) => list_literal.values().iter().all(value_matches_primitive),
+                            _ => false,
+                        };
+
+                        if !is_valid_array_default {
                             let report = diag.error(field_default_value_node.text_range(), "Type of default value does not match field type");
                             errors.push(SemanticAnalyzerError::DuplicateField(report));
                         }
+                    } else if !value_matches_primitive(&default_value) {
+                        let report = diag.error(field_default_value_node.text_range(), "Type of default value does not match field type");
+                        errors.push(SemanticAnalyzerError::DuplicateField(report));
                     }
                 } else {
                     // Not a literal type - must be a ref
@@ -664,5 +678,63 @@ mod tests {
             errors.iter().any(|e| e.report().to_string().contains("Import statements must appear at the top of the file")),
             "Expected informative import-order error"
         );
+    }
+
+    #[test]
+    fn test_array_default_with_matching_primitive_type_passes() {
+        let src = indoc! { r#"
+            model Perf {
+                tags: string[] = ["perf", "benchmark", "static"]
+            }
+        "# };
+
+        let metadata = SourceCodeMetadata {
+            file_name: "test.glue",
+            file_contents: src,
+        };
+        let parsed = Parser::new().parse(&metadata).unwrap();
+        let result = SemanticAnalyzer::new().analyze(&parsed, &metadata);
+        assert!(result.is_ok(), "Expected analysis to pass for matching string[] default literal");
+    }
+
+    #[test]
+    fn test_array_default_with_mismatched_primitive_type_fails() {
+        let src = indoc! { r#"
+            model Perf {
+                tags: string[] = [1, 2, 3]
+            }
+        "# };
+
+        let metadata = SourceCodeMetadata {
+            file_name: "test.glue",
+            file_contents: src,
+        };
+        let parsed = Parser::new().parse(&metadata).unwrap();
+        let result = SemanticAnalyzer::new().analyze(&parsed, &metadata);
+        assert!(result.is_err(), "Expected analysis to fail for mismatched string[] default literal");
+        let errors = result.err().unwrap();
+        assert!(
+            errors.iter().any(|e| e.report().to_string().contains("Type of default value does not match field type")),
+            "Expected informative default-type mismatch error"
+        );
+    }
+
+    #[test]
+    fn test_import_statement_at_top_parses_and_analyzes() {
+        let src = indoc! { r#"
+            import * as Alpha from "./perf_dep_alpha.glue"
+
+            model Root {
+                id: string
+            }
+        "# };
+
+        let metadata = SourceCodeMetadata {
+            file_name: "test.glue",
+            file_contents: src,
+        };
+        let parsed = Parser::new().parse(&metadata).unwrap();
+        let result = SemanticAnalyzer::new().analyze(&parsed, &metadata);
+        assert!(result.is_ok(), "Expected semantic analyzer to allow top-level import statements");
     }
 }

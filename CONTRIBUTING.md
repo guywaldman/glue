@@ -20,6 +20,17 @@ Glue is in early beta, so for areas like the language, parser, semantic analyzer
 
 Consult the [justfile](justfile) for available tasks which should be self-explanatory.  
 
+### Codegen performance benchmark and gate
+
+Run the Rust benchmark locally:
+
+```shell
+just perf-codegen
+```
+
+For PRs, CI compares benchmark median runtime against the base commit.
+If regression is above threshold, the perf gate fails unless the PR has label `perf-regression-approved`.
+
 
 ## AI usage
 
