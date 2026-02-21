@@ -26,8 +26,15 @@ literal = { string_literal | bool_literal | int_literal | list_literal }
 
 builtin_type = { "any" | "int" | "string" | "bool" }
 type_atom_modifiers = { "[]"? ~ "?"? }
-type_atom = ${ (builtin_type | record | ident | anon_model) ~ type_atom_modifiers }
+type_ref = ${ ident ~ ("." ~ ident)* }
+type_atom = ${ (builtin_type | record | type_ref | anon_model) ~ type_atom_modifiers }
 type_expr = { type_atom ~ (WHITESPACE* ~ "|" ~ WHITESPACE* ~ type_atom)* }
+
+import_named_item = { ident ~ ("as" ~ ident)? }
+import_named = { "{" ~ SPACE* ~ (import_named_item ~ (SPACE* ~ "," ~ SPACE* ~ import_named_item)*)? ~ SPACE* ~ "}" }
+import_wildcard = { "*" ~ ("as" ~ ident)? }
+import_items = { import_wildcard | import_named }
+import_stmt = { "import" ~ import_items ~ "from" ~ string_literal }
 
 decorator_named_arg = { ident ~ "=" ~ literal }
 decorator_positional_arg = { literal }
@@ -53,4 +60,4 @@ anon_model = { "{" ~ model_body ~ "}" }
 
 endpoint = { doc_block? ~ decorator* ~ "endpoint" ~ string_literal ~ ident? ~ "{" ~ model_body ~ "}" }
 
-program = _{ SOI ~ (model | endpoint | enum_def)+ ~ EOI }
+program = _{ SOI ~ (import_stmt | model | endpoint | enum_def)+ ~ EOI }

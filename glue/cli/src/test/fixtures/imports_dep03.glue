@@ -1,0 +1,3 @@
+model SomeOtherModel {
+    id: string
+}

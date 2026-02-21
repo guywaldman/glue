@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result, anyhow};
+use insta::assert_snapshot;
 
 const SHARED_SIMPLE_GLUE_SOURCE: &str = include_str!("e2e/fixtures/glue/simple.glue");
 const SHARED_NESTED_GLUE_SOURCE: &str = include_str!("e2e/fixtures/glue/nested.glue");
@@ -199,6 +200,19 @@ fn e2e_ast_valid_literals_emit_no_error_nodes() -> Result<()> {
     let ir = fixture.generate_glue_ir_json()?;
     let error_nodes = count_ir_error_nodes(&ir);
     assert_eq!(error_nodes, 0, "valid literal defaults should not produce error nodes in IR");
+    Ok(())
+}
+
+#[test]
+fn e2e_codegen_with_imports() -> Result<()> {
+    let fixture = GlueTestFixture::new("imports", "imports_main.glue")?;
+
+    let output_path = fixture.generate_python()?;
+    let generated = std::fs::read_to_string(&output_path)?;
+
+    assert_snapshot!("imports", generated);
+
+    cleanup(&output_path);
     Ok(())
 }
 

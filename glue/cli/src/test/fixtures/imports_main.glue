@@ -1,0 +1,9 @@
+import * from "./imports_dep01.glue"
+import * as Dep02 from "./imports_dep02.glue"
+import { SomeOtherModel } from "./imports_dep03.glue"
+
+model Foo {
+		wildcard: SomeModel
+    namespaced: Dep02.Account
+    direct: SomeOtherModel
+}
