@@ -1,0 +1,156 @@
+model Trace {
+    id: string
+    project_id: string
+    span_count: int
+    duration_ms: int
+    root_service: string
+    environment: string
+    created_at: string
+    sampling_rate: int
+}
+
+model Span {
+    id: string
+    trace_id: string
+    parent_id: string
+    name: string
+    service: string
+    kind: string
+    start_ns: int
+    end_ns: int
+}
+
+model Error {
+    id: string
+    trace_id: string
+    span_id: string
+    message: string
+    kind: string
+    file: string
+    line: int
+    occurred_at: string
+}
+
+model Session {
+    id: string
+    user_id: string
+    device: string
+    os: string
+    browser: string
+    country: string
+    started_at: string
+    ended_at: string
+}
+
+model Event {
+    id: string
+    session_id: string
+    name: string
+    category: string
+    source: string
+    payload_size: int
+    received_at: string
+    processed_at: string
+}
+
+model Dataset {
+    id: string
+    org_id: string
+    name: string
+    format: string
+    row_count: int
+    byte_size: int
+    partition_key: string
+    updated_at: string
+}
+
+model Query {
+    id: string
+    dataset_id: string
+    text: string
+    status: string
+    duration_ms: int
+    scanned_bytes: int
+    queued_ms: int
+    submitted_by: string
+}
+
+model Dashboard {
+    id: string
+    org_id: string
+    name: string
+    layout: string
+    owner_id: string
+    widget_count: int
+    created_at: string
+    updated_at: string
+}
+
+model Widget {
+    id: string
+    dashboard_id: string
+    kind: string
+    title: string
+    query_id: string
+    refresh_sec: int
+    width: int
+    height: int
+}
+
+model Export {
+    id: string
+    dashboard_id: string
+    format: string
+    destination: string
+    status: string
+    requested_by: string
+    requested_at: string
+    completed_at: string
+}
+
+enum Severity: "debug" | "info" | "warn" | "error"
+
+model PerfSample {
+    id: string
+    trace_id: string
+    metric: string
+    value: int
+    unit: string
+    captured_at: string
+    tags: string[]
+    attrs: Record<string, string>
+}
+
+model PerfReport {
+    id: string
+    project_id: string
+    title: string
+    generated_at: string
+    severity: Severity = "info"
+    trace: Trace
+    sample: PerfSample
+    tags: string[]
+    metadata: Record<string, string>
+
+    model Thresholds {
+        p50_ms: int
+        p95_ms: int
+        error_rate_bps: int
+        saturation_pct: int
+    }
+
+    enum ComparisonMode: "baseline" | "head" | "window"
+
+    thresholds: Thresholds
+    mode: ComparisonMode = "baseline"
+}
+
+model Signal {
+    id: string
+    source: string
+    target: Trace | Span | Error
+    severity: Severity
+    summary: string
+    context: Record<string, string>
+    happened_at: string
+}

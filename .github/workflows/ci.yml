@@ -109,6 +109,96 @@ jobs:
         run: just test-e2e-cli
         working-directory: .
 
+  perf-codegen-gate:
+    name: Perf | Codegen regression gate
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    env:
+      PERF_REGRESSION_THRESHOLD_PCT: "20"
+      PERF_APPROVAL_LABEL: "perf-regression-approved"
+      GLUE_BENCH_ITERATIONS: "10"
+      GLUE_BENCH_WARMUPS: "3"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            glue/target
+          key: ${{ runner.os }}-cargo-perf-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Measure HEAD codegen perf
+        run: |
+          cd glue
+          GLUE_BENCH_JSON_OUT="$RUNNER_TEMP/head_perf.json" cargo bench -p cli --bench codegen_perf
+
+      - name: Check out PR base in worktree
+        run: |
+          git fetch --no-tags origin ${{ github.event.pull_request.base.sha }} --depth=1
+          git worktree add "$RUNNER_TEMP/base_checkout" ${{ github.event.pull_request.base.sha }}
+
+      - name: Measure baseline codegen perf
+        run: |
+          cd "$RUNNER_TEMP/base_checkout/glue"
+          GLUE_BENCH_JSON_OUT="$RUNNER_TEMP/base_perf.json" cargo bench -p cli --bench codegen_perf
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Compare perf and enforce approval gate
+        run: |
+          set -euo pipefail
+          base_ms=$(jq -r '.median_ms' "$RUNNER_TEMP/base_perf.json")
+          head_ms=$(jq -r '.median_ms' "$RUNNER_TEMP/head_perf.json")
+          threshold_pct=${PERF_REGRESSION_THRESHOLD_PCT}
+          regression_pct=$(awk -v h="$head_ms" -v b="$base_ms" 'BEGIN { if (b <= 0) { print "nan" } else { printf "%.6f", ((h-b)/b)*100 } }')
+
+          if [ "$regression_pct" = "nan" ]; then
+            echo "::error::Invalid baseline median_ms ($base_ms), cannot compare perf"
+            exit 1
+          fi
+
+          echo "Base median: ${base_ms} ms"
+          echo "Head median: ${head_ms} ms"
+          echo "Regression: ${regression_pct}% (threshold ${threshold_pct}%)"
+
+          within_threshold=$(awk -v r="$regression_pct" -v t="$threshold_pct" 'BEGIN { if (r <= t) print "yes"; else print "no" }')
+          if [ "$within_threshold" = "yes" ]; then
+            echo "Perf gate passed"
+            exit 0
+          fi
+
+          has_approval=$(jq -r --arg label "$PERF_APPROVAL_LABEL" '(.pull_request.labels // []) | map(.name) | any(. == $label)' "$GITHUB_EVENT_PATH")
+          if [ "$has_approval" = "true" ]; then
+            echo "::warning::Perf regression above threshold, but '$PERF_APPROVAL_LABEL' label is present. Gate overridden."
+            exit 0
+          fi
+
+          echo "::error::Codegen perf regression ${regression_pct}% exceeds ${threshold_pct}% without approval label '$PERF_APPROVAL_LABEL'."
+          exit 1
+
+      - name: Upload perf artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codegen-perf-results
+          path: |
+            ${{ runner.temp }}/base_perf.json
+            ${{ runner.temp }}/head_perf.json
+          if-no-files-found: ignore
+
+      - name: Cleanup worktree
+        if: always()
+        run: git worktree remove "$RUNNER_TEMP/base_checkout" --force || true
+
   coverage:
     name: Coverage
     runs-on: ubuntu-latest

@@ -7,6 +7,10 @@ edition = "2024"
 name = "glue"
 path = "src/main.rs"
 
+[[bench]]
+name = "codegen_perf"
+harness = false
+
 
 [dependencies]
 lang = { path = "../lang" }

@@ -1,0 +1,159 @@
+model ApiKey {
+    id: string
+    org_id: string
+    prefix: string
+    scope: string
+    created_by: string
+    created_at: string
+    revoked: bool
+    revoked_at: string
+}
+
+model Webhook {
+    id: string
+    org_id: string
+    url: string
+    event: string
+    secret: string
+    enabled: bool
+    retries: int
+    timeout_ms: int
+}
+
+model AuditLog {
+    id: string
+    actor_id: string
+    actor_type: string
+    action: string
+    resource_id: string
+    resource_type: string
+    ip: string
+    at: string
+}
+
+model IpAllowlist {
+    id: string
+    org_id: string
+    cidr: string
+    description: string
+    created_by: string
+    created_at: string
+    enabled: bool
+    mode: string
+}
+
+model SsoConfig {
+    id: string
+    org_id: string
+    provider: string
+    issuer: string
+    audience: string
+    metadata_url: string
+    enabled: bool
+    enforce: bool
+}
+
+model NotificationRule {
+    id: string
+    org_id: string
+    channel: string
+    target: string
+    severity: string
+    event: string
+    enabled: bool
+    cooldown_min: int
+}
+
+model RunnerPool {
+    id: string
+    org_id: string
+    name: string
+    os: string
+    arch: string
+    max_runners: int
+    active_runners: int
+    autoscale: bool
+}
+
+model Secret {
+    id: string
+    org_id: string
+    name: string
+    scope: string
+    encrypted_value: string
+    rotated_at: string
+    created_by: string
+    masked: bool
+}
+
+model FeatureFlag {
+    id: string
+    org_id: string
+    key: string
+    description: string
+    enabled: bool
+    rollout: int
+    owner_id: string
+    updated_at: string
+}
+
+model BillingSnapshot {
+    id: string
+    org_id: string
+    month: string
+    amount_cents: int
+    currency: string
+    paid: bool
+    invoice_id: string
+    generated_at: string
+}
+
+enum Channel: "slack" | "email" | "webhook"
+
+enum RiskLevel: "low" | "medium" | "high"
+
+model NotificationTarget {
+    id: string
+    org_id: string
+    channel: Channel
+    destination: string
+    enabled: bool = true
+    labels: string[]
+    options: Record<string, string>
+    fallback: string?
+}
+
+model SecurityPolicy {
+    id: string
+    org_id: string
+    level: RiskLevel = "medium"
+    require_sso: bool = false
+    require_mfa: bool = true
+    allowed_ips: string[]
+    session_ttl_min: int
+    audit: Record<string, string>
+
+    model EnforcementWindow {
+        starts_at: string
+        ends_at: string
+        reason: string
+        actor_id: string
+    }
+
+    enum RolloutMode: "manual" | "staged" | "forced"
+
+    window: EnforcementWindow
+    rollout: RolloutMode = "manual"
+}
+
+model Rollout {
+    id: string
+    org_id: string
+    status: string
+    owner_id: string
+    started_at: string
+    completed_at: string?
+    affected_entities: string[]
+    changelog: Record<string, string>
+    target: FeatureFlag | SecurityPolicy
+}

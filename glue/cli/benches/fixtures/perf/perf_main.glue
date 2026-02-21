@@ -1,0 +1,124 @@
+import * as Alpha from "./perf_dep_alpha.glue"
+import * as Beta from "./perf_dep_beta.glue"
+import * as Gamma from "./perf_dep_gamma.glue"
+
+model PerfRoot {
+    alpha_user: Alpha.User
+    alpha_org: Alpha.Org
+    alpha_project: Alpha.Project
+    alpha_build: Alpha.Build
+    alpha_job: Alpha.Job
+    alpha_artifact: Alpha.Artifact
+    alpha_release: Alpha.Release
+    alpha_incident: Alpha.Incident
+    alpha_metric: Alpha.Metric
+    alpha_quota: Alpha.Quota
+    alpha_address: Alpha.Address
+    alpha_config: Alpha.ProjectConfig
+    alpha_pipeline: Alpha.Pipeline
+    alpha_plan: Alpha.Plan
+    alpha_build_state: Alpha.BuildState
+
+    beta_api_key: Beta.ApiKey
+    beta_webhook: Beta.Webhook
+    beta_audit_log: Beta.AuditLog
+    beta_ip_allowlist: Beta.IpAllowlist
+    beta_sso: Beta.SsoConfig
+    beta_notification: Beta.NotificationRule
+    beta_runner_pool: Beta.RunnerPool
+    beta_secret: Beta.Secret
+    beta_feature_flag: Beta.FeatureFlag
+    beta_billing: Beta.BillingSnapshot
+    beta_target: Beta.NotificationTarget
+    beta_policy: Beta.SecurityPolicy
+    beta_rollout: Beta.Rollout
+    beta_channel: Beta.Channel
+    beta_risk: Beta.RiskLevel
+
+    gamma_trace: Gamma.Trace
+    gamma_span: Gamma.Span
+    gamma_error: Gamma.Error
+    gamma_session: Gamma.Session
+    gamma_event: Gamma.Event
+    gamma_dataset: Gamma.Dataset
+    gamma_query: Gamma.Query
+    gamma_dashboard: Gamma.Dashboard
+    gamma_widget: Gamma.Widget
+    gamma_export: Gamma.Export
+    gamma_sample: Gamma.PerfSample
+    gamma_report: Gamma.PerfReport
+    gamma_signal: Gamma.Signal
+    gamma_severity: Gamma.Severity
+
+    cross_owner: Alpha.User | Beta.ApiKey
+    cross_labels: string[]
+    cross_meta: Record<string, string>
+}
+
+endpoint "GET /perf/users/{user_id}" PerfUsersGet {
+    responses: {
+        2XX: UserPayload
+        4XX: ErrorPayload
+    }
+
+    model UserPayload {
+        user: Alpha.User
+        org: Alpha.Org
+        recent_events: Gamma.Event[]
+        active_policies: Beta.SecurityPolicy[]
+    }
+
+    model ErrorPayload {
+        code: int
+        message: string
+        severity: Gamma.Severity
+        context: Record<string, string>
+    }
+}
+
+endpoint "POST /perf/projects/{project_id}/builds" PerfBuildCreate {
+    responses: {
+        2XX: BuildAccepted
+        4XX: BuildRejected
+    }
+
+    model BuildAccepted {
+        build: Alpha.Build
+        pipeline: Alpha.Pipeline
+        rollout: Beta.Rollout | Beta.FeatureFlag
+        trace: Gamma.Trace
+    }
+
+    model BuildRejected {
+        code: int
+        reason: string
+        retryable: bool
+        details: Record<string, string>
+    }
+}
+
+endpoint "GET /perf/reports/{report_id}" PerfReportGet {
+    responses: {
+        2XX: ReportEnvelope
+        5XX: ReportError
+    }
+
+    model ReportEnvelope {
+        report: Gamma.PerfReport
+        sample: Gamma.PerfSample
+        signal: Gamma.Signal
+        owner: Alpha.User | Beta.ApiKey
+        labels: string[]
+    }
+
+    enum OutputMode: "summary" | "full"
+
+    model ReportError {
+        code: int
+        message: string
+        severity: Gamma.Severity
+        context: Record<string, string>
+    }
+
+    output_mode: OutputMode
+}

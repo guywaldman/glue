@@ -1,0 +1,156 @@
+model User {
+    id: string
+    email: string
+    role: string
+    status: string
+    country: string
+    city: string
+    timezone: string
+    locale: string
+}
+
+model Org {
+    id: string
+    name: string
+    domain: string
+    plan: string
+    region: string
+    owner_id: string
+    created_at: string
+    updated_at: string
+}
+
+model Project {
+    id: string
+    org_id: string
+    name: string
+    slug: string
+    visibility: string
+    repo: string
+    default_branch: string
+    language: string
+}
+
+model Build {
+    id: string
+    project_id: string
+    commit_sha: string
+    branch: string
+    status: string
+    started_at: string
+    finished_at: string
+    runner: string
+}
+
+model Job {
+    id: string
+    build_id: string
+    name: string
+    status: string
+    queue_ms: int
+    run_ms: int
+    cpu_class: string
+    machine: string
+}
+
+model Artifact {
+    id: string
+    job_id: string
+    name: string
+    size_bytes: int
+    mime: string
+    checksum: string
+    storage: string
+    retention_days: int
+}
+
+model Release {
+    id: string
+    project_id: string
+    version: string
+    tag: string
+    channel: string
+    notes: string
+    published_at: string
+    author_id: string
+}
+
+model Incident {
+    id: string
+    project_id: string
+    title: string
+    severity: string
+    state: string
+    owner_id: string
+    opened_at: string
+    closed_at: string
+}
+
+model Metric {
+    id: string
+    project_id: string
+    name: string
+    unit: string
+    value: int
+    sampled_at: string
+    source: string
+    window: string
+}
+
+model Quota {
+    id: string
+    org_id: string
+    cpu_minutes_limit: int
+    cpu_minutes_used: int
+    storage_limit_mb: int
+    storage_used_mb: int
+    seats_limit: int
+    seats_used: int
+}
+
+enum Plan: "free" | "team" | "enterprise"
+
+enum BuildState: "queued" | "running" | "passed" | "failed"
+
+model Address {
+    street: string
+    city: string
+    region: string
+    country: string
+    postal_code: string
+    timezone: string
+}
+
+model ProjectConfig {
+    id: string
+    project_id: string
+    plan: Plan = "team"
+    build_state: BuildState = "queued"
+    labels: string[] = ["foo", "bar"]
+    metadata: Record<string, string>
+    environment: string?
+    default_branch: string
+
+    model Limits {
+        max_jobs: int
+        max_parallel_jobs: int
+        max_artifacts_mb: int
+        max_retention_days: int
+    }
+
+    enum DeploymentTier: "dev" | "staging" | "prod"
+
+    limits: Limits
+    tier: DeploymentTier = "dev"
+}
+
+model Pipeline {
+    id: string
+    project_id: string
+    state: BuildState
+    trigger: string
+    tags: string[]
+    owner_id: string?
+    variables: Record<string, string>
+    target_ref: Project | Build
+}
