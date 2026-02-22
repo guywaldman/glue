@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.0](https://github.com/guywaldman/glue/compare/v0.5.0...v0.6.0) (2026-02-22)
+
+
+### Features
+
+* add support for body schema in endpoints ([bde0025](https://github.com/guywaldman/glue/commit/bde002593228526c188bbba6d7c8ca6c83153a9a))
+
+
+### Bug Fixes
+
+* **codegen:** format generated Go code ([9f9b09d](https://github.com/guywaldman/glue/commit/9f9b09d73a3a1ccadb642727daeb65592989235f))
+
 ## [0.5.0](https://github.com/guywaldman/glue/compare/v0.4.0...v0.5.0) (2026-02-22)
 
 
