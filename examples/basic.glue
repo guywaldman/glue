@@ -1,5 +1,4 @@
 /// Represents a person.
-@root
 model Person {
 	/// The person's name.
 	name: string
