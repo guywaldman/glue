@@ -1,0 +1,69 @@
+---
+title: Go
+---
+
+Glue supports `go` as a code generation target, allowing you to generate Go structs and enums from Glue models.
+
+Simply run:
+
+```shell
+glue gen go -i models.glue -o ./models.go
+```
+
+## Configuration
+
+You can configure the emitted package name:
+
+```yaml
+global:
+	config:
+		go:
+			package_name: myapi
+```
+
+## Example
+
+For this Glue spec:
+
+```glue
+model User {
+	id: string
+	@field(alias="first_name")
+	firstName: string
+	tags?: string[]
+}
+
+enum Status: "active" | "inactive"
+```
+
+...generating Go...
+
+```shell
+glue gen go -i models.glue -o ./models.go
+```
+
+...will produce code similar to:
+
+```go
+package glue
+
+type User struct {
+		Id        string   `json:"id"`
+		FirstName string   `json:"first_name"`
+		Tags      *[]string `json:"tags,omitempty"`
+}
+
+type Status string
+
+const (
+		StatusActive   Status = "active"
+		StatusInactive Status = "inactive"
+)
+```
+
+## Notes
+
+- Optional fields are emitted as pointers and include `,omitempty` in JSON tags.
+- Unions are emitted as `interface{}`.
+- `Record<K, V>` is emitted as `map[K]V`.
+- Anonymous model type atoms are currently not supported in Go code generation.

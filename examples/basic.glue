@@ -1,12 +1,23 @@
+/// Represents a person.
+@root
 model Person {
+	/// The person's name.
 	name: string
+	/// The person's age.
 	age: int
+	/// The person's address.
 	address: Address
 
+	/// The person's address.
 	model Address {
+		/// The street of the address.
+		// NOTE: Not case-sensitive.
 		street: string
+		/// The city of the address.
 		city: string
+		/// The country code of the address.
 		country_code: string
-		zipcode: string
+		/// The zipcode of the address.
+		zipcode?: string
 	}
 }

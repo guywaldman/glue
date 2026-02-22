@@ -1,0 +1,67 @@
+---
+title: Protobuf
+---
+
+Glue supports `protobuf` as a code generation target, allowing you to generate `.proto` schemas from Glue models and enums.
+
+Simply run:
+
+```shell
+glue gen protobuf -i models.glue -o ./models.proto
+```
+
+## Configuration
+
+You can configure the emitted protobuf package name:
+
+```yaml
+global:
+	config:
+		protobuf:
+			package_name: myapp.v1
+```
+
+## Example
+
+For this Glue spec:
+
+```glue
+model User {
+	id: int
+	name: string
+	tags: string[]
+}
+
+enum Role: "admin" | "user"
+```
+
+...generating protobuf...
+
+```shell
+glue gen protobuf -i models.glue -o ./models.proto
+```
+
+...will produce:
+
+```proto
+syntax = "proto3";
+
+package glue;
+
+message User {
+		int32 id = 1;
+		string name = 2;
+		repeated string tags = 3;
+}
+
+enum Role {
+		admin = 0;
+		user = 1;
+}
+```
+
+## Current limitations
+
+- Optional fields (`?`) are not supported in Protobuf generation.
+- `Record<..., ...>` and anonymous model types are not supported.
+- Endpoint declarations are ignored by the Protobuf generator.

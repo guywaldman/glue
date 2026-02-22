@@ -1,0 +1,87 @@
+---
+title: CLI reference
+---
+
+# Available commands
+
+```shell
+$ glue --help
+
+Usage: glue <COMMAND>
+
+Commands:
+  check  Checks for validity of a Glue file
+  gen    Generates code from a Glue file
+  ast    Emits Glue IR as JSON
+  help   Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version
+```
+
+# Code generation
+
+Glue generates code from Glue files using the `gen` command. The generated code can be used for:
+1. Serialization/deserialization
+1. Data schemas (e.g. JSON Schema, Protobuf messages)
+1. Generating OpenAPI spec from which you can generate API clients or server stubs
+
+Glue currently supports these languages and formats for code generation (click for more details):
+1. [OpenAPI](./codegen-openapi)
+1. [JSON Schema](./codegen-jsonschema)
+1. [TypeScript](./codegen-typescript) (including Zod types)
+1. [Python](./codegen-python) (including support for `pydantic`, `dataclasses`, `attrs`, and `msgspec`)
+1. [Rust](./codegen-rust)
+1. [Go](./codegen-go)
+1. [Protobuf](./codegen-protobuf)
+
+To generate code from a Glue file:
+
+```shell
+# Generate code from a Glue file
+glue gen <language> api.glue -o ./generated
+# ...or from a URL:
+glue gen python https://raw.githubusercontent.com/guywaldman/glue/refs/heads/main/examples/basic.glue -o ./models.py
+
+# ...or from stdin:
+cat api.glue | glue gen <language> -o ./generated
+
+# ...or into stdout:
+glue gen <language> -i api.glue > ./generated
+```
+
+# Configuration
+
+If you have a `.gluerc` YAML file (or `.gluerc.yaml`, `.gluerc.yml`, `.gluerc.json`) at the same directory level, Glue will automatically use it for configuration. You can also specify a config file with `--config path/to/config`. 
+You can also override specific config options inline with `--set key=value` (e.g. `--set watermark=none` to disable the watermark in generated code).
+
+```shell
+# Use `.gluerc` in the current directory if it exists
+glue gen go https://raw.githubusercontent.com/guywaldman/glue/refs/heads/main/examples/basic.glue
+# ...or specify a config file explicitly
+glue gen go https://raw.githubusercontent.com/guywaldman/glue/refs/heads/main/examples/basic.glue --config path/to/.gluerc.yaml
+# ...or override specific config options inline:
+glue gen go https://raw.githubusercontent.com/guywaldman/glue/refs/heads/main/examples/basic.glue --set "watermark=none"
+```
+
+
+For configurations, see [Configuration](/docs/configuration).  
+
+# Static validation
+
+Glue files can be statically validated with the `check` command:
+
+```shell
+glue check api.glue
+```
+
+# Advanced usage
+
+## Inspect Glue IR
+
+Glue can emit the intermediate representation (IR) it uses for code generation, which can be useful for debugging and understanding how Glue processes your files:
+
+```shell
+glue ast https://raw.githubusercontent.com/guywaldman/glue/refs/heads/main/examples/basic.glue
+```

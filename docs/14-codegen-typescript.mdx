@@ -1,0 +1,78 @@
+---
+title: TypeScript
+---
+
+Glue supports `typescript` as a code generation target.
+
+Simply run:
+
+```shell
+glue gen typescript -i models.glue -o ./models.ts
+```
+
+## Output modes
+
+TypeScript generation supports:
+
+- **Types only** (default): emits `export type ...`
+- **Zod mode**: emits Zod schemas and inferred types
+
+Enable Zod mode in `.gluerc`:
+
+```yaml
+global:
+	config:
+		typescript:
+			zod: true
+```
+
+## Example
+
+For this Glue spec:
+
+```glue
+model User {
+	name: string
+	age: int
+	email?: string
+}
+
+enum UserRole: "admin" | "user"
+```
+
+...generating TypeScript...
+
+```shell
+glue gen typescript -i models.glue -o ./models.ts
+```
+
+...will produce code similar to:
+
+```ts
+export type User = {
+	name: string;
+	age: number;
+	email?: string | null;
+};
+
+export type UserRole = "admin" | "user";
+```
+
+With `typescript.zod: true`, output is schema-first:
+
+```ts
+import { z } from "zod";
+
+export const UserSchema = z.object({
+	name: z.string(),
+	age: z.number(),
+	email: z.string().nullable().optional(),
+});
+export type User = z.infer<typeof UserSchema>;
+```
+
+## Notes
+
+- Nested Glue models are emitted as flattened names (e.g. `Parent_Child`).
+- `Record<K, V>` is emitted as `Record<K, V>` (or `z.record(...)` in Zod mode).
+- Anonymous model type atoms are currently not supported in TypeScript code generation.

@@ -2,75 +2,73 @@
 title: Configuration
 ---
 
-Glue can be configured with a `.gluerc` file in the root of your project.  
+Use a `.gluerc` file to set defaults and per-target overrides for code generation.
 
-The config file can be `.gluerc` (YAML), `.gluerc.yaml`, `.gluerc.yml`, or `.gluerc.json`. The configuration file is optional, and Glue uses defaults when it is not present.  
+## Supported config files
 
-To override automatic detection, run `glue gen --config path/to/config`.
+Glue auto-detects these files next to your input file:
+
+- `.gluerc` (YAML)
+- `.gluerc.yaml`
+- `.gluerc.yml`
+- `.gluerc.json`
+
+If no config file is found, Glue uses built-in defaults.
+
+To use a specific config file:
+
+```shell
+glue gen --config path/to/.gluerc ...
+```
+
+## How the config is structured
+
+- `global`: defaults applied to every generation entry.
+- `gen`: a list of per-input rules (`files`) with optional output and overrides.
+
+## Example
 
 ```yaml
-# Global defaults applied to all generation entries
 global:
-  # Base directory for generated output (relative to the config file if not absolute)
   output_base_dir: ./generated
-  
-  # Default code generation configuration
   config:
-    # Whether to emit lint suppression comments in generated files. Defaults to true.
     lint_suppressions: true
-    
-    # Mode for the watermark at the top of the generated files. Defaults to "short" if not specified.
     watermark: short
-    
-    # TypeScript code generation configuration
     typescript:
-      # Whether to emit Zod schemas and use z.infer for types. Defaults to false.
       zod: false
-    
-    # Python code generation configuration
     python:
-      # The Python modeling library to use. Defaults to "pydantic".
       data_model_library: pydantic
-      # For pydantic: the full import path for the base model class. Defaults to `pydantic.BaseModel`.
       base_model: pydantic.BaseModel
-    
-    # Rust code generation configuration
     rust:
-      # Include serde_yaml support in generated output
       include_yaml: true
-    
-    # Go code generation configuration
     go:
-      # The Go package name emitted at the top of generated files. Defaults to "models".
-      package_name: models
-    
-    # Protobuf code generation configuration
+      package_name: glue
     protobuf:
-      # The protobuf package name. Defaults to "glue".
       package_name: glue
 
-# Per-generation configuration entries
 gen:
-  - # Glob selector for input files
-    files: "**/*.glue"
-    # Output path template (supports {file_name} and {file_ext})
+  - files: "**/*.glue"
     output: "src/types/{file_name}.ts"
-    # Per-generation configuration overrides
     config_overrides:
       typescript:
         zod: true
-      watermark: full
-  
+
   - files: "schemas/api/*.glue"
     output: "src/generated/{file_name}.py"
     config_overrides:
       python:
         data_model_library: dataclasses
       lint_suppressions: false
-  
+
   - files: "models/*.glue"
     output: "proto/{file_name}.proto"
     config_overrides:
       protobuf:
         package_name: myapp.v1
 ```
+
+## Notes
+
+- `output` supports `{file_name}` and `{file_ext}` placeholders.
+- `watermark` supports `full`, `short`, or `none`.
+- `python.data_model_library` supports `pydantic`, `dataclasses`, `attrs`, or `msgspec`.

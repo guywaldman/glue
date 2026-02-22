@@ -1,0 +1,77 @@
+---
+title: Rust
+---
+
+Glue supports `rust` as a code generation target, allowing you to generate Rust structs and enums with Serde derives.
+
+Simply run:
+
+```shell
+glue gen rust -i models.glue -o ./models.rs
+```
+
+## Configuration
+
+Rust generation currently supports:
+
+```yaml
+global:
+	config:
+		rust:
+			include_yaml: true
+```
+
+When `include_yaml` is enabled, generated models include `from_yaml`/`to_yaml` helper methods.
+
+## Example
+
+For this Glue spec:
+
+```glue
+model User {
+	id: int
+	@field(alias="first_name")
+	firstName: string
+	email?: string
+	metadata: Record<string, any>
+}
+
+enum Status: "active" | "inactive"
+```
+
+...generating Rust...
+
+```shell
+glue gen rust -i models.glue -o ./models.rs
+```
+
+...will produce code similar to:
+
+```rust
+use std::collections::HashMap;
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
+pub struct User {
+		pub id: i64,
+		#[serde(rename = "first_name")]
+		pub firstName: String,
+		#[serde(skip_serializing_if = "Option::is_none")]
+		pub email: Option<String>,
+		pub metadata: HashMap<String, serde_json::Value>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
+pub enum Status {
+		#[serde(rename = "active")]
+		Active,
+		#[serde(rename = "inactive")]
+		Inactive,
+}
+```
+
+## Notes
+
+- Optional fields are emitted as `Option<T>`.
+- Arrays are emitted as `Vec<T>`.
+- `Record<K, V>` is emitted as `HashMap<K, V>`.
+- Anonymous model type atoms currently not supported.

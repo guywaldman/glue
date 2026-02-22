@@ -1,0 +1,208 @@
+---
+title: OpenAPI
+---
+
+Glue supports `openapi` as a code generation target, allowing you to generate OpenAPI specifications from Glue files. This can be useful for defining RESTful APIs and generating client libraries or server stubs in various programming languages.  
+Glue currently supports OpenAPI v3.0, and only JSON output.  
+
+Simply run:
+
+```shell
+glue gen openapi -i api.glue -o ./openapi.json
+```
+
+## Example
+
+For this Glue spec:
+
+```glue
+/// Returns a user by ID.
+endpoint "GET /users/{id}" {
+	responses: {
+		2XX: User
+		4XX: ApiError
+		5XX: ApiError
+	}
+}
+
+/// Create a new user.
+endpoint "POST /users" {
+	body: User
+
+	responses: {
+		201: User
+		4XX: ApiError
+		5XX: ApiError
+	}
+}
+
+model User {
+		id: string
+		name: string
+		email: string
+}
+
+model ApiError {
+	error_code: Code
+	message?: string
+
+	enum Code: "USER_NOT_FOUND" | "INVALID_REQUEST" | "INTERNAL_ERROR"
+}
+```
+
+...generating an OpenAPI spec...
+
+```shell
+glue gen openapi -i api.glue -o ./openapi.json
+```
+
+...will produce:
+
+```json
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Generated API",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/users/{id}": {
+      "get": {
+        "summary": "Returns a user by ID.",
+        "description": "Returns a user by ID.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "4XX": {
+            "description": "4XX response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "2XX": {
+            "description": "2XX response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "5XX response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "2XX response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users": {
+      "post": {
+        "summary": "Create a new user.",
+        "description": "Create a new user.",
+        "responses": {
+          "4XX": {
+            "description": "4XX response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "5XX response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "201 response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApiError": {
+        "type": "object",
+        "required": [
+          "error_code"
+        ],
+        "properties": {
+          "error_code": {
+            "$ref": "#/components/schemas/Code"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "User": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "email"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+# Current limitations
+
+* Proper typing of query/path parameters, authentication/authorization schemes are not yet supported

@@ -1,0 +1,114 @@
+---
+title: JSON Schema
+---
+
+Somewhat similarly to OpenAPI, Glue offers `jsonschema` as a code generation target, allowing you to generate JSON Schema specifications from Glue files. This can be useful for validating data structures and generating client libraries or server stubs in various programming languages.  
+In fact, this is used internally in the Glue codebase for Glue's configuration! See [glue/assets/config_schema.glue](https://github.com/guywaldman/glue/blob/main/glue/assets/config_schema.glue)
+
+Simply run:
+
+```shell
+glue gen jsonschema -i config.glue -o ./config.json
+```
+
+## Example
+
+For this Glue spec:
+
+```glue
+/// Represents a person.
+// 👇 IMPORTANT: If your file has multiple top-level models, specify `@root` on exactly one model.
+@root
+model Person {
+	/// The person's name.
+	name: string
+	/// The person's age.
+	age: int
+	/// The person's address.
+	address: Address
+
+	/// The person's address.
+	model Address {
+		/// The street of the address.
+		// NOTE: Not case-sensitive.
+		street: string
+		/// The city of the address.
+		city: string
+		/// The country code of the address.
+		country_code: string
+		/// The zipcode of the address.
+		zipcode?: string
+	}
+}
+
+```
+
+...generating a JSON Schema spec...
+
+```shell
+glue gen jsonschema -i config.glue -o ./config.json
+```
+
+...will produce:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Person",
+  "type": "object",
+  "properties": {
+    "address": {
+      "$ref": "#/$defs/Person::Address",
+      "description": "The person's address."
+    },
+    "age": {
+      "type": "integer",
+      "description": "The person's age."
+    },
+    "name": {
+      "type": "string",
+      "description": "The person's name."
+    }
+  },
+  "$defs": {
+    "Person": {
+      "type": "object",
+      "properties": {
+        "address": {
+          "$ref": "#/$defs/Person::Address",
+          "description": "The person's address."
+        },
+        "age": {
+          "type": "integer",
+          "description": "The person's age."
+        },
+        "name": {
+          "type": "string",
+          "description": "The person's name."
+        }
+      }
+    },
+    "Person::Address": {
+      "type": "object",
+      "properties": {
+        "city": {
+          "type": "string",
+          "description": "The city of the address."
+        },
+        "country_code": {
+          "type": "string",
+          "description": "The country code of the address."
+        },
+        "street": {
+          "type": "string",
+          "description": "The street of the address."
+        },
+        "zipcode": {
+          "type": "string",
+          "description": "The zipcode of the address."
+        }
+      }
+    }
+  }
+}
+```

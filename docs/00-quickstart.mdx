@@ -1,0 +1,120 @@
+---
+title: Quickstart
+---
+
+# 1. Install Glue
+
+```shell
+# Homebrew
+brew install guywaldman/tap/glue
+
+# Linux/macOS
+curl -fsSL https://github.com/guywaldman/glue/releases/latest/download/install.sh | bash
+
+# Windows (PowerShell)
+iwr -useb https://github.com/guywaldman/glue/releases/latest/download/install.ps1 | iex
+```
+
+# 2. Create a Glue file
+
+Start by creating a Glue file that defines your data models and intefaces using the [Glue IDL](/docs/language-reference).  
+You can also generate code from a URL or from standard input (stdin).  
+
+Example:
+
+```glue
+// models.glue
+
+/// Use triple slash for comments that should be included in generated code as docstrings
+model Apartment {
+		/// The apartment number, e.g. "1A"
+		number: int
+		// Use double slash for internal comments and not included in generated code
+		residents: Person[]
+}
+
+model Person {
+	name: string
+	age: int
+	residence_end_date?: string // Optional fields are denoted with a `?`
+
+	is_employed: bool = false // Default values are supported
+}
+
+model Building {
+	name: string
+	apartments: Record<int, Apartment> // Complex types like maps, lists, etc. are supported
+
+	address: Address
+
+	// Nested models are supported
+	model Address {
+		street: string
+		city: string
+		country_code: string
+		zipcode: string
+	}
+}
+
+// Glue supports endpoints (like OpenAPI), which you can optionally define with sane defaults.
+/// Get building information by the building ID
+endpoint "GET /building/{building_id}" GetBuilding {
+    responses: {
+        200: Building
+        4XX: ApiError
+        5XX: ApiError
+    }
+}
+
+model ApiError {
+		code: int
+		message: string
+}
+```
+
+Glue also support imports, so you can split your models into multiple files and import them:
+
+```glue
+import * from "models/person.glue"
+import * as common from "models/common.glue" // Namespaced import
+import { Address } from "models/building.glue" // Direct symbol import
+```
+
+# 3. Generate code
+
+Pick a target (e.g., `typescript`, `python`, `rust`, `go`, `openapi`, `jsonschema`, `protobuf`) and generate code:
+
+```shell
+glue gen typescript -i models.glue -o ./generated
+
+# If you wish to validate the Glue file without generating code, run:
+glue check models.glue
+```
+
+# 4. Configure code generation (optional)
+
+To support different use-cases, you can configure code generation with a `.gluerc` file. For example:
+
+```yaml
+# .gluerc.yaml
+global:
+  watermark: "none" # Don't generate a watermark
+  lint_suppressions: false # Don't generate lint suppression comments in generated code
+  output_base_dir: "./src/generated" # Base output directory for all generated code
+
+gen:
+  - files: "models/*.glue"
+    output: "{file_name}.ts" # Output path template (relative to output_base_dir)
+    config_overrides:
+      typescript:
+        zod: true # Emit Zod types for TypeScript generation
+  - files: "schemas/*.glue"
+    output: "schemas/{file_name}.py"
+    config_overrides:
+      python:
+        data_model_library: "dataclasses" # Use Python dataclasses instead of the default Pydantic
+```
+
+# 5. Install VS Code extension (optional)
+
+For a better development experience, install the [Glue VS Code extension](https://marketplace.visualstudio.com/items?itemName=guywaldman.glue) for syntax highlighting, error diagnostics, hover definitions, go-to definitions and more for Glue files (by default, those ending with `.glue`).

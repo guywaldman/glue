@@ -1,0 +1,32 @@
+/// Returns a user by ID.
+endpoint "GET /users/{id}" {
+	responses: {
+		2XX: User
+		4XX: ApiError
+		5XX: ApiError
+	}
+}
+
+/// Create a new user.
+endpoint "POST /users" {
+	body: User
+
+	responses: {
+		201: User
+		4XX: ApiError
+		5XX: ApiError
+	}
+}
+
+model User {
+		id: string
+		name: string
+		email: string
+}
+
+model ApiError {
+	error_code: Code
+	message?: string
+
+	enum Code: "USER_NOT_FOUND" | "INVALID_REQUEST" | "INTERNAL_ERROR"
+}

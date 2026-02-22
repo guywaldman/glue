@@ -1,0 +1,147 @@
+---
+title: Language reference
+---
+
+> NOTE: This page explains the Glue syntax in pseudo EBNF form. It is not a formal specification, but rather a reference guide to the language features and syntax, so that it's easier to grok.
+> If you are interested in the exact grammar, Glue uses [pest](https://pest.rs/) and you can check out the Pest file in the Glue codebase.
+
+The Glue IDL is designed to be simple and intuitive, with a syntax that is easy to read and write. Below is a reference of the language features and syntax.
+
+# Primitive types
+
+Glue supports the following primitive types:
+- `string`
+- `int`
+- `any`
+- `bool`
+
+# Compound types
+
+- `model` (a structured type with named fields)
+- `enum` (enumeration of string values)
+- `T[]` (an array/list of type `T`)
+- `Record<T, U>` (a map/dictionary type with keys of type `T` and values of type `U`)
+- `endpoint` (an API endpoint definition with method, path, parameters, and responses)
+
+# Models
+
+**Models** are the foundation of Glue data models.
+They are defined using the `model` keyword, followed by the model name and a block of fields.
+
+```glue
+/// Optional public documentation
+model <model_name> {
+  <field_name>[?]: <field_type> [= <default_value>]
+  ...
+}
+```
+
+For example:
+
+```glue
+/// A user of the system
+model User {
+  name: string
+  age?: int // Optional fields are denoted with a `?`
+  active: bool = true // Default values are supported
+  contact: ContactInfo
+
+  // Models can be nested
+  model ContactInfo {
+    email: string
+    phone?: string
+  }
+}
+```
+
+## Model decorators
+
+Fields can be decorated with the `@field` decorator, which allows you to specify additional metadata for the field that can be used by code generators.
+
+```glue
+model User {
+  @field(alias="email", example="user@example.com")
+  email_address: string
+}
+```
+
+# Enums
+
+**Enums** are defined using the `enum` keyword, followed by the enum name and pipe-separated primitive string values.
+
+```glue
+enum <enum_name>: "<value1>" | "<value2>" | ...
+```
+
+For example:
+
+```glue
+enum Color: "red" | "green" | "blue"
+```
+
+Enums can be nested inside models as well:
+
+```glue
+model Product {
+  name: string
+  category: Category
+
+  enum Category: "electronics" | "clothing" | "books"
+}
+```
+
+# Endpoints
+
+**Endpoints** are defined using the `endpoint` keyword, followed by the HTTP method and path, endpoint name, and a block of parameters and responses.
+They mostly follow what you expect from the OpenAPI specification, with defaults such that typing out endpoints is as frictionless as possible.
+
+```glue
+endpoint "<http_method> <path>" <optional_name> {
+  // Optional body (e.g., for POST/PUT/PATCH requests)
+  // Flavor A - single type (implicitly for "application/json")
+  body: <type>
+  // Flavor B - multiple types with explicit MIME types
+  body: {
+    "application/json": <json_type>
+    "application/xml": <xml_type>
+    ...
+  }
+
+  // Optional schema for respones
+  responses: {
+    <status_code or 1XX/2XX/3XX/4XX/5XX>: <response_type>
+  }
+
+  // Optional schema for headers
+  headers: {
+    /// An optional unique request identifier for tracing.
+    "X-Request-ID"?: string
+  }
+}
+```
+
+For example:
+
+```glue
+/// List posts for a user
+endpoint "GET /users/{user_id}/posts" ListUserPosts {
+    responses: {
+        200: PostListResponse
+        4XX: ApiError
+        5XX: ApiError
+    }
+}
+```
+
+# Current limitations
+
+Below is a non-exhaustive list of features that are commonly requested or expected in an IDL like Glue, but are not currently supported.
+If Glue gains some traction, these will be managed as issues and prioritized accordingly, however for now this acts as a reference for common features you may expect to see in Glue but are not yet implemented:
+* Endpoints - proper typing of query/path parameters, authentication/authorization schemes, and some other common API features are not yet supported
+* Type aliasing (e.g., `type UserID = string`)
+* Intersections of types (e.g., `type A = B & C`)
+* Generics (e.g., `model Response<T> { data: T }`)
+
+
+If you would like to see any of these supported in Glue, please open (or upvote) a feature request in the [Glue GitHub repo](https://github.com/guywaldman/glue).
+

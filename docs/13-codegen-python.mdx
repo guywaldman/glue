@@ -1,0 +1,77 @@
+---
+title: Python
+---
+
+Glue supports `python` as a code generation target, allowing you to generate Python models and enums from Glue files.
+
+Simply run:
+
+```shell
+glue gen python -i models.glue -o ./models.py
+```
+
+## Supported model libraries
+
+Glue can generate Python models using:
+
+- `pydantic` (default)
+- `dataclasses`
+- `attrs`
+- `msgspec`
+
+Configure this in `.gluerc`:
+
+```yaml
+global:
+	config:
+		python:
+			data_model_library: pydantic
+			base_model: pydantic.BaseModel
+```
+
+`base_model` is used only for `pydantic`.
+
+## Example
+
+For this Glue spec:
+
+```glue
+model User {
+	id: int
+	@field(alias="firstName")
+	first_name: string
+	email?: string
+}
+
+enum UserRole: "admin" | "user"
+```
+
+...generating Python...
+
+```shell
+glue gen python -i models.glue -o ./models.py
+```
+
+...will produce code similar to:
+
+```python
+from pydantic import BaseModel
+from pydantic import Field
+from enum import StrEnum
+from typing import Any, Annotated, Optional, Union
+
+class User(BaseModel):
+		id: Annotated[int, Field()]
+		first_name: Annotated[str, Field(alias="firstName")]
+		email: Annotated[Optional[str], Field(default=None)]
+
+class UserRole(StrEnum):
+		ADMIN = "admin"
+		USER = "user"
+```
+
+## Notes
+
+- Nested Glue models are emitted as flattened class names (e.g. `Parent_Child`).
+- `@field(alias="...")` is applied in all supported Python model libraries.
+- Anonymous model type atoms are currently not supported in Python code generation.
