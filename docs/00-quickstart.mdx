@@ -27,33 +27,33 @@ Example:
 
 /// Use triple slash for comments that should be included in generated code as docstrings
 model Apartment {
-		/// The apartment number, e.g. "1A"
-		number: int
-		// Use double slash for internal comments and not included in generated code
-		residents: Person[]
+  /// The apartment number, e.g. "1A"
+  number: int
+  // Use double slash for internal comments and not included in generated code
+  residents: Person[]
 }
 
 model Person {
-	name: string
-	age: int
-	residence_end_date?: string // Optional fields are denoted with a `?`
+  name: string
+  age: int
+  residence_end_date?: string // Optional fields are denoted with a `?`
 
-	is_employed: bool = false // Default values are supported
+  is_employed: bool = false // Default values are supported
 }
 
 model Building {
-	name: string
-	apartments: Record<int, Apartment> // Complex types like maps, lists, etc. are supported
+  name: string
+  apartments: Record<int, Apartment> // Complex types like maps, lists, etc. are supported
 
-	address: Address
+  address: Address
 
-	// Nested models are supported
-	model Address {
-		street: string
-		city: string
-		country_code: string
-		zipcode: string
-	}
+  // Nested models are supported
+  model Address {
+    street: string
+    city: string
+    country_code: string
+    zipcode: string
+  }
 }
 
 // Glue supports endpoints (like OpenAPI), which you can optionally define with sane defaults.
@@ -67,8 +67,10 @@ endpoint "GET /building/{building_id}" GetBuilding {
 }
 
 model ApiError {
-		code: int
-		message: string
+    code: Code
+    message: string
+
+    enum Code: "INVALID_REQUEST" | "NOT_FOUND" | "INTERNAL_ERROR"
 }
 ```
 
