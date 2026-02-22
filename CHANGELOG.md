@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/guywaldman/glue/compare/v0.4.0...v0.5.0) (2026-02-22)
+
+
+### Features
+
+* **cli:** support inline CLI config overrides ([#18](https://github.com/guywaldman/glue/issues/18)) ([f18b285](https://github.com/guywaldman/glue/commit/f18b28552916016d73f551dc7159fce92f7d2f54))
+
 ## [0.4.0](https://github.com/guywaldman/glue/compare/v0.3.1...v0.4.0) (2026-02-21)
 
 
