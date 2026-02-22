@@ -283,6 +283,15 @@ impl Endpoint {
         })
     }
 
+    pub fn body_field_node(&self) -> Option<LNode> {
+        self.model_body().and_then(|model_body| {
+            model_body
+                .children()
+                .filter(|n| n.kind() == LSyntaxKind::FIELD)
+                .find(|field| Field::cast(field.clone()).map(|f| f.ident().as_deref() == Some("body")).unwrap_or(false))
+        })
+    }
+
     // We reuse the model body production for endpoints - thus it makes sense to have such a convenience method
     fn model_body(&self) -> Option<LNode> {
         self.0.children().find(|n| n.kind() == LSyntaxKind::MODEL_BODY)

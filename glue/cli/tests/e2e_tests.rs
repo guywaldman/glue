@@ -349,6 +349,75 @@ fn e2e_openapi_todos_has_required_fields() -> Result<()> {
 }
 
 #[test]
+fn e2e_openapi_request_body_implicit_json() -> Result<()> {
+    let fixture = GlueTestFixture::from_source(
+        "openapi_request_body_implicit",
+        "request_body_implicit.glue",
+        r#"
+endpoint "POST /foo" CreateFoo {
+    body: MyModel
+    responses: {
+        200: MyModel
+    }
+}
+
+model MyModel {
+    id: string
+}
+"#,
+    )?;
+    let output_path = fixture.generate_openapi()?;
+
+    let content = std::fs::read_to_string(&output_path)?;
+    let spec: serde_json::Value = serde_json::from_str(&content)?;
+
+    let schema = &spec["paths"]["/foo"]["post"]["requestBody"]["content"]["application/json"]["schema"];
+    assert_eq!(schema["$ref"], "#/components/schemas/MyModel");
+
+    cleanup(&output_path);
+    Ok(())
+}
+
+#[test]
+fn e2e_openapi_request_body_explicit_media_types() -> Result<()> {
+    let fixture = GlueTestFixture::from_source(
+        "openapi_request_body_media",
+        "request_body_media.glue",
+        r#"
+endpoint "POST /foo" CreateFoo {
+    body: {
+        "application/json": MyModel
+        "application/yaml": MyOtherModel
+    }
+    responses: {
+        200: MyModel
+    }
+}
+
+model MyModel {
+    id: string
+}
+
+model MyOtherModel {
+    name: string
+}
+"#,
+    )?;
+    let output_path = fixture.generate_openapi()?;
+
+    let content = std::fs::read_to_string(&output_path)?;
+    let spec: serde_json::Value = serde_json::from_str(&content)?;
+
+    let json_schema = &spec["paths"]["/foo"]["post"]["requestBody"]["content"]["application/json"]["schema"];
+    let yaml_schema = &spec["paths"]["/foo"]["post"]["requestBody"]["content"]["application/yaml"]["schema"];
+    assert_eq!(json_schema["$ref"], "#/components/schemas/MyModel");
+    assert_eq!(yaml_schema["$ref"], "#/components/schemas/MyOtherModel");
+
+    cleanup(&output_path);
+    Ok(())
+}
+
+#[test]
 fn e2e_openapi_validate_with_spectral() -> Result<()> {
     let fixture = GlueTestFixture::new("openapi_spectral", "todos.glue")?;
     let output_path = fixture.generate_openapi()?;

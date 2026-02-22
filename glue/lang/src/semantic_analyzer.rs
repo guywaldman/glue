@@ -288,6 +288,18 @@ impl SemanticAnalyzer {
                 }
             }
 
+            if let Some(anon_model_node) = type_atom.as_anon_model()
+                && let Some(anon_model) = AnonModel::cast(anon_model_node)
+            {
+                for field_node in anon_model.field_nodes() {
+                    if let Some(field) = Field::cast(field_node)
+                        && let Some(field_type_node) = field.type_node()
+                    {
+                        Self::check_type(field_type_node, symbols, scope, errors, diag.clone());
+                    }
+                }
+            }
+
             if let Some(record) = type_atom.as_record_type() {
                 if let Some(src) = record.src_type_node() {
                     Self::check_type(src, symbols, scope, errors, diag.clone());
