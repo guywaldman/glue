@@ -2,6 +2,7 @@ use anyhow::Result;
 use codegen::{CodeGen, CodeGenError, CodeGenMode};
 use config::{GlueConfig, GlueConfigSchemaGenConfig, GlueConfigSchemaGeneration, GlueConfigSchemaGenerationWatermark};
 use globset::{Glob, GlobSetBuilder};
+use serde_json::{Map, Number, Value};
 use std::{
     collections::HashSet,
     io::Read,
@@ -56,6 +57,8 @@ impl GlueCli {
                         input_positional,
                         output,
                         config: config_path,
+                        set,
+                        set_string,
                         mode,
                     },
             } => {
@@ -79,6 +82,9 @@ impl GlueCli {
                     (Some(config), Some(config_path)) => Self::resolve_generation_config(config, config_path, input.as_ref())?,
                     _ => (None, None),
                 };
+
+                let cli_overrides = Self::parse_cli_generation_overrides(set, set_string)?;
+                let resolved_config = Self::merge_generation_config(resolved_config, cli_overrides);
 
                 if output.is_none() {
                     output = resolved_output;
@@ -589,5 +595,136 @@ impl GlueCli {
         })
     }
 
+    fn parse_cli_generation_overrides(set_overrides: &[String], set_string_overrides: &[String]) -> Result<Option<GlueConfigSchemaGeneration>, CliError> {
+        if set_overrides.is_empty() && set_string_overrides.is_empty() {
+            return Ok(None);
+        }
+
+        let mut root = Map::new();
+
+        for override_arg in set_overrides {
+            Self::apply_override_arg(&mut root, override_arg, false)?;
+        }
+
+        for override_arg in set_string_overrides {
+            Self::apply_override_arg(&mut root, override_arg, true)?;
+        }
+
+        serde_json::from_value::<GlueConfigSchemaGeneration>(Value::Object(root))
+            .map(Some)
+            .map_err(|e| CliError::BadInput(format!("Invalid --set/--set-string overrides for generation config: {}", e)))
+    }
+
+    fn apply_override_arg(root: &mut Map<String, Value>, override_arg: &str, force_string: bool) -> Result<(), CliError> {
+        let (path, value_str) = override_arg
+            .split_once('=')
+            .ok_or_else(|| CliError::BadInput(format!("Override '{}' must be in the form <path>=<value>", override_arg)))?;
+
+        if path.trim().is_empty() {
+            return Err(CliError::BadInput(format!("Override '{}' has an empty path", override_arg)));
+        }
+
+        let path_segments: Vec<&str> = path.split('.').collect();
+        if path_segments.iter().any(|segment| segment.trim().is_empty()) {
+            return Err(CliError::BadInput(format!("Override '{}' has an invalid path; empty path segments are not allowed", override_arg)));
+        }
+
+        let value = Self::parse_override_value(value_str, force_string);
+        Self::set_nested_value(root, &path_segments, value)
+    }
+
+    fn parse_override_value(value: &str, force_string: bool) -> Value {
+        if force_string {
+            return Value::String(value.to_string());
+        }
+
+        match value {
+            "true" => Value::Bool(true),
+            "false" => Value::Bool(false),
+            "null" => Value::Null,
+            _ => {
+                if let Ok(i) = value.parse::<i64>() {
+                    return Value::Number(Number::from(i));
+                }
+                if let Some(num) = value.parse::<f64>().ok().and_then(Number::from_f64) {
+                    return Value::Number(num);
+                }
+                Value::String(value.to_string())
+            }
+        }
+    }
+
+    fn set_nested_value(root: &mut Map<String, Value>, path_segments: &[&str], value: Value) -> Result<(), CliError> {
+        let mut current = root;
+
+        for segment in &path_segments[..path_segments.len() - 1] {
+            let entry = current.entry((*segment).to_string()).or_insert_with(|| Value::Object(Map::new()));
+            let obj = entry
+                .as_object_mut()
+                .ok_or_else(|| CliError::BadInput(format!("Invalid override path '{}': '{}' is not an object", path_segments.join("."), segment)))?;
+            current = obj;
+        }
+
+        let last = path_segments[path_segments.len() - 1].to_string();
+        current.insert(last, value);
+        Ok(())
+    }
+
     const WATERMARK_SEPERATOR: &'static str = "------------------------------------";
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GlueCli;
+    use config::{GlueConfigSchemaGeneration, GlueConfigSchemaGenerationPythonDataModelLibrary, GlueConfigSchemaGenerationWatermark};
+
+    #[test]
+    fn parse_cli_generation_overrides_parses_nested_values() {
+        let overrides = vec![
+            "lint_suppressions=false".to_string(),
+            "typescript.zod=true".to_string(),
+            "python.data_model_library=dataclasses".to_string(),
+            "watermark=none".to_string(),
+            "go.package_name=myapi".to_string(),
+        ];
+        let result = GlueCli::parse_cli_generation_overrides(&overrides, &[])
+            .expect("overrides should parse")
+            .expect("config should be present");
+
+        assert_eq!(result.lint_suppressions, Some(false));
+        assert_eq!(result.typescript.and_then(|ts| ts.zod), Some(true));
+        assert_eq!(result.watermark, Some(GlueConfigSchemaGenerationWatermark::None));
+        assert_eq!(result.python.and_then(|py| py.data_model_library), Some(GlueConfigSchemaGenerationPythonDataModelLibrary::Dataclasses));
+        assert_eq!(result.go.and_then(|go| go.package_name), Some("myapi".to_string()));
+    }
+
+    #[test]
+    fn parse_cli_generation_overrides_set_string_forces_string_values() {
+        let set_string = vec!["python.base_model=true".to_string()];
+        let result = GlueCli::parse_cli_generation_overrides(&[], &set_string)
+            .expect("overrides should parse")
+            .expect("config should be present");
+
+        assert_eq!(result.python.and_then(|py| py.base_model), Some("true".to_string()));
+    }
+
+    #[test]
+    fn parse_cli_generation_overrides_rejects_invalid_assignment() {
+        let overrides = vec!["watermark".to_string()];
+        let err = GlueCli::parse_cli_generation_overrides(&overrides, &[]).expect_err("missing '=' should fail");
+        assert!(err.to_string().contains("must be in the form <path>=<value>"));
+    }
+
+    #[test]
+    fn cli_overrides_take_precedence_over_base_config() {
+        let base = GlueConfigSchemaGeneration {
+            watermark: Some(GlueConfigSchemaGenerationWatermark::Short),
+            ..Default::default()
+        };
+        let set = vec!["watermark=none".to_string()];
+        let cli_overrides = GlueCli::parse_cli_generation_overrides(&set, &[]).expect("overrides should parse");
+        let merged = GlueCli::merge_generation_config(Some(base), cli_overrides).expect("merged config should exist");
+
+        assert_eq!(merged.watermark, Some(GlueConfigSchemaGenerationWatermark::None));
+    }
 }
