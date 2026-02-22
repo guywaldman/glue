@@ -31,6 +31,14 @@ pub struct CliGenArgs {
     /// Path to a custom config file. If not specified, the generator will automatically use `.gluerc`, `.gluerc.json`, or `.gluerc.yaml` from the input file's directory when available.
     #[arg(short = 'c', long)]
     pub config: Option<PathBuf>,
+
+    /// Inline config override in the format `<path>=<value>` (repeatable)
+    #[arg(long = "set", value_name = "PATH=VALUE")]
+    pub set: Vec<String>,
+
+    /// Inline config override in the format `<path>=<value>` where value is always treated as a string (repeatable)
+    #[arg(long = "set-string", value_name = "PATH=VALUE")]
+    pub set_string: Vec<String>,
 }
 
 #[derive(Subcommand)]
