@@ -90,6 +90,26 @@ model Product {
 }
 ```
 
+# Imports
+
+Glue supports explicit imports, which must appear at the top of the file (before any `model`, `endpoint`, or `enum` declarations).
+
+```glue
+// Import all exported symbols
+import * from "models/common.glue"
+
+// Import all symbols under a namespace alias
+import * as common from "models/common.glue"
+
+// Import selected symbols (with optional aliasing)
+import { User, Address as PostalAddress } from "models/domain.glue"
+```
+
+Notes:
+
+- Import sources are string literals.
+- Imports are supported for both local files and HTTP(S) URLs (for URL-based inputs).
+
 # Endpoints
 
 **Endpoints** are defined using the `endpoint` keyword, followed by the HTTP method and path, endpoint name, and a block of parameters and responses.

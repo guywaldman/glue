@@ -76,6 +76,15 @@ Glue files can be statically validated with the `check` command:
 glue check api.glue
 ```
 
+## Imports
+
+Glue resolves imports recursively for both `check` and `gen`.
+
+- Local file inputs resolve imports relative to the importing file.
+- URL inputs resolve imports relative to the base URL.
+- Import cycles are handled safely (already-visited sources are skipped).
+- Imports must be declared at the top of the file.
+
 # Advanced usage
 
 ## Inspect Glue IR
