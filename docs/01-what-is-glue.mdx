@@ -1,0 +1,55 @@
+---
+title: What is Glue?
+---
+
+# Overview
+
+Glue is a language for modeling data structure and interfaces, with an ecosystem of tooling for code generation, IDE support, and more.  
+It is designed from the ground up to be simple, human-friendly, AI-friendly, and language-agnostic.  
+
+For the motivation behind Glue and the challenges it aims to solve, see [this blog post](https://guywaldman.com/posts/introducing-glue) by its creator.  
+
+If you're familiar with OpenAPI, Protobuf, Smithy or even Avro IDL, you can think of Glue as a batteries-included and minimalistic alternative to those, with a focus on ease of use and flexibility.  
+
+# Glue CLI
+
+## Installation
+
+Glue supports multiple platforms (Linux, macOS, Windows) and multiple architectures (x86, ARM).  
+
+To install:
+
+```shell
+# Homebrew
+brew install guywaldman/tap/glue
+
+# Linux/macOS
+curl -fsSL https://github.com/guywaldman/glue/releases/latest/download/install.sh | bash
+
+# Windows (PowerShell)
+iwr -useb https://github.com/guywaldman/glue/releases/latest/download/install.ps1 | iex
+```
+
+## Usage
+
+Glue has a command-line interface (CLI) tool that you can install and use to work with Glue files, generate code, and more.  
+
+Below is a simple Glue model definition for a `User` type, with some fields.
+
+```glue
+model User {
+    name: string
+    age: int
+    email?: string
+    active: bool = true
+}
+```
+
+Then use the CLI to validate and generate code:
+
+```shell
+glue check user.glue
+glue gen typescript -i user.glue -o ./generated
+```
+
+Glue currently supports generation for `typescript`, `python`, `rust`, `go`, `protobuf`, `openapi`, and `jsonschema`.
