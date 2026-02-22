@@ -8,7 +8,7 @@ package glue
 type Status string
 
 const (
-	StatusActive Status = "active"
-	StatusInactive = "inactive"
-	StatusPending = "pending"
+	StatusActive   Status = "active"
+	StatusInactive Status = "inactive"
+	StatusPending  Status = "pending"
 )

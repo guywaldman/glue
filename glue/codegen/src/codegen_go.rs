@@ -73,9 +73,68 @@ impl<'a> GoGenerator<'a> {
 
         output.push_str(&format!("type {} struct {{\n", qualified_name));
 
-        for field in model.fields() {
-            let field_code = self.emit_field(&field, Some(scope_id))?;
-            output.push_str(&field_code);
+        let fields = model.fields();
+        let mut emitted_fields = Vec::with_capacity(fields.len());
+        let mut max_field_name_len = 0usize;
+        let mut max_type_len = 0usize;
+        let mut max_tag_len = 0usize;
+
+        for field in fields {
+            let field_name = field.name()?;
+            let field_type = field.field_type()?;
+            let go_field_name = field_name.to_case(Case::Pascal);
+
+            let type_atoms = field_type.type_atoms();
+            let type_strs: Vec<String> = type_atoms.iter().map(|atom| self.emit_type_atom(atom, Some(scope_id))).collect::<Result<Vec<_>, _>>()?;
+
+            let mut type_code = if type_strs.len() > 1 {
+                "interface{}".to_string()
+            } else {
+                type_strs.first().cloned().unwrap_or_else(|| "interface{}".to_string())
+            };
+
+            if field.is_optional() {
+                type_code = format!("*{}", type_code);
+            }
+
+            let alias = field.alias()?;
+            let json_name = alias.unwrap_or_else(|| field_name.clone());
+            let mut json_tag = json_name.clone();
+            if field.is_optional() {
+                json_tag.push_str(",omitempty");
+            }
+            let tag = format!("`json:\"{}\"`", json_tag);
+            let docs = field.docs().map(|d| d.join(" ").trim().to_string());
+
+            max_field_name_len = max_field_name_len.max(go_field_name.len());
+            max_type_len = max_type_len.max(type_code.len());
+            max_tag_len = max_tag_len.max(tag.len());
+
+            emitted_fields.push((go_field_name, type_code, tag, docs));
+        }
+
+        for (go_field_name, type_code, tag, docs) in emitted_fields {
+            if let Some(doc_text) = docs {
+                output.push_str(&format!(
+                    "\t{:<name_width$} {:<type_width$} {:<tag_width$} // {}\n",
+                    go_field_name,
+                    type_code,
+                    tag,
+                    doc_text,
+                    name_width = max_field_name_len,
+                    type_width = max_type_len,
+                    tag_width = max_tag_len
+                ));
+            } else {
+                output.push_str(&format!(
+                    "\t{:<name_width$} {:<type_width$} {}\n",
+                    go_field_name,
+                    type_code,
+                    tag,
+                    name_width = max_field_name_len,
+                    type_width = max_type_len
+                ));
+            }
         }
 
         output.push_str("}\n\n");
@@ -106,63 +165,34 @@ impl<'a> GoGenerator<'a> {
 
         output.push_str("const (\n");
 
-        for (i, variant) in enum_.variants().iter().enumerate() {
+        let variants = enum_.variants();
+        let mut variant_rows = Vec::with_capacity(variants.len());
+        let mut max_variant_name_len = 0usize;
+
+        for variant in variants {
             let variant_value = variant.value().ok_or_else(|| CodeGenContext::internal_error("Enum variant missing value"))?;
             let variant_name = format!("{}{}", qualified_name, variant_value.to_case(Case::Pascal));
+            max_variant_name_len = max_variant_name_len.max(variant_name.len());
+            variant_rows.push((variant, variant_name, variant_value));
+        }
 
+        for (variant, variant_name, variant_value) in variant_rows {
             if let Some(docs) = variant.docs() {
                 for line in docs {
                     output.push_str(&format!("\t// {}\n", line.trim()));
                 }
             }
 
-            if i == 0 {
-                output.push_str(&format!("\t{} {} = \"{}\"\n", variant_name, qualified_name, variant_value));
-            } else {
-                output.push_str(&format!("\t{} = \"{}\"\n", variant_name, variant_value));
-            }
+            output.push_str(&format!(
+                "\t{:<name_width$} {} = \"{}\"\n",
+                variant_name,
+                qualified_name,
+                variant_value,
+                name_width = max_variant_name_len
+            ));
         }
 
         output.push_str(")\n\n");
-
-        Ok(output)
-    }
-
-    fn emit_field(&mut self, field: &Field, parent_scope: Option<SymId>) -> CodeGenResult<String> {
-        let mut output = String::new();
-
-        let field_name = field.name()?;
-        let field_type = field.field_type()?;
-
-        let go_field_name = field_name.to_case(Case::Pascal);
-
-        let type_atoms = field_type.type_atoms();
-        let type_strs: Vec<String> = type_atoms.iter().map(|atom| self.emit_type_atom(atom, parent_scope)).collect::<Result<Vec<_>, _>>()?;
-
-        let mut type_code = if type_strs.len() > 1 {
-            // Union types become interface{} in Go
-            "interface{}".to_string()
-        } else {
-            type_strs.first().cloned().unwrap_or_else(|| "interface{}".to_string())
-        };
-
-        if field.is_optional() {
-            type_code = format!("*{}", type_code);
-        }
-
-        let alias = field.alias()?;
-        let json_name = alias.unwrap_or_else(|| field_name.clone());
-        let mut json_tag = json_name.clone();
-        if field.is_optional() {
-            json_tag.push_str(",omitempty");
-        }
-
-        if let Some(docs) = field.docs() {
-            let doc_text = docs.join(" ").trim().to_string();
-            output.push_str(&format!("\t{} {} `json:\"{}\"` // {}\n", go_field_name, type_code, json_tag, doc_text));
-        } else {
-            output.push_str(&format!("\t{} {} `json:\"{}\"`\n", go_field_name, type_code, json_tag));
-        }
 
         Ok(output)
     }

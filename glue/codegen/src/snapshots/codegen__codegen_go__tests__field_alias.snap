@@ -5,6 +5,6 @@ expression: gen_go(src)
 package glue
 
 type Item struct {
-	Id string `json:"item_id"`
+	Id   string `json:"item_id"`
 	Name string `json:"display_name"`
 }

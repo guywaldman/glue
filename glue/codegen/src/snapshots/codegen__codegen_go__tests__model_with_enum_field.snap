@@ -5,13 +5,13 @@ expression: gen_go(src)
 package glue
 
 type User struct {
-	Name string `json:"name"`
+	Name   string `json:"name"`
 	Status Status `json:"status"`
 }
 
 type Status string
 
 const (
-	StatusActive Status = "active"
-	StatusInactive = "inactive"
+	StatusActive   Status = "active"
+	StatusInactive Status = "inactive"
 )

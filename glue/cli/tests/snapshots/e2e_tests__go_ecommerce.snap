@@ -1,0 +1,129 @@
+---
+source: cli/tests/e2e_tests.rs
+expression: generated
+---
+package glue
+
+// Product Product entity used in catalog and order line items.
+type Product struct {
+	ProductSku     string            `json:"sku"`                   // Stock keeping unit, globally unique within the catalog.
+	Name           string            `json:"name"`                  // Human-readable product name.
+	Description    *string           `json:"description,omitempty"` // Optional detailed description displayed on PDP pages.
+	Category       Category          `json:"category"`              // Product category metadata.
+	Price          Money             `json:"price"`                 // Unit price in the store default currency.
+	AvailableUnits int64             `json:"available_units"`       // Number of units currently available for purchase.
+	Status         ProductStatus     `json:"status"`                // Product lifecycle state.
+	Tags           []string          `json:"tags"`                  // Search and merchandising tags.
+	Attributes     map[string]string `json:"attributes"`            // Flexible key/value attributes such as material or season.
+}
+
+// Category Category taxonomy used for navigation and filtering.
+type Category struct {
+	Id       string  `json:"id"`                  // Category identifier.
+	Name     string  `json:"name"`                // Display name of the category.
+	ParentId *string `json:"parent_id,omitempty"` // Optional parent category identifier.
+}
+
+// Money Monetary amount represented by currency code and minor units.
+type Money struct {
+	Currency    string `json:"currency"`     // ISO-4217 currency code.
+	AmountMinor int64  `json:"amount_minor"` // Amount in minor units (e.g. cents).
+}
+
+// Customer Customer profile used for checkout and order ownership.
+type Customer struct {
+	CustomerId      string  `json:"customerId"`       // Customer identifier.
+	Email           string  `json:"email"`            // Primary email used for notifications.
+	FullName        string  `json:"full_name"`        // Full display name.
+	Phone           *string `json:"phone,omitempty"`  // Optional phone number.
+	ShippingAddress Address `json:"shipping_address"` // Shipping address.
+}
+
+// Address Postal address used for shipping and billing.
+type Address struct {
+	Line1       string  `json:"line1"`
+	Line2       *string `json:"line2,omitempty"`
+	City        string  `json:"city"`
+	State       *string `json:"state,omitempty"`
+	PostalCode  string  `json:"postal_code"`
+	CountryCode string  `json:"country_code"`
+}
+
+// OrderItem A single purchased item in an order.
+type OrderItem struct {
+	Product   Product `json:"product"`    // Purchased product snapshot.
+	Quantity  int64   `json:"quantity"`   // Ordered quantity.
+	LineTotal Money   `json:"line_total"` // Total line amount for quantity and applied discounts.
+}
+
+// Order Customer order aggregate.
+type Order struct {
+	OrderId    string      `json:"orderId"`     // Order identifier.
+	Customer   Customer    `json:"customer"`    // Customer that owns the order.
+	Items      []OrderItem `json:"items"`       // Purchased line items.
+	Subtotal   Money       `json:"subtotal"`    // Order subtotal before tax and shipping.
+	Tax        Money       `json:"tax"`         // Collected tax amount.
+	Shipping   Money       `json:"shipping"`    // Shipping amount charged to the customer.
+	GrandTotal Money       `json:"grand_total"` // Final charged total.
+	Status     OrderStatus `json:"status"`      // Machine-readable order status.
+	CreatedAt  string      `json:"createdAt"`   // When the order was created (ISO-8601 string).
+}
+
+// ProductResponse Envelope for a single product response.
+type ProductResponse struct {
+	Product   Product `json:"product"`
+	RequestId string  `json:"requestId"`
+}
+
+// ProductListResponse Envelope for a product list response.
+type ProductListResponse struct {
+	Products []Product `json:"products"`
+	Total    int64     `json:"total"`
+}
+
+// OrderResponse Envelope for a single order response.
+type OrderResponse struct {
+	Order     Order  `json:"order"`
+	RequestId string `json:"requestId"`
+}
+
+// OrderListResponse Envelope for an order list response.
+type OrderListResponse struct {
+	Orders []Order `json:"orders"`
+	Total  int64   `json:"total"`
+}
+
+// ApiError Standard API error payload.
+type ApiError struct {
+	Code    ApiErrorCode       `json:"code"`              // Stable machine-readable error code.
+	Message string             `json:"message"`           // Human-readable error message.
+	Details *map[string]string `json:"details,omitempty"` // Optional additional details.
+}
+
+// ProductStatus Product lifecycle states used across catalog and fulfillment.
+type ProductStatus string
+
+const (
+	ProductStatusDraft        ProductStatus = "draft"
+	ProductStatusActive       ProductStatus = "active"
+	ProductStatusDiscontinued ProductStatus = "discontinued"
+)
+
+// OrderStatus Canonical order states for the order processing workflow.
+type OrderStatus string
+
+const (
+	OrderStatusPending   OrderStatus = "pending"
+	OrderStatusPaid      OrderStatus = "paid"
+	OrderStatusFulfilled OrderStatus = "fulfilled"
+	OrderStatusCancelled OrderStatus = "cancelled"
+)
+
+// ApiErrorCode Common error codes across the API.
+type ApiErrorCode string
+
+const (
+	ApiErrorCodeProductNotFound ApiErrorCode = "PRODUCT_NOT_FOUND"
+	ApiErrorCodeOrderNotFound   ApiErrorCode = "ORDER_NOT_FOUND"
+	ApiErrorCodeCustom          ApiErrorCode = "CUSTOM"
+)

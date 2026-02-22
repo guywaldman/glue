@@ -5,13 +5,13 @@ expression: gen_go(src)
 package glue
 
 type User struct {
-	Tags []string `json:"tags"` // List of tags
-	Scores []int64 `json:"scores"` // List of scores
-	Addresses []Address `json:"addresses"` // List of addresses
+	Tags      []string  `json:"tags"`                // List of tags
+	Scores    []int64   `json:"scores"`              // List of scores
+	Addresses []Address `json:"addresses"`           // List of addresses
 	Nicknames *[]string `json:"nicknames,omitempty"` // Optional list of nicknames
 }
 
 type Address struct {
 	Street string `json:"street"`
-	City string `json:"city"`
+	City   string `json:"city"`
 }

@@ -87,6 +87,10 @@ impl GlueTestFixture {
         self.run_codegen("rust", "rs")
     }
 
+    fn generate_go(&self) -> Result<PathBuf> {
+        self.run_codegen("go", "go")
+    }
+
     fn generate_glue_ir_json(&self) -> Result<serde_json::Value> {
         let output = Command::new("cargo")
             .args(["run", "--bin", "glue", "--", "ast", "-i", self.source_path.to_str().unwrap()])
@@ -211,6 +215,18 @@ fn e2e_codegen_with_imports() -> Result<()> {
     let generated = std::fs::read_to_string(&output_path)?;
 
     assert_snapshot!("imports", generated);
+
+    cleanup(&output_path);
+    Ok(())
+}
+
+#[test]
+fn e2e_go_ecommerce_snapshot() -> Result<()> {
+    let fixture = GlueTestFixture::new("go_ecommerce", "ecommerce.glue")?;
+    let output_path = fixture.generate_go()?;
+
+    let generated = std::fs::read_to_string(&output_path)?;
+    assert_snapshot!("go_ecommerce", generated);
 
     cleanup(&output_path);
     Ok(())

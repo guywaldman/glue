@@ -5,9 +5,9 @@ expression: gen_go(src)
 package glue
 
 type Order struct {
-	Id string `json:"id"`
-	User User `json:"user"`
-	Items Item `json:"items"`
+	Id    string `json:"id"`
+	User  User   `json:"user"`
+	Items Item   `json:"items"`
 }
 
 type User struct {
@@ -15,6 +15,6 @@ type User struct {
 }
 
 type Item struct {
-	Sku string `json:"sku"`
-	Quantity int64 `json:"quantity"`
+	Sku      string `json:"sku"`
+	Quantity int64  `json:"quantity"`
 }

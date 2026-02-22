@@ -6,7 +6,7 @@ package glue
 
 // User A simple user model
 type User struct {
-	Id string `json:"id"` // User's unique identifier
+	Id   string `json:"id"`   // User's unique identifier
 	Name string `json:"name"` // User's display name
-	Age int64 `json:"age"` // User's age
+	Age  int64  `json:"age"`  // User's age
 }

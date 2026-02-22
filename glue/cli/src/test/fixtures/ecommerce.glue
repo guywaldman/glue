@@ -1,0 +1,222 @@
+/// List products with category and stock metadata.
+endpoint "GET /products" {
+	responses: {
+		2XX: ProductListResponse
+		4XX: ApiError
+		5XX: ApiError
+	}
+}
+
+/// Fetch a product by SKU.
+endpoint "GET /products/{sku}" {
+	responses: {
+		2XX: ProductResponse
+		4XX: ApiError
+		5XX: ApiError
+	}
+}
+
+/// List orders for a specific customer.
+endpoint "GET /customers/{customer_id}/orders" {
+	responses: {
+		2XX: OrderListResponse
+		4XX: ApiError
+		5XX: ApiError
+	}
+}
+
+/// Fetch an order by id.
+endpoint "GET /orders/{order_id}" {
+	responses: {
+		2XX: OrderResponse
+		4XX: ApiError
+		5XX: ApiError
+	}
+}
+
+/// Product entity used in catalog and order line items.
+model Product {
+	/// Stock keeping unit, globally unique within the catalog.
+	@field(alias="sku", example="TSHIRT-001-BLK-M")
+	product_sku: string
+
+	/// Human-readable product name.
+	@field(example="Classic Tee")
+	name: string
+
+	/// Optional detailed description displayed on PDP pages.
+	description?: string
+
+	/// Product category metadata.
+	category: Category
+
+	/// Unit price in the store default currency.
+	price: Money
+
+	/// Number of units currently available for purchase.
+	@field(example=87)
+	available_units: int
+
+	/// Product lifecycle state.
+	@field(example="active")
+	status: ProductStatus
+
+	/// Search and merchandising tags.
+	tags: string[]
+
+	/// Flexible key/value attributes such as material or season.
+	attributes: Record<string, string>
+}
+
+/// Category taxonomy used for navigation and filtering.
+model Category {
+	/// Category identifier.
+	@field(example="apparel.tops")
+	id: string
+
+	/// Display name of the category.
+	@field(example="Tops")
+	name: string
+
+	/// Optional parent category identifier.
+	parent_id?: string
+}
+
+/// Monetary amount represented by currency code and minor units.
+model Money {
+	/// ISO-4217 currency code.
+	@field(example="USD")
+	currency: string
+
+	/// Amount in minor units (e.g. cents).
+	@field(example=2499)
+	amount_minor: int
+}
+
+/// Customer profile used for checkout and order ownership.
+model Customer {
+	/// Customer identifier.
+	@field(alias="customerId", example="cus_1001")
+	customer_id: string
+
+	/// Primary email used for notifications.
+	@field(example="shopper@example.com")
+	email: string
+
+	/// Full display name.
+	@field(example="Alex Johnson")
+	full_name: string
+
+	/// Optional phone number.
+	phone?: string
+
+	/// Shipping address.
+	shipping_address: Address
+}
+
+/// Postal address used for shipping and billing.
+model Address {
+	line1: string
+	line2?: string
+	city: string
+	state?: string
+	postal_code: string
+	country_code: string
+}
+
+/// A single purchased item in an order.
+model OrderItem {
+	/// Purchased product snapshot.
+	product: Product
+
+	/// Ordered quantity.
+	@field(example=2)
+	quantity: int
+
+	/// Total line amount for quantity and applied discounts.
+	line_total: Money
+}
+
+/// Customer order aggregate.
+model Order {
+	/// Order identifier.
+	@field(alias="orderId", example="ord_2025_000045")
+	order_id: string
+
+	/// Customer that owns the order.
+	customer: Customer
+
+	/// Purchased line items.
+	items: OrderItem[]
+
+	/// Order subtotal before tax and shipping.
+	subtotal: Money
+
+	/// Collected tax amount.
+	tax: Money
+
+	/// Shipping amount charged to the customer.
+	shipping: Money
+
+	/// Final charged total.
+	grand_total: Money
+
+	/// Machine-readable order status.
+	@field(example="paid")
+	status: OrderStatus
+
+	/// When the order was created (ISO-8601 string).
+	@field(alias="createdAt", example="2025-11-04T14:22:31Z")
+	created_at: string
+}
+
+/// Envelope for a single product response.
+model ProductResponse {
+	product: Product
+	@field(alias="requestId", example="req_01JKJRWX2J5QX")
+	request_id: string
+}
+
+/// Envelope for a product list response.
+model ProductListResponse {
+	products: Product[]
+	@field(example=120)
+	total: int
+}
+
+/// Envelope for a single order response.
+model OrderResponse {
+	order: Order
+	@field(alias="requestId", example="req_01JKJRYSM3N17")
+	request_id: string
+}
+
+/// Envelope for an order list response.
+model OrderListResponse {
+	orders: Order[]
+	@field(example=8)
+	total: int
+}
+
+/// Standard API error payload.
+model ApiError {
+	/// Stable machine-readable error code.
+	@field(example="ORDER_NOT_FOUND")
+	code: Code
+
+	/// Human-readable error message.
+	@field(example="The requested order does not exist")
+	message: string
+
+	/// Optional additional details.
+	details?: Record<string, string>
+
+	/// Common error codes across the API.
+	enum Code: "PRODUCT_NOT_FOUND" | "ORDER_NOT_FOUND" | "CUSTOM"
+}
+
+/// Product lifecycle states used across catalog and fulfillment.
+enum ProductStatus: "draft" | "active" | "discontinued"
+
+/// Canonical order states for the order processing workflow.
+enum OrderStatus: "pending" | "paid" | "fulfilled" | "cancelled"

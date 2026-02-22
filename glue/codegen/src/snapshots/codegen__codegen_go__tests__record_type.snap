@@ -6,5 +6,5 @@ package glue
 
 type Data struct {
 	Metadata map[string]interface{} `json:"metadata"` // A map of string to any
-	Counts map[string]int64 `json:"counts"` // A map of string to int
+	Counts   map[string]int64       `json:"counts"`   // A map of string to int
 }

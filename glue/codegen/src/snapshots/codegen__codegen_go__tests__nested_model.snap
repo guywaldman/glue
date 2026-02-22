@@ -5,7 +5,7 @@ expression: gen_go(src)
 package glue
 
 type Parent struct {
-	Name string `json:"name"`
+	Name  string      `json:"name"`
 	Child ParentChild `json:"child"`
 }
 
