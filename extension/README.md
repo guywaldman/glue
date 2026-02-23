@@ -1,5 +1,10 @@
 # Glue
 
+[https://github.com/guywaldman/glue](https://github.com/guywaldman/glue)
+
+---
+
 Glue is a Visual Studio Code extension for the Glue domain-specific language.
 
-> NOTE: This is a very early stage of the extension, it is not meant for consumption yet and stability is not guaranteed.
+
+For more information, see the [Glue website](https://gluelang.dev).
