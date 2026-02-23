@@ -1,6 +1,6 @@
 # Glue
 
-<img src="https://raw.githubusercontent.com/guywaldman/glue/refs/heads/main/extension/images/glue-file-icon-dark.svg" width="32px" height="32px">
+<img src="https://raw.githubusercontent.com/guywaldman/glue/refs/heads/main/extension/images/logo.png" width="32px" height="32px">
 
 ---
 
