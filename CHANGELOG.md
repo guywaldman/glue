@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/guywaldman/glue/compare/v0.6.0...v0.7.0) (2026-02-23)
+
+
+### Features
+
+* add screenshot to extension README ([2693c47](https://github.com/guywaldman/glue/commit/2693c47001a03d964846f2a4485d1e649adbb1a9))
+
 ## [0.6.0](https://github.com/guywaldman/glue/compare/v0.5.0...v0.6.0) (2026-02-22)
 
 
