@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/guywaldman/glue/compare/v0.7.0...v0.7.1) (2026-02-23)
+
+
+### Bug Fixes
+
+* change logo to PNG in extension README ([ff6c503](https://github.com/guywaldman/glue/commit/ff6c5032b23909a43a1df739e851805475155bdb))
+
 ## [0.7.0](https://github.com/guywaldman/glue/compare/v0.6.0...v0.7.0) (2026-02-23)
 
 
