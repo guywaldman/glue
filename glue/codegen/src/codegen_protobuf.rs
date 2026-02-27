@@ -57,7 +57,12 @@ fn emit_type(ctx: &CodeGenContext, ty: &Type) -> CodeGenResult<String> {
     let base = if let Some(primitive) = atom.as_primitive_type() {
         TypeMapper::to_protobuf(primitive).to_string()
     } else if let Some(ref_token) = atom.as_ref_token() {
-        ref_token.to_string()
+        let ref_name = ref_token.text().to_string();
+        if let Some(alias_type) = ctx.resolve_type_alias(None, &ref_name)? {
+            emit_type(ctx, &alias_type)?
+        } else {
+            ref_token.to_string()
+        }
     } else {
         return Err(ctx.error(atom.syntax(), "Unsupported type atom for protobuf"));
     };

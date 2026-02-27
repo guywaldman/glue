@@ -1,5 +1,6 @@
 use std::{
     any::Any,
+    collections::HashMap,
     sync::{Arc, Mutex},
 };
 
@@ -11,7 +12,7 @@ use crate::{
     builtin_decorators::{BUILTIN_DECORATORS, DecoratorDef},
     diagnostics::DiagnosticContext,
     symbols::{SymId, SymTable},
-    syntax::{AnonModel, AstNode, Enum, Field, LNode, LNodeOrToken, LSyntaxKind, Model, ParsedProgram, Type, TypeAtom},
+    syntax::{AnonModel, AstNode, Enum, Field, LNode, LNodeOrToken, LSyntaxKind, Model, ParsedProgram, Type, TypeAlias, TypeAtom},
     utils::fuzzy_match,
 };
 
@@ -20,12 +21,16 @@ pub enum SemanticAnalyzerError {
     DuplicateField(Report),
     UndefinedTypeReference(Report),
     ImportNotAtTop(Report),
+    CircularTypeAlias(Report),
 }
 
 impl SemanticAnalyzerError {
     pub fn report(&self) -> &miette::Report {
         match self {
-            SemanticAnalyzerError::DuplicateField(report) | SemanticAnalyzerError::UndefinedTypeReference(report) | SemanticAnalyzerError::ImportNotAtTop(report) => report,
+            SemanticAnalyzerError::DuplicateField(report)
+            | SemanticAnalyzerError::UndefinedTypeReference(report)
+            | SemanticAnalyzerError::ImportNotAtTop(report)
+            | SemanticAnalyzerError::CircularTypeAlias(report) => report,
         }
     }
 }
@@ -60,6 +65,9 @@ impl SemanticAnalyzer {
         let symbols = Self::generate_symbol_table(parsed, &mut errors, diagnostic_ctx.clone());
         debug!("Symbol table generated with {} entries", symbols.len());
 
+        Self::check_type_aliases(&root, &symbols, &mut errors, diagnostic_ctx.clone());
+        Self::check_type_alias_cycles(&root, &symbols, &mut errors, diagnostic_ctx.clone());
+
         // TODO: Parallelize
         targets.iter().for_each(|&(kind, range)| {
             let local_root: LNode = rowan::SyntaxNode::new_root(green_node.clone().into());
@@ -87,6 +95,9 @@ impl SemanticAnalyzer {
         let root = parsed.ast_root.clone();
         Self::check_imports_are_top_level(&root, &mut errors, diagnostic_ctx.clone());
         let symbols = Self::generate_symbol_table(parsed, &mut errors, diagnostic_ctx);
+        let diag = DiagnosticContext::new(source_code_metadata.file_name, source_code_metadata.file_contents);
+        Self::check_type_aliases(&root, &symbols, &mut errors, diag.clone());
+        Self::check_type_alias_cycles(&root, &symbols, &mut errors, diag);
         AnalyzedProgram { ast_root: root, symbols }
     }
 
@@ -100,15 +111,209 @@ impl SemanticAnalyzer {
                         let report = diag.error_with_help(
                             child.text_range(),
                             "Import statements must appear at the top of the file",
-                            "Move this import above all model, endpoint, and enum declarations.",
+                            "Move this import above all type, model, endpoint, and enum declarations.",
                         );
                         errors.push(SemanticAnalyzerError::ImportNotAtTop(report));
                     }
                 }
-                LSyntaxKind::MODEL | LSyntaxKind::ENDPOINT | LSyntaxKind::ENUM => {
+                LSyntaxKind::MODEL | LSyntaxKind::ENDPOINT | LSyntaxKind::ENUM | LSyntaxKind::TYPE_ALIAS => {
                     seen_non_import_declaration = true;
                 }
                 _ => {}
+            }
+        }
+    }
+
+    fn check_type_aliases(root: &LNode, symbols: &SymTable<LNode>, errors: &mut Vec<SemanticAnalyzerError>, diag: DiagnosticContext) {
+        let aliases = Self::collect_type_aliases(root, symbols);
+        for (_, type_alias, scope) in aliases {
+            if let Some(type_node) = type_alias.type_node() {
+                Self::check_type(type_node, symbols, scope, errors, diag.clone());
+            }
+        }
+    }
+
+    fn check_type_alias_cycles(root: &LNode, symbols: &SymTable<LNode>, errors: &mut Vec<SemanticAnalyzerError>, diag: DiagnosticContext) {
+        let aliases = Self::collect_type_aliases(root, symbols);
+        if aliases.is_empty() {
+            return;
+        }
+
+        let mut deps: HashMap<String, Vec<String>> = HashMap::new();
+        let mut alias_ranges: HashMap<String, rowan::TextRange> = HashMap::new();
+        let mut alias_order: Vec<String> = Vec::new();
+
+        for (name, alias, scope) in aliases {
+            alias_order.push(name.clone());
+            if let Some(token) = alias.ident_token() {
+                alias_ranges.insert(name.clone(), token.text_range());
+            }
+
+            let mut refs = Vec::new();
+            if let Some(type_node) = alias.type_node() {
+                Self::collect_type_refs(type_node, &mut refs);
+            }
+
+            let mut local_deps = Vec::new();
+            for ref_name in refs {
+                if ref_name.contains('.') {
+                    continue;
+                }
+                if let Some(sym_id) = symbols.resolve_id(scope, &ref_name)
+                    && let Some(sym) = symbols.get(sym_id)
+                    && sym.data.kind() == LSyntaxKind::TYPE_ALIAS
+                    && !local_deps.contains(&sym.name)
+                {
+                    local_deps.push(sym.name.clone());
+                }
+            }
+
+            local_deps.sort();
+            deps.insert(name, local_deps);
+        }
+
+        let mut state: HashMap<String, u8> = HashMap::new();
+        for name in &alias_order {
+            state.insert(name.clone(), 0);
+        }
+
+        let mut stack = Vec::new();
+        for name in &alias_order {
+            if state.get(name).copied().unwrap_or(0) != 0 {
+                continue;
+            }
+            if let Some(cycle) = Self::detect_alias_cycle(name, &deps, &mut state, &mut stack) {
+                let cycle_text = cycle.iter().map(|entry| entry.rsplit("::").next().unwrap_or(entry)).collect::<Vec<_>>().join(" -> ");
+                let cycle_start = cycle.first().cloned().unwrap_or_else(|| name.clone());
+                let span = alias_ranges.get(&cycle_start).copied().unwrap_or_else(|| root.text_range());
+                let report = diag.error_with_help(
+                    span,
+                    &format!("Circular type alias detected: {}", cycle_text),
+                    "Break the cycle by changing at least one alias to point to a non-alias type.",
+                );
+                errors.push(SemanticAnalyzerError::CircularTypeAlias(report));
+                return;
+            }
+        }
+    }
+
+    fn collect_type_aliases(root: &LNode, symbols: &SymTable<LNode>) -> Vec<(String, TypeAlias, Option<SymId>)> {
+        let mut aliases = Vec::new();
+        for child in root.children() {
+            Self::collect_type_aliases_walk(child, symbols, None, &mut aliases);
+        }
+        aliases
+    }
+
+    fn collect_type_aliases_walk(node: LNode, symbols: &SymTable<LNode>, scope: Option<SymId>, out: &mut Vec<(String, TypeAlias, Option<SymId>)>) {
+        match node.kind() {
+            LSyntaxKind::TYPE_ALIAS => {
+                let Some(type_alias) = TypeAlias::cast(node) else {
+                    return;
+                };
+                let Some(alias_name) = type_alias.ident() else {
+                    return;
+                };
+                let Some(alias_id) = symbols.resolve_id(scope, &alias_name) else {
+                    return;
+                };
+                let Some(alias_entry) = symbols.get(alias_id) else {
+                    return;
+                };
+                out.push((alias_entry.name.clone(), type_alias, scope));
+            }
+            LSyntaxKind::MODEL => {
+                let Some(model) = Model::cast(node) else {
+                    return;
+                };
+                let Some(model_name) = model.ident() else {
+                    return;
+                };
+                let Some(model_scope) = symbols.resolve_id(scope, &model_name) else {
+                    return;
+                };
+
+                for type_alias_node in model.nested_type_alias_nodes() {
+                    Self::collect_type_aliases_walk(type_alias_node, symbols, Some(model_scope), out);
+                }
+                for nested_model_node in model.nested_model_nodes() {
+                    Self::collect_type_aliases_walk(nested_model_node, symbols, Some(model_scope), out);
+                }
+            }
+            LSyntaxKind::ENDPOINT => {
+                let Some(endpoint) = Endpoint::cast(node) else {
+                    return;
+                };
+                let Some(endpoint_name) = endpoint.path_string_literal_node().and_then(|s| s.value()) else {
+                    return;
+                };
+                let Some(endpoint_scope) = symbols.resolve_id(scope, &endpoint_name) else {
+                    return;
+                };
+
+                for nested_model_node in endpoint.nested_model_nodes() {
+                    Self::collect_type_aliases_walk(nested_model_node, symbols, Some(endpoint_scope), out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn detect_alias_cycle(current: &str, deps: &HashMap<String, Vec<String>>, state: &mut HashMap<String, u8>, stack: &mut Vec<String>) -> Option<Vec<String>> {
+        match state.get(current).copied().unwrap_or(0) {
+            1 => {
+                let pos = stack.iter().position(|name| name == current).unwrap_or(0);
+                let mut cycle = stack[pos..].to_vec();
+                cycle.push(current.to_string());
+                return Some(cycle);
+            }
+            2 => return None,
+            _ => {}
+        }
+
+        state.insert(current.to_string(), 1);
+        stack.push(current.to_string());
+
+        if let Some(next) = deps.get(current) {
+            for dep in next {
+                if let Some(cycle) = Self::detect_alias_cycle(dep, deps, state, stack) {
+                    return Some(cycle);
+                }
+            }
+        }
+
+        stack.pop();
+        state.insert(current.to_string(), 2);
+        None
+    }
+
+    fn collect_type_refs(type_node: LNode, out: &mut Vec<String>) {
+        let Some(type_expr) = Type::cast(type_node) else {
+            return;
+        };
+
+        for atom in type_expr.type_atoms() {
+            if let Some(ref_name) = atom.as_ref_name() {
+                out.push(ref_name);
+            }
+
+            if let Some(record) = atom.as_record_type() {
+                if let Some(src) = record.src_type_node() {
+                    Self::collect_type_refs(src, out);
+                }
+                if let Some(dest) = record.dest_type_node() {
+                    Self::collect_type_refs(dest, out);
+                }
+            }
+
+            if let Some(anon_model_node) = atom.as_anon_model()
+                && let Some(anon_model) = AnonModel::cast(anon_model_node)
+            {
+                for field in anon_model.field_nodes().into_iter().filter_map(Field::cast) {
+                    if let Some(field_type) = field.type_node() {
+                        Self::collect_type_refs(field_type, out);
+                    }
+                }
             }
         }
     }
@@ -122,6 +327,14 @@ impl SemanticAnalyzer {
 
         for field_node in model_fields {
             Self::check_field(field_node, symbols, model_scope, errors, diag.clone());
+        }
+
+        for type_alias_node in model.nested_type_alias_nodes() {
+            if let Some(type_alias) = TypeAlias::cast(type_alias_node)
+                && let Some(type_node) = type_alias.type_node()
+            {
+                Self::check_type(type_node, symbols, model_scope, errors, diag.clone());
+            }
         }
 
         for nested_model_node in model.nested_model_nodes() {
@@ -467,6 +680,9 @@ impl SemanticAnalyzer {
                 for nested_enum_node in model.nested_enum_nodes() {
                     let _ = Self::generate_symbol_table_walk(nested_enum_node, syms, Some(model_scope_id), errors, diag);
                 }
+                for nested_type_alias_node in model.nested_type_alias_nodes() {
+                    let _ = Self::generate_symbol_table_walk(nested_type_alias_node, syms, Some(model_scope_id), errors, diag);
+                }
             }
             LSyntaxKind::ENDPOINT => {
                 let endpoint = Endpoint::cast(node.clone()).unwrap();
@@ -498,6 +714,17 @@ impl SemanticAnalyzer {
                     return Err(());
                 }
                 syms.add_to_scope(parent_scope, &enum_name, node);
+            }
+            LSyntaxKind::TYPE_ALIAS => {
+                let type_alias = TypeAlias::cast(node.clone()).unwrap();
+                let ident_token = type_alias.ident_token().unwrap();
+                let alias_name = ident_token.text().to_string();
+                if syms.resolve(parent_scope, &alias_name).is_some() {
+                    let report = diag.error(ident_token.text_range(), &format!("Duplicate type alias name '{}'", alias_name));
+                    errors.push(SemanticAnalyzerError::DuplicateField(report));
+                    return Err(());
+                }
+                syms.add_to_scope(parent_scope, &alias_name, node);
             }
             LSyntaxKind::FIELD => {
                 let field = Field::cast(node.clone()).expect("Expected Field node");
@@ -748,5 +975,91 @@ mod tests {
         let parsed = Parser::new().parse(&metadata).unwrap();
         let result = SemanticAnalyzer::new().analyze(&parsed, &metadata);
         assert!(result.is_ok(), "Expected semantic analyzer to allow top-level import statements");
+    }
+
+    #[test]
+    fn test_type_alias_to_primitive_analyzes() {
+        let src = indoc! { r#"
+            type UserId = string
+
+            model User {
+                id: UserId
+            }
+        "# };
+
+        let metadata = SourceCodeMetadata {
+            file_name: "test.glue",
+            file_contents: src,
+        };
+        let parsed = Parser::new().parse(&metadata).unwrap();
+        let result = SemanticAnalyzer::new().analyze(&parsed, &metadata);
+        assert!(result.is_ok(), "Expected semantic analyzer to resolve type aliases");
+    }
+
+    #[test]
+    fn test_type_alias_cycle_fails_with_informative_error() {
+        let src = indoc! { r#"
+            type A = B
+            type B = A
+
+            model Root {
+                value: A
+            }
+        "# };
+
+        let metadata = SourceCodeMetadata {
+            file_name: "test.glue",
+            file_contents: src,
+        };
+        let parsed = Parser::new().parse(&metadata).unwrap();
+        let result = SemanticAnalyzer::new().analyze(&parsed, &metadata);
+        assert!(result.is_err(), "Expected analysis to fail for circular type aliases");
+        let errors = result.err().unwrap();
+        assert!(
+            errors.iter().any(|e| e.report().to_string().contains("Circular type alias detected: A -> B -> A")),
+            "Expected informative circular alias error"
+        );
+    }
+
+    #[test]
+    fn test_nested_type_alias_in_model_scope_analyzes() {
+        let src = indoc! { r#"
+            model Root {
+                type UserId = string
+                id: UserId
+            }
+        "# };
+
+        let metadata = SourceCodeMetadata {
+            file_name: "test.glue",
+            file_contents: src,
+        };
+        let parsed = Parser::new().parse(&metadata).unwrap();
+        let result = SemanticAnalyzer::new().analyze(&parsed, &metadata);
+        assert!(result.is_ok(), "Expected analysis to pass for nested type alias in model scope");
+    }
+
+    #[test]
+    fn test_nested_type_alias_cycle_fails_with_informative_error() {
+        let src = indoc! { r#"
+            model Root {
+                type A = B
+                type B = A
+                value: A
+            }
+        "# };
+
+        let metadata = SourceCodeMetadata {
+            file_name: "test.glue",
+            file_contents: src,
+        };
+        let parsed = Parser::new().parse(&metadata).unwrap();
+        let result = SemanticAnalyzer::new().analyze(&parsed, &metadata);
+        assert!(result.is_err(), "Expected analysis to fail for nested circular type aliases");
+        let errors = result.err().unwrap();
+        assert!(
+            errors.iter().any(|e| e.report().to_string().contains("Circular type alias detected: A -> B -> A")),
+            "Expected informative circular alias error"
+        );
     }
 }

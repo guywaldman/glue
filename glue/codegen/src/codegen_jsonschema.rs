@@ -249,6 +249,13 @@ impl CodeGeneratorImpl {
                 .ok_or(CodeGenError::InternalError("Expected type atom to have ident token".into()))?
                 .text()
                 .to_string();
+            if let Some(ref_sym) = self.syms.resolve(parent_sym, &ref_name)
+                && ref_sym.data.kind() == LSyntaxKind::TYPE_ALIAS
+            {
+                let alias = lang::TypeAlias::cast(ref_sym.data.clone()).ok_or(CodeGenError::InternalError("Expected type alias node".into()))?;
+                let alias_type_node = alias.type_node().ok_or(CodeGenError::InternalError("Type alias missing type expression".into()))?;
+                return self.visit_type(alias_type_node, parent_sym);
+            }
             let sym_id = self.syms.resolve_id(parent_sym, &ref_name).expect("Unresolved symbol");
             if self.defs.contains_key(&sym_id) {
                 Ok(self.format_ref(parent_sym, &ref_name).into())

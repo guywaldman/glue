@@ -54,10 +54,11 @@ enum_variant = { doc_block? ~ decorator* ~ string_literal }
 enum_variants = { enum_variant ~ ("|" ~ enum_variant)* }
 enum_def = { doc_block? ~ decorator* ~ "enum" ~ ident ~ ":" ~ enum_variants }
 
-model_body = !{ (field | model | enum_def)* }
+model_body = !{ (field | type_alias | model | enum_def)* }
 model = { doc_block? ~ decorator* ~ "model" ~ ident ~ "{" ~ model_body ~ "}" }
 anon_model = { "{" ~ model_body ~ "}" }
+type_alias = { doc_block? ~ "type" ~ ident ~ "=" ~ type_expr }
 
 endpoint = { doc_block? ~ decorator* ~ "endpoint" ~ string_literal ~ ident? ~ "{" ~ model_body ~ "}" }
 
-program = _{ SOI ~ (import_stmt | model | endpoint | enum_def)+ ~ EOI }
+program = _{ SOI ~ (import_stmt | type_alias | model | endpoint | enum_def)+ ~ EOI }
