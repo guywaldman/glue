@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.8.0](https://github.com/guywaldman/glue/compare/v0.7.1...v0.8.0) (2026-02-27)
+
+
+### Features
+
+* support type aliases ([#25](https://github.com/guywaldman/glue/issues/25)) ([588d367](https://github.com/guywaldman/glue/commit/588d3672769ef300a7fcd8bc7a39afd2834fd3b9))
+
+
+### Bug Fixes
+
+* add test coverage for circular imports ([#28](https://github.com/guywaldman/glue/issues/28)) ([b850624](https://github.com/guywaldman/glue/commit/b8506243991fa75af0d5a49e8d44fb9e67e31e36))
+* **extension:** support type alias syntax highlighting ([#29](https://github.com/guywaldman/glue/issues/29)) ([c663b0e](https://github.com/guywaldman/glue/commit/c663b0e799eac6d0a2a9ddca4bd0afb310f572cc))
+* support type aliases in extension & LSP ([#27](https://github.com/guywaldman/glue/issues/27)) ([95baf48](https://github.com/guywaldman/glue/commit/95baf48794b579a53bd4a8309a74482b2355346c))
+
 ## [0.7.1](https://github.com/guywaldman/glue/compare/v0.7.0...v0.7.1) (2026-02-23)
 
 
