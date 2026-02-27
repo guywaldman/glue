@@ -122,8 +122,20 @@
 		"keywords": {
 			"patterns": [
 				{
+					"name": "meta.type-alias.glue",
+					"match": "^\\s*(type)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*=",
+					"captures": {
+						"1": {
+							"name": "keyword.control.glue"
+						},
+						"2": {
+							"name": "entity.name.type.alias.glue"
+						}
+					}
+				},
+				{
 					"name": "keyword.control.glue",
-					"match": "^\\s*(endpoint|model|response|enum)\\b"
+					"match": "^\\s*(endpoint|model|response|enum|type)\\b"
 				},
 				{
 					"match": "^\\s*(body|mime|status):",
@@ -147,7 +159,7 @@
 			"patterns": [
 				{
 					"name": "storage.type.glue",
-					"match": "\\b(int|string|bool)\\b"
+					"match": "\\b(any|int|float|string|bool)\\b"
 				}
 			]
 		},

@@ -419,6 +419,11 @@ impl Lsp {
                 root.top_level_enums()
                     .into_iter()
                     .find_map(|enum_| (enum_.ident().as_deref() == Some(symbol_name)).then(|| enum_.syntax().clone()))
+            })
+            .or_else(|| {
+                root.top_level_type_aliases()
+                    .into_iter()
+                    .find_map(|type_alias| (type_alias.ident().as_deref() == Some(symbol_name)).then(|| type_alias.syntax().clone()))
             });
 
         let node = maybe_node?;
@@ -452,6 +457,11 @@ impl Lsp {
                 root.top_level_enums()
                     .into_iter()
                     .find_map(|enum_| (enum_.ident().as_deref() == Some(symbol_name)).then(|| enum_.syntax().clone()))
+            })
+            .or_else(|| {
+                root.top_level_type_aliases()
+                    .into_iter()
+                    .find_map(|type_alias| (type_alias.ident().as_deref() == Some(symbol_name)).then(|| type_alias.syntax().clone()))
             })?;
 
         self.extract_symbol_info(&node)
@@ -511,6 +521,11 @@ impl Lsp {
         for enum_def in root.top_level_enums() {
             if let Some(name) = enum_def.ident() {
                 out.push((name, lsp::CompletionItemKind::ENUM));
+            }
+        }
+        for type_alias in root.top_level_type_aliases() {
+            if let Some(name) = type_alias.ident() {
+                out.push((name, lsp::CompletionItemKind::TYPE_PARAMETER));
             }
         }
         out
@@ -834,6 +849,18 @@ impl Lsp {
                 let docs = field.docs().map(|d| d.join("\n"));
                 let type_info = field.ty().map(|t| self.format_type(&t));
                 Some(SymbolInfo { kind: "field", name, docs, type_info })
+            }
+            LSyntaxKind::TYPE_ALIAS => {
+                let type_alias = lang::TypeAlias::cast(node.clone())?;
+                let name = type_alias.ident()?;
+                let docs = None;
+                let type_info = type_alias.type_node().and_then(Type::cast).map(|t| format!("alias for {}", self.format_type(&t)));
+                Some(SymbolInfo {
+                    kind: "type alias",
+                    name,
+                    docs,
+                    type_info,
+                })
             }
             _ => None,
         }
@@ -1327,6 +1354,12 @@ impl LanguageServer for Lsp {
                         items.push(make_completion(nested_name, lsp::CompletionItemKind::ENUM, is_in_scope));
                     }
                 }
+
+                for nested_alias in model.nested_type_aliases() {
+                    if let Some(alias_name) = nested_alias.ident() {
+                        items.push(make_completion(alias_name, lsp::CompletionItemKind::TYPE_PARAMETER, is_in_scope));
+                    }
+                }
             }
         }
 
@@ -1350,6 +1383,14 @@ impl LanguageServer for Lsp {
                         items.push(make_completion(nested_name, lsp::CompletionItemKind::ENUM, is_in_scope));
                     }
                 }
+
+                for nested_model in endpoint.nested_models() {
+                    for nested_alias in nested_model.nested_type_aliases() {
+                        if let Some(alias_name) = nested_alias.ident() {
+                            items.push(make_completion(alias_name, lsp::CompletionItemKind::TYPE_PARAMETER, is_in_scope));
+                        }
+                    }
+                }
             }
         }
 
@@ -1357,6 +1398,12 @@ impl LanguageServer for Lsp {
         for enum_def in root.top_level_enums() {
             if let Some(name) = enum_def.ident() {
                 items.push(make_completion(name, lsp::CompletionItemKind::ENUM, false));
+            }
+        }
+
+        for type_alias in root.top_level_type_aliases() {
+            if let Some(name) = type_alias.ident() {
+                items.push(make_completion(name, lsp::CompletionItemKind::TYPE_PARAMETER, false));
             }
         }
 
@@ -2895,5 +2942,99 @@ mod tests {
 
         let labels: Vec<String> = items.iter().map(|i| i.label.clone()).collect();
         assert!(labels.contains(&"@field".to_string()), "@field should match prefix 'fie'");
+    }
+
+    #[tokio::test]
+    async fn test_goto_definition_type_alias_reference() {
+        let src = indoc! {r#"
+            type UserId = string
+
+            model User {
+                id: UserId
+            }
+        "#}
+        .trim();
+
+        let (lsp, uri) = setup_lsp(src).await;
+
+        let params = lsp::GotoDefinitionParams {
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            text_document_position_params: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri: uri.parse().unwrap() },
+                position: position_of_last(src, "UserId"),
+            },
+        };
+        let resp = lsp.goto_definition(params).await;
+        let Ok(Some(lsp::GotoDefinitionResponse::Scalar(loc))) = &resp else {
+            panic!("unexpected response: {resp:?}");
+        };
+
+        assert_eq!(loc.uri, uri.parse().unwrap());
+        assert_eq!(loc.range.start.line, 0);
+    }
+
+    #[tokio::test]
+    async fn test_hover_on_type_alias_reference() {
+        let src = indoc! {r#"
+            type UserId = string
+
+            model User {
+                id: UserId
+            }
+        "#}
+        .trim();
+
+        let (lsp, uri) = setup_lsp(src).await;
+
+        let params = lsp::HoverParams {
+            text_document_position_params: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri: uri.parse().unwrap() },
+                position: position_of_last(src, "UserId"),
+            },
+            work_done_progress_params: Default::default(),
+        };
+        let resp = lsp.hover(params).await;
+        let Ok(Some(hover)) = &resp else {
+            panic!("expected hover response, got: {resp:?}");
+        };
+
+        let lsp::HoverContents::Markup(markup) = &hover.contents else {
+            panic!("expected markup content");
+        };
+        assert!(markup.value.contains("type alias"), "hover should identify type alias");
+        assert!(markup.value.contains("UserId"), "hover should include alias name");
+        assert!(markup.value.contains("alias for string"), "hover should include aliased type");
+    }
+
+    #[tokio::test]
+    async fn test_completion_includes_type_alias() {
+        let src = indoc! {r#"
+            type UserId = string
+
+            model User {
+                id: Us
+            }
+        "#}
+        .trim();
+
+        let (lsp, uri) = setup_lsp(src).await;
+
+        let params = lsp::CompletionParams {
+            text_document_position: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri: uri.parse().unwrap() },
+                position: position_after_last(src, "Us"),
+            },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            context: None,
+        };
+        let resp = lsp.completion(params).await;
+        let Ok(Some(lsp::CompletionResponse::Array(items))) = &resp else {
+            panic!("expected completion items, got: {resp:?}");
+        };
+
+        let user_id = items.iter().find(|i| i.label == "UserId").expect("expected UserId completion");
+        assert_eq!(user_id.kind, Some(lsp::CompletionItemKind::TYPE_PARAMETER));
     }
 }
