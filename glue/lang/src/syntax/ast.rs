@@ -936,4 +936,29 @@ mod tests {
         assert_eq!(aliases[0].ident().as_deref(), Some("UserId"));
         assert!(aliases[0].type_node().is_some());
     }
+
+    #[test]
+    fn test_nested_type_alias_declaration_in_model() {
+        let src = indoc! { r#"
+            model User {
+                type UserId = string
+                id: UserId
+            }
+        "# };
+
+        let metadata = SourceCodeMetadata {
+            file_name: "test.glue",
+            file_contents: src,
+        };
+
+        let parsed = Parser::new().parse(&metadata).expect("expected parser to accept nested type aliases");
+        let root = RootNode::cast(parsed.ast_root).expect("expected RootNode");
+        let models = root.top_level_models();
+        assert_eq!(models.len(), 1);
+
+        let nested_aliases = models[0].nested_type_aliases();
+        assert_eq!(nested_aliases.len(), 1);
+        assert_eq!(nested_aliases[0].ident().as_deref(), Some("UserId"));
+        assert!(nested_aliases[0].type_node().is_some());
+    }
 }
