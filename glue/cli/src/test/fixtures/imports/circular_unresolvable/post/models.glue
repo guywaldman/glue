@@ -1,0 +1,7 @@
+import { UserKey } from "../user/models.glue"
+
+type PostKey = UserKey
+
+model Post {
+    id: PostKey
+}

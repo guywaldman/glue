@@ -2600,6 +2600,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_collect_diagnostics_for_repo_circular_import_fixture() {
+        let fixture_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../cli/src/test/fixtures/imports/circular_ok/models.glue")
+            .canonicalize()
+            .expect("fixture should exist");
+
+        let fixture_src = std::fs::read_to_string(&fixture_path).expect("fixture should be readable");
+        let uri = lsp::Url::from_file_path(&fixture_path).expect("fixture path should convert to file URI");
+
+        let lsp = Lsp::default();
+        lsp.did_open(lsp::DidOpenTextDocumentParams {
+            text_document: lsp::TextDocumentItem {
+                uri: uri.clone(),
+                language_id: "glue".into(),
+                version: 1,
+                text: fixture_src,
+            },
+        })
+        .await;
+
+        let diagnostics = lsp.collect_document_diagnostics(uri.as_str());
+        assert!(
+            !diagnostics.iter().any(|d| d.message.contains("Undefined type reference")),
+            "circular import fixture should not emit undefined type diagnostics: {diagnostics:?}"
+        );
+        assert!(
+            !diagnostics.iter().any(|d| d.message.contains("Import path does not exist")),
+            "circular import fixture should not emit missing import diagnostics: {diagnostics:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn test_completion_works_with_unresolved_type_reference() {
         // Regression test: completions must be returned even when the document contains an
         // unresolved type reference (e.g. the user is mid-way through typing "ErrorResponse").

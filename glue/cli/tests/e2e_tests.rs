@@ -251,6 +251,36 @@ fn e2e_codegen_with_imports() -> Result<()> {
 }
 
 #[test]
+fn e2e_check_with_circular_imports_resolves() -> Result<()> {
+    let fixture = GlueTestFixture::new("imports_circular_ok_check", "imports/circular_ok/models.glue")?;
+    fixture.run_check()
+}
+
+#[test]
+fn e2e_codegen_with_circular_imports_resolves() -> Result<()> {
+    let fixture = GlueTestFixture::new("imports_circular_ok_codegen", "imports/circular_ok/models.glue")?;
+    let output_path = fixture.generate_python()?;
+    let generated = std::fs::read_to_string(&output_path)?;
+
+    assert!(generated.contains("class User"));
+    assert!(generated.contains("class Post"));
+    assert!(generated.contains("class Root"));
+
+    cleanup(&output_path);
+    Ok(())
+}
+
+#[test]
+fn e2e_check_with_circular_imports_unresolvable_reports_error() -> Result<()> {
+    let fixture = GlueTestFixture::new("imports_circular_unresolvable_check", "imports/circular_unresolvable/models.glue")?;
+    let output = fixture.run_check_expect_error_output()?;
+
+    assert!(output.contains("Circular type alias detected: PostKey -> UserKey -> PostKey"));
+
+    Ok(())
+}
+
+#[test]
 fn e2e_codegen_with_type_aliases() -> Result<()> {
     let fixture = GlueTestFixture::from_source(
         "type_alias_codegen",

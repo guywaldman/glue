@@ -1,0 +1,7 @@
+import * from "./user/models.glue"
+import * from "./post/models.glue"
+
+model Root {
+    user: User
+    post: Post
+}
