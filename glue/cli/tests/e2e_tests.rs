@@ -149,6 +149,36 @@ impl GlueTestFixture {
 
         Ok(output_path)
     }
+
+    fn run_check(&self) -> Result<()> {
+        let output = Command::new("cargo")
+            .args(["run", "--bin", "glue", "--", "check", self.source_path.to_str().unwrap()])
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .output()
+            .map_err(|e| anyhow!("Failed to run glue check CLI: {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            return Err(anyhow!("Glue check failed:\nstdout: {}\nstderr: {}", stdout, stderr));
+        }
+
+        Ok(())
+    }
+
+    fn run_check_expect_error_output(&self) -> Result<String> {
+        let output = Command::new("cargo")
+            .args(["run", "--bin", "glue", "--", "check", self.source_path.to_str().unwrap()])
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .output()
+            .map_err(|e| anyhow!("Failed to run glue check CLI: {}", e))?;
+
+        if output.status.success() {
+            return Err(anyhow!("Expected glue check to fail, but it succeeded"));
+        }
+
+        Ok(format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)))
+    }
 }
 
 fn cleanup(path: &PathBuf) {
@@ -217,6 +247,70 @@ fn e2e_codegen_with_imports() -> Result<()> {
     assert_snapshot!("imports", generated);
 
     cleanup(&output_path);
+    Ok(())
+}
+
+#[test]
+fn e2e_codegen_with_type_aliases() -> Result<()> {
+    let fixture = GlueTestFixture::from_source(
+        "type_alias_codegen",
+        "aliases.glue",
+        r#"
+            type UserId = string
+            type UserIds = UserId[]
+
+            model User {
+                id: UserId
+                related: UserIds
+            }
+        "#,
+    )?;
+
+    let output_path = fixture.generate_python()?;
+    let generated = std::fs::read_to_string(&output_path)?;
+
+    assert!(generated.contains("id: Annotated[str, Field()]"));
+    assert!(generated.contains("related: Annotated[list[str], Field()]"));
+
+    cleanup(&output_path);
+    Ok(())
+}
+
+#[test]
+fn e2e_check_with_type_aliases() -> Result<()> {
+    let fixture = GlueTestFixture::from_source(
+        "type_alias_check",
+        "aliases.glue",
+        r#"
+            type UserId = string
+
+            model User {
+                id: UserId
+            }
+        "#,
+    )?;
+
+    fixture.run_check()
+}
+
+#[test]
+fn e2e_check_with_circular_type_alias_reports_error() -> Result<()> {
+    let fixture = GlueTestFixture::from_source(
+        "type_alias_cycle_check",
+        "aliases.glue",
+        r#"
+            type A = B
+            type B = A
+
+            model Root {
+                value: A
+            }
+        "#,
+    )?;
+
+    let output = fixture.run_check_expect_error_output()?;
+    assert!(output.contains("Circular type alias detected: A -> B -> A"));
+
     Ok(())
 }
 

@@ -2,7 +2,7 @@ use config::GlueConfigSchemaGeneration;
 use convert_case::{Case, Casing};
 use lang::{
     AstNode, DiagnosticContext, Enum, EnumVariant, Field, LNode, LSyntaxKind, Literal, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG, Model, PrimitiveType, SourceCodeMetadata, SymId,
-    SymTable, Type, TypeAtom,
+    SymTable, Type, TypeAlias, TypeAtom,
 };
 
 use crate::CodeGenError;
@@ -65,6 +65,52 @@ impl<'a> CodeGenContext<'a> {
     pub fn resolve_type_ref(&self, scope: Option<SymId>, name: &str, case: Case) -> Result<String, CodeGenError> {
         self.qualified_name(scope, name, case)
             .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved type: {}", name)))
+    }
+
+    pub fn resolve_type_alias(&self, scope: Option<SymId>, name: &str) -> Result<Option<Type>, CodeGenError> {
+        let mut stack = Vec::new();
+        self.resolve_type_alias_inner(scope, name, &mut stack)
+    }
+
+    fn resolve_type_alias_inner(&self, scope: Option<SymId>, name: &str, stack: &mut Vec<String>) -> Result<Option<Type>, CodeGenError> {
+        let Some(sym) = self.resolve(scope, name) else {
+            return Ok(None);
+        };
+
+        if sym.data.kind() != LSyntaxKind::TYPE_ALIAS {
+            return Ok(None);
+        }
+
+        let alias = TypeAlias::cast(sym.data.clone()).ok_or_else(|| CodeGenContext::internal_error("Expected type alias node"))?;
+        let alias_name = alias.ident().unwrap_or_else(|| name.to_string());
+        if stack.contains(&alias_name) {
+            stack.push(alias_name);
+            return Err(CodeGenContext::internal_error(format!("Circular type alias: {}", stack.join(" -> "))));
+        }
+
+        stack.push(alias_name.clone());
+
+        let alias_type_node = alias
+            .type_node()
+            .ok_or_else(|| CodeGenContext::internal_error(format!("Type alias '{}' missing type expression", alias_name)))?;
+        let alias_type = Type::cast(alias_type_node).ok_or_else(|| CodeGenContext::internal_error("Expected Type node in type alias"))?;
+
+        let alias_atoms = alias_type.type_atoms();
+        if alias_atoms.len() == 1 {
+            let alias_atom = &alias_atoms[0];
+            if !alias_atom.is_array()
+                && !alias_atom.is_optional()
+                && alias_atom.as_record_type().is_none()
+                && alias_atom.as_anon_model().is_none()
+                && let Some(next_ref) = alias_atom.as_ref_name()
+                && let Some(next_sym) = self.resolve(scope, &next_ref)
+                && next_sym.data.kind() == LSyntaxKind::TYPE_ALIAS
+            {
+                return self.resolve_type_alias_inner(scope, &next_ref, stack);
+            }
+        }
+
+        Ok(Some(alias_type))
     }
 
     pub fn error(&self, node: &LNode, message: &str) -> CodeGenError {

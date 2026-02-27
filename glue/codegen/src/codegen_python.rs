@@ -338,12 +338,16 @@ impl<'a> PythonGenerator<'a> {
             format!("dict[{}, {}]", self.emit_type(&src_type, scope)?, self.emit_type(&dest_type, scope)?)
         } else if let Some(ref_token) = atom.as_ref_token() {
             let type_name = ref_token.text().to_string();
-            let sym = self
-                .ctx
-                .resolve(scope, &type_name)
-                .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved type: {}", type_name)))?;
-            let qualified = lang::symbol_name_to_parts(&sym.name).join("_").to_case(Case::Pascal);
-            format!("\"{}\"", qualified)
+            if let Some(alias_type) = self.ctx.resolve_type_alias(scope, &type_name)? {
+                self.emit_type(&alias_type, scope)?
+            } else {
+                let sym = self
+                    .ctx
+                    .resolve(scope, &type_name)
+                    .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved type: {}", type_name)))?;
+                let qualified = lang::symbol_name_to_parts(&sym.name).join("_").to_case(Case::Pascal);
+                format!("\"{}\"", qualified)
+            }
         } else if atom.as_anon_model().is_some() {
             return Err(self.ctx.error(atom.syntax(), "Anonymous models not supported"));
         } else {
@@ -426,6 +430,23 @@ mod tests {
     #[test]
     fn test_attrs() {
         assert_snapshot!(gen_python_with_data_model_lib(SIMPLE_MODEL, GlueConfigSchemaGenerationPythonDataModelLibrary::Attrs));
+    }
+
+    #[test]
+    fn test_type_aliases_expand_in_generated_python() {
+        let src = indoc! { r#"
+            type UserId = string
+            type UserIds = UserId[]
+
+            model User {
+                id: UserId
+                related: UserIds
+            }
+        "# };
+
+        let generated = gen_python(src);
+        assert!(generated.contains("id: Annotated[str, Field()]"), "Expected alias to primitive type to resolve to str annotation");
+        assert!(generated.contains("related: Annotated[list[str], Field()]"), "Expected nested alias to array type to resolve");
     }
 
     #[test]

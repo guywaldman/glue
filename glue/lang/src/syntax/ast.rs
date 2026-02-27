@@ -45,6 +45,10 @@ impl RootNode {
     pub fn top_level_enums(&self) -> Vec<Enum> {
         self.0.children().filter(|n| n.kind() == LSyntaxKind::ENUM).filter_map(Enum::cast).collect()
     }
+
+    pub fn top_level_type_aliases(&self) -> Vec<TypeAlias> {
+        self.0.children().filter(|n| n.kind() == LSyntaxKind::TYPE_ALIAS).filter_map(TypeAlias::cast).collect()
+    }
 }
 
 ast_node!(ImportStmt, LSyntaxKind::IMPORT_STMT);
@@ -145,6 +149,22 @@ impl AnonModel {
 
 ast_node!(Model, LSyntaxKind::MODEL);
 
+ast_node!(TypeAlias, LSyntaxKind::TYPE_ALIAS);
+
+impl TypeAlias {
+    pub fn ident_token(&self) -> Option<LToken> {
+        self.0.children_with_tokens().filter_map(|e| e.into_token()).find(|t| t.kind() == LSyntaxKind::IDENT)
+    }
+
+    pub fn ident(&self) -> Option<String> {
+        self.ident_token().map(|t| t.text().to_string())
+    }
+
+    pub fn type_node(&self) -> Option<LNode> {
+        self.0.children().find(|n| n.kind() == LSyntaxKind::TYPE)
+    }
+}
+
 impl Model {
     pub fn ident_token(&self) -> Option<LToken> {
         self.0.children_with_tokens().filter_map(|e| e.into_token()).find(|t| t.kind() == LSyntaxKind::IDENT)
@@ -199,6 +219,19 @@ impl Model {
 
     pub fn nested_enums(&self) -> Vec<Enum> {
         self.nested_enum_nodes().into_iter().filter_map(Enum::cast).collect()
+    }
+
+    pub fn nested_type_alias_nodes(&self) -> Vec<LNode> {
+        self.0
+            .children()
+            .find(|n| n.kind() == LSyntaxKind::MODEL_BODY)
+            .into_iter()
+            .flat_map(|model_body| model_body.children().filter(|n| n.kind() == LSyntaxKind::TYPE_ALIAS))
+            .collect()
+    }
+
+    pub fn nested_type_aliases(&self) -> Vec<TypeAlias> {
+        self.nested_type_alias_nodes().into_iter().filter_map(TypeAlias::cast).collect()
     }
 
     pub fn decorator_nodes(&self) -> Vec<LNode> {
@@ -879,5 +912,28 @@ mod tests {
         assert_eq!(imports[0].wildcard_alias(), None);
         assert_eq!(imports[1].named_item_specs(), vec![("SomeModel".to_string(), None)]);
         assert_eq!(imports[2].wildcard_alias().as_deref(), Some("Models"));
+    }
+
+    #[test]
+    fn test_type_alias_declaration() {
+        let src = indoc! { r#"
+            type UserId = string
+
+            model User {
+                id: UserId
+            }
+        "# };
+
+        let metadata = SourceCodeMetadata {
+            file_name: "test.glue",
+            file_contents: src,
+        };
+
+        let parsed = Parser::new().parse(&metadata).expect("expected parser to accept type aliases");
+        let root = RootNode::cast(parsed.ast_root).expect("expected RootNode");
+        let aliases = root.top_level_type_aliases();
+        assert_eq!(aliases.len(), 1);
+        assert_eq!(aliases[0].ident().as_deref(), Some("UserId"));
+        assert!(aliases[0].type_node().is_some());
     }
 }

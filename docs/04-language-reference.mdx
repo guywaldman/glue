@@ -19,9 +19,29 @@ Glue supports the following primitive types:
 
 - `model` (a structured type with named fields)
 - `enum` (enumeration of string values)
+- `type` alias declarations (e.g., `type UserID = string`)
 - `T[]` (an array/list of type `T`)
 - `Record<T, U>` (a map/dictionary type with keys of type `T` and values of type `U`)
 - `endpoint` (an API endpoint definition with method, path, parameters, and responses)
+
+# Type aliases
+
+Glue supports type aliases, which let you define reusable names for existing types.
+
+```glue
+type UserId = string
+type UserIds = UserId[]
+
+model User {
+  id: UserId
+  related: UserIds
+}
+```
+
+Notes:
+
+- Aliases declared inside a model are scoped to that model.
+- Alias targets can be any valid type expression.
 
 # Models
 
@@ -92,7 +112,7 @@ model Product {
 
 # Imports
 
-Glue supports explicit imports, which must appear at the top of the file (before any `model`, `endpoint`, or `enum` declarations).
+Glue supports explicit imports, which must appear at the top of the file (before any `type`, `model`, `endpoint`, or `enum` declarations).
 
 ```glue
 // Import all exported symbols
@@ -158,7 +178,6 @@ endpoint "GET /users/{user_id}/posts" ListUserPosts {
 Below is a non-exhaustive list of features that are commonly requested or expected in an IDL like Glue, but are not currently supported.
 If Glue gains some traction, these will be managed as issues and prioritized accordingly, however for now this acts as a reference for common features you may expect to see in Glue but are not yet implemented:
 * Endpoints - proper typing of query/path parameters, authentication/authorization schemes, and some other common API features are not yet supported
-* Type aliasing (e.g., `type UserID = string`)
 * Intersections of types (e.g., `type A = B & C`)
 * Generics (e.g., `model Response<T> { data: T }`)
 

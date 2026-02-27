@@ -1,7 +1,10 @@
+type MovieId = string
+type MovieList = Movie[]
+
 /// List all movies
 endpoint "GET /movies" {
 		responses: {
-				2XX: Movie[]
+				2XX: MovieList
 				4XX: Error
 				5XX: Error
 		}
@@ -29,7 +32,7 @@ endpoint "GET /movies/{movie_id}" {
 /// Represents a movie entry.
 model Movie {
 	/// Unique identifier for the movie (GUIDv4).
-	id: string
+	id: MovieId
 	/// Title of the movie.
 	title: string
 	/// Year the movie was released.

@@ -227,6 +227,17 @@ impl<'a> GoGenerator<'a> {
 
         if let Some(ref_token) = atom.as_ref_token() {
             let ref_name = ref_token.text().trim();
+            if let Some(alias_type) = self.ctx.resolve_type_alias(parent_scope, ref_name)? {
+                let alias_atoms = alias_type.type_atoms();
+                if alias_atoms.len() > 1 {
+                    return Ok("interface{}".to_string());
+                }
+                if let Some(alias_atom) = alias_atoms.first() {
+                    return self.emit_type_atom(alias_atom, parent_scope);
+                }
+                return Err(CodeGenContext::internal_error(format!("Type alias '{}' has no type atoms", ref_name)));
+            }
+
             let resolved = self
                 .ctx
                 .qualified_name(parent_scope, ref_name, Case::Pascal)

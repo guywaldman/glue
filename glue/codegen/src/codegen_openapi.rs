@@ -198,6 +198,11 @@ impl<'a> OpenAPIGenerator<'a> {
         }
 
         if let Some(ref_token) = atom.as_ref_token() {
+            let type_name = ref_token.text().to_string();
+            if let Ok(Some(alias_type)) = self.ctx.resolve_type_alias(None, &type_name) {
+                let schema = self.type_to_schema(&alias_type);
+                return self.wrap_if_array(atom, schema);
+            }
             let reference = format!("#/components/schemas/{}", ref_token.text());
             return self.wrap_if_array(atom, openapi::SchemaOrReference::Reference { reference });
         }

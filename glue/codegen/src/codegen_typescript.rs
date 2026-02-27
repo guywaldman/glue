@@ -163,11 +163,15 @@ impl<'a> TypeScriptGenerator<'a> {
             format!("Record<{}, {}>", self.emit_type(&src_type, scope)?, self.emit_type(&dest_type, scope)?)
         } else if let Some(ref_token) = atom.as_ref_token() {
             let type_name = ref_token.text().to_string();
-            let sym = self
-                .ctx
-                .resolve(scope, &type_name)
-                .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved type: {}", type_name)))?;
-            lang::symbol_name_to_parts(&sym.name).join("_").to_case(Case::Pascal)
+            if let Some(alias_type) = self.ctx.resolve_type_alias(scope, &type_name)? {
+                self.emit_type(&alias_type, scope)?
+            } else {
+                let sym = self
+                    .ctx
+                    .resolve(scope, &type_name)
+                    .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved type: {}", type_name)))?;
+                lang::symbol_name_to_parts(&sym.name).join("_").to_case(Case::Pascal)
+            }
         } else if atom.as_anon_model().is_some() {
             return Err(self.ctx.error(atom.syntax(), "Anonymous models not supported"));
         } else {
@@ -207,12 +211,16 @@ impl<'a> TypeScriptGenerator<'a> {
             format!("z.record({}, {})", key_schema, value_schema)
         } else if let Some(ref_token) = atom.as_ref_token() {
             let type_name = ref_token.text().to_string();
-            let sym = self
-                .ctx
-                .resolve(scope, &type_name)
-                .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved type: {}", type_name)))?;
-            let qualified = lang::symbol_name_to_parts(&sym.name).join("_").to_case(Case::Pascal);
-            format!("{}Schema", qualified)
+            if let Some(alias_type) = self.ctx.resolve_type_alias(scope, &type_name)? {
+                self.emit_zod_type(&alias_type, scope)?
+            } else {
+                let sym = self
+                    .ctx
+                    .resolve(scope, &type_name)
+                    .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved type: {}", type_name)))?;
+                let qualified = lang::symbol_name_to_parts(&sym.name).join("_").to_case(Case::Pascal);
+                format!("{}Schema", qualified)
+            }
         } else if atom.as_anon_model().is_some() {
             return Err(self.ctx.error(atom.syntax(), "Anonymous models not supported"));
         } else {

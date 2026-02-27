@@ -196,9 +196,15 @@ impl<'a> RustGenerator<'a> {
             format!("HashMap<{}, {}>", src_str, dest_str)
         } else if let Some(ref_token) = atom.as_ref_token() {
             let ref_name = ref_token.text().trim();
-            self.ctx
-                .qualified_name(parent_scope, ref_name, Case::Pascal)
-                .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved type: {}", ref_name)))?
+            if let Some(alias_type) = self.ctx.resolve_type_alias(parent_scope, ref_name)? {
+                let alias_atoms = alias_type.type_atoms();
+                let alias_codes = alias_atoms.iter().map(|a| self.emit_type_atom(a, parent_scope)).collect::<Result<Vec<_>, _>>()?;
+                alias_codes.join(" | ")
+            } else {
+                self.ctx
+                    .qualified_name(parent_scope, ref_name, Case::Pascal)
+                    .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved type: {}", ref_name)))?
+            }
         } else if atom.as_anon_model().is_some() {
             return Err(CodeGenContext::internal_error("Anonymous models not yet supported in Rust codegen"));
         } else {
