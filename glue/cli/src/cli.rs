@@ -233,20 +233,7 @@ impl GlueCli {
             watermark_mode = GlueConfigSchemaGenerationWatermark::None;
         }
         let timestamp = chrono::Utc::now().format("%Y-%m-%d").to_string();
-        let source_relative_to_output = output
-            .as_ref()
-            .and_then(|output_path| {
-                output_path
-                    .parent()
-                    .and_then(|output_dir| {
-                        let output_dir = std::fs::canonicalize(output_dir).ok()?;
-                        let source_path = PathBuf::from(source.file_name);
-                        let source_path = std::fs::canonicalize(source_path).ok()?;
-                        pathdiff::diff_paths(source_path, output_dir)
-                    })
-                    .map(|rel_path| rel_path.to_string_lossy().to_string())
-            })
-            .unwrap_or_else(|| source.file_name.to_string());
+        let source_relative_to_output = Self::path_relative_to_output(Path::new(source.file_name), output).unwrap_or_else(|| source.file_name.to_string());
 
         let mut watermark_lines = vec![];
         if watermark_mode != GlueConfigSchemaGenerationWatermark::None {
@@ -256,20 +243,7 @@ impl GlueCli {
             }
             watermark_lines.push(format!("Source: {}", source_relative_to_output));
             if let Some(config_path) = config_path {
-                let config_path_relative_to_output = output
-                    .as_ref()
-                    .and_then(|output_path| {
-                        output_path
-                            .parent()
-                            .and_then(|output_dir| {
-                                let output_dir = std::fs::canonicalize(output_dir).ok()?;
-                                let source_path = PathBuf::from(source.file_name);
-                                let source_path = std::fs::canonicalize(source_path).ok()?;
-                                pathdiff::diff_paths(source_path, output_dir)
-                            })
-                            .map(|rel_path| rel_path.to_string_lossy().to_string())
-                    })
-                    .unwrap_or_else(|| config_path.display().to_string());
+                let config_path_relative_to_output = Self::path_relative_to_output(config_path, output).unwrap_or_else(|| config_path.display().to_string());
                 watermark_lines.push(format!("Config: {}", config_path_relative_to_output));
             }
         }
@@ -291,6 +265,19 @@ impl GlueCli {
             watermark.push('\n');
         }
         Ok(Some(watermark))
+    }
+
+    fn path_relative_to_output(path: &Path, output: &Option<PathBuf>) -> Option<String> {
+        output.as_ref().and_then(|output_path| {
+            output_path
+                .parent()
+                .and_then(|output_dir| {
+                    let output_dir = std::fs::canonicalize(output_dir).ok()?;
+                    let path = std::fs::canonicalize(path).ok()?;
+                    pathdiff::diff_paths(path, output_dir)
+                })
+                .map(|rel_path| rel_path.to_string_lossy().to_string())
+        })
     }
 
     pub fn analyze<'a>(input: Option<PathBuf>) -> Result<(AnalyzedProgram, SourceCodeMetadata<'a>), CliError> {
@@ -803,7 +790,120 @@ mod tests {
     use config::{
         GlueConfig, GlueConfigSchemaGenConfig, GlueConfigSchemaGenConfigMode, GlueConfigSchemaGeneration, GlueConfigSchemaGenerationPythonDataModelLibrary, GlueConfigSchemaGenerationWatermark,
     };
+    use lang::SourceCodeMetadata;
     use std::path::{Path, PathBuf};
+
+    fn unique_temp_dir(test_name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("glue_cli_{}_{}", test_name, rand::random::<u64>()))
+    }
+
+    #[test]
+    fn generate_watermark_covers_modes_config_paths_outputs_and_comment_styles() {
+        let temp_dir = unique_temp_dir("watermark_permutations");
+        let source_dir = temp_dir.join("source").join("models");
+        let config_dir = temp_dir.join("config");
+        let output_dir = temp_dir.join("generated").join("typescript");
+        std::fs::create_dir_all(&source_dir).expect("source dir should be created");
+        std::fs::create_dir_all(&config_dir).expect("config dir should be created");
+        std::fs::create_dir_all(&output_dir).expect("output dir should be created");
+
+        let source_path = source_dir.join("user.glue");
+        let config_path = config_dir.join(".gluerc.yaml");
+        let output_path = output_dir.join("user.ts");
+        std::fs::write(&source_path, "model User { id: string }").expect("source should be written");
+        std::fs::write(&config_path, "global:\n  config:\n    watermark: short\n").expect("config should be written");
+
+        let source_path_string = source_path.to_string_lossy().to_string();
+        let source = SourceCodeMetadata {
+            file_name: &source_path_string,
+            file_contents: "",
+        };
+        let output = Some(output_path.clone());
+        let config = Some(config_path.clone());
+
+        let short = GlueCli::generate_watemark(
+            &config,
+            Some(GlueConfigSchemaGeneration {
+                watermark: Some(GlueConfigSchemaGenerationWatermark::Short),
+                ..Default::default()
+            }),
+            &source,
+            &output,
+            &CodeGenMode::TypeScript,
+        )
+        .expect("short watermark should generate")
+        .expect("short watermark should be present");
+        assert!(short.starts_with("// ------------------------------------\n"));
+        assert!(short.contains("// Generated by Glue on "));
+        assert!(short.contains("// Source: ../../source/models/user.glue\n"));
+        assert!(short.contains("// Config: ../../config/.gluerc.yaml\n"));
+        assert!(!short.contains("Glue version:"));
+        assert!(!short.contains("// Config: ../../source/models/user.glue\n"));
+
+        let full = GlueCli::generate_watemark(
+            &config,
+            Some(GlueConfigSchemaGeneration {
+                watermark: Some(GlueConfigSchemaGenerationWatermark::Full),
+                ..Default::default()
+            }),
+            &source,
+            &output,
+            &CodeGenMode::TypeScript,
+        )
+        .expect("full watermark should generate")
+        .expect("full watermark should be present");
+        assert!(full.contains("// Glue version: "));
+        assert!(full.contains("// Source: ../../source/models/user.glue\n"));
+        assert!(full.contains("// Config: ../../config/.gluerc.yaml\n"));
+
+        let none = GlueCli::generate_watemark(
+            &config,
+            Some(GlueConfigSchemaGeneration {
+                watermark: Some(GlueConfigSchemaGenerationWatermark::None),
+                ..Default::default()
+            }),
+            &source,
+            &output,
+            &CodeGenMode::TypeScript,
+        )
+        .expect("none watermark should be valid");
+        assert!(none.is_none());
+
+        let default_without_config = GlueCli::generate_watemark(&None, None, &source, &output, &CodeGenMode::TypeScript)
+            .expect("default watermark should generate")
+            .expect("default watermark should be present");
+        assert!(default_without_config.contains("// Source: ../../source/models/user.glue\n"));
+        assert!(!default_without_config.contains("Config:"));
+
+        let without_output = GlueCli::generate_watemark(&config, None, &source, &None, &CodeGenMode::TypeScript)
+            .expect("watermark without output should generate")
+            .expect("watermark without output should be present");
+        assert!(without_output.contains(&format!("// Source: {}\n", source_path.display())));
+        assert!(without_output.contains(&format!("// Config: {}\n", config_path.display())));
+
+        let python = GlueCli::generate_watemark(&config, None, &source, &output, &CodeGenMode::Python)
+            .expect("python watermark should generate")
+            .expect("python watermark should be present");
+        assert!(python.starts_with("# ------------------------------------\n"));
+        assert!(python.contains("# Config: ../../config/.gluerc.yaml\n"));
+
+        for json_mode in [CodeGenMode::JsonSchema, CodeGenMode::OpenApi] {
+            let json_watermark = GlueCli::generate_watemark(
+                &config,
+                Some(GlueConfigSchemaGeneration {
+                    watermark: Some(GlueConfigSchemaGenerationWatermark::Full),
+                    ..Default::default()
+                }),
+                &source,
+                &output,
+                &json_mode,
+            )
+            .expect("json-format watermark should be valid");
+            assert!(json_watermark.is_none(), "{} should suppress watermarks", json_mode.as_str());
+        }
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
 
     #[test]
     fn parse_cli_generation_overrides_parses_nested_values() {
