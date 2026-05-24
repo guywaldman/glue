@@ -20,7 +20,7 @@ curl -fsSL "$source_url" > "$tmp_file"
 
 # Glue Reference
 
-This file mirrors the public Glue documentation published at $source_url for use by the bundled skills.sh Glue skill.
+This file mirrors the public Glue documentation published at $source_url for use by the repo-published Glue skill.
 
 EOF
   cat "$tmp_file"

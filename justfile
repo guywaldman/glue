@@ -33,17 +33,17 @@ generate: build
 	cargo run --bin glue -- gen rust -i {{config_schema}} -o $config_rust_file
 	cargo fmt -- $config_rust_file
 
-# Generate a local skills.sh Glue skill reference from llms.txt.
+# Generate the repo-published Glue skill reference from llms.txt.
 update-skill:
 	./scripts/update_glue_skill_reference.sh
 
-# Validate the bundled skills.sh Glue skill without publishing.
+# Validate the repo-published Glue skill with the skills CLI.
 validate-skill:
-	./scripts/publish_glue_skill.sh --dry-run
+	./scripts/publish_glue_skill.sh --check
 
-# Publish the bundled skills.sh Glue skill with an explicit release tag.
-publish-skill tag:
-	./scripts/publish_glue_skill.sh --tag "{{tag}}"
+# Publish the Glue skill for an explicit release tag with GitHub agent skills.
+publish-skill tag="":
+	./scripts/publish_glue_skill.sh {{ if tag != "" { "--tag " + tag } else { "--check" } }}
 
 # Build and install the CLI locally.
 install-cli:

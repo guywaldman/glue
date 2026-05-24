@@ -20,10 +20,12 @@ Glue's syntax is concise and forgiving, making it easy for LLMs to work with whi
 If your agent supports the open skills ecosystem, you can install the official Glue skill from this repository:
 
 ```shell
-npx skills add guywaldman/glue --skill glue
+pnpm dlx skills add guywaldman/glue --skill glue
 ```
 
-The published skill includes a generated reference sourced from `https://gluelang.dev/llms.txt`. To generate that reference locally for inspection, run `just update-skill`.
+If your shell does not define `pnpm`, use `npx skills add guywaldman/glue --skill glue`.
+
+The published skill includes a generated reference sourced from `https://gluelang.dev/llms.txt`. To refresh that reference locally, run `just update-skill`.
 
 ## Quickstart
 

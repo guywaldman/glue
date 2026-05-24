@@ -1,19 +1,21 @@
 name: Publish Glue Skill
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "skills/**"
+      - "scripts/update_glue_skill_reference.sh"
+      - "scripts/publish_glue_skill.sh"
+      - ".github/workflows/publish-skill.yml"
   release:
     types: [published]
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag for gh skill publish (for example, v1.0.0)"
+        description: "Release tag to publish with GitHub agent skills (for example, v1.0.0)"
         required: false
         type: string
-      dry_run:
-        description: "Validate without creating a GitHub release"
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   contents: write
@@ -28,34 +30,28 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event.release.tag_name || github.event.inputs.tag || github.ref }}
 
-      - name: Install latest GitHub CLI
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Validate repo-published skill
+        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.tag == '' }}
+        env:
+          SKILLS_SH_INSTALL_SOURCE: https://github.com/guywaldman/glue
+        run: CI=true ./scripts/publish_glue_skill.sh --check
+
+      - name: Publish GitHub agent skill
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '' }}
+        env:
+          SKILLS_SH_INSTALL_SOURCE: https://github.com/guywaldman/glue
         run: |
           set -euo pipefail
-          sudo mkdir -p -m 755 /etc/apt/keyrings
-          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-            | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg >/dev/null
-          sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
-            | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
-          sudo apt-get update
-          sudo apt-get install -y gh
-          gh --version
-
-      - name: Install just
-        uses: taiki-e/install-action@just
-
-      - name: Publish skill
-        if: ${{ github.event_name == 'release' || github.event.inputs.dry_run != 'true' }}
-        run: |
-          set -euo pipefail
-          tag="${{ github.event.release.tag_name || github.event.inputs.tag }}"
-          if [ -z "$tag" ]; then
-            echo "::error::A tag is required when running this workflow manually unless dry_run is true."
-            exit 1
-          fi
-          just publish-skill "$tag"
-
-      - name: Validate skill only
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true' }}
-        run: just validate-skill
+          CI=true ./scripts/publish_glue_skill.sh --tag "${{ github.event.inputs.tag }}"
