@@ -1,7 +1,10 @@
 ---
 name: glue
-description: Official Glue IDL guide for agents. Use when writing, explaining, validating, configuring, or generating code from Glue files into TypeScript, Python, Rust, Go, OpenAPI, JSON Schema, or Protobuf.
+description: "Official Glue IDL guide for agents. Use when writing, explaining, validating, configuring, or generating code from Glue files into TypeScript, Python, Rust, Go, OpenAPI, JSON Schema, or Protobuf."
 license: MIT
+metadata:
+  author: Guy Waldman
+  version: "1.0.0"
 ---
 
 # Glue
