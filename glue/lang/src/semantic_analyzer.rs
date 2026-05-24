@@ -106,16 +106,15 @@ impl SemanticAnalyzer {
 
         for child in root.children() {
             match child.kind() {
-                LSyntaxKind::IMPORT_STMT => {
-                    if seen_non_import_declaration {
-                        let report = diag.error_with_help(
-                            child.text_range(),
-                            "Import statements must appear at the top of the file",
-                            "Move this import above all type, model, endpoint, and enum declarations.",
-                        );
-                        errors.push(SemanticAnalyzerError::ImportNotAtTop(report));
-                    }
+                LSyntaxKind::IMPORT_STMT if seen_non_import_declaration => {
+                    let report = diag.error_with_help(
+                        child.text_range(),
+                        "Import statements must appear at the top of the file",
+                        "Move this import above all type, model, endpoint, and enum declarations.",
+                    );
+                    errors.push(SemanticAnalyzerError::ImportNotAtTop(report));
                 }
+                LSyntaxKind::IMPORT_STMT => {}
                 LSyntaxKind::MODEL | LSyntaxKind::ENDPOINT | LSyntaxKind::ENUM | LSyntaxKind::TYPE_ALIAS => {
                     seen_non_import_declaration = true;
                 }

@@ -12,7 +12,7 @@ where
         score.map(|score| (score, candidate))
     });
     let mut scored_candidates: Vec<_> = scores.collect();
-    scored_candidates.sort_by(|a, b| b.0.cmp(&a.0)); // Sort by score descending
+    scored_candidates.sort_by_key(|candidate| std::cmp::Reverse(candidate.0));
     scored_candidates.into_iter().take(limit).map(|(score, candidate)| (candidate, score)).collect()
 }
 
