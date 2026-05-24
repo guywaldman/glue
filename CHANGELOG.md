@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/guywaldman/glue/compare/v1.0.0...v1.1.0) (2026-05-24)
+
+
+### Features
+
+* introduce preserve flag & avoid mangling upper casing in generated identifiers ([c96eca6](https://github.com/guywaldman/glue/commit/c96eca6a8cacaadb0e20463497c4d54124781947))
+
 ## [1.0.0](https://github.com/guywaldman/glue/compare/v0.8.0...v1.0.0) (2026-05-24)
 
 
