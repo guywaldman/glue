@@ -233,7 +233,7 @@ impl GlueCli {
             watermark_mode = GlueConfigSchemaGenerationWatermark::None;
         }
         let timestamp = chrono::Utc::now().format("%Y-%m-%d").to_string();
-        let source_relative_to_output = Self::path_relative_to_output(Path::new(source.file_name), output).unwrap_or_else(|| source.file_name.to_string());
+        let source_relative_to_output = Self::path_relative_to_output(Path::new(source.file_name), output).unwrap_or_else(|| Self::watermark_path_string(Path::new(source.file_name)));
 
         let mut watermark_lines = vec![];
         if watermark_mode != GlueConfigSchemaGenerationWatermark::None {
@@ -243,7 +243,7 @@ impl GlueCli {
             }
             watermark_lines.push(format!("Source: {}", source_relative_to_output));
             if let Some(config_path) = config_path {
-                let config_path_relative_to_output = Self::path_relative_to_output(config_path, output).unwrap_or_else(|| config_path.display().to_string());
+                let config_path_relative_to_output = Self::path_relative_to_output(config_path, output).unwrap_or_else(|| Self::watermark_path_string(config_path));
                 watermark_lines.push(format!("Config: {}", config_path_relative_to_output));
             }
         }
@@ -276,8 +276,12 @@ impl GlueCli {
                     let path = std::fs::canonicalize(path).ok()?;
                     pathdiff::diff_paths(path, output_dir)
                 })
-                .map(|rel_path| rel_path.to_string_lossy().to_string())
+                .map(|rel_path| Self::watermark_path_string(&rel_path))
         })
+    }
+
+    fn watermark_path_string(path: &Path) -> String {
+        path.to_string_lossy().replace('\\', "/")
     }
 
     pub fn analyze<'a>(input: Option<PathBuf>) -> Result<(AnalyzedProgram, SourceCodeMetadata<'a>), CliError> {
@@ -839,6 +843,7 @@ mod tests {
         assert!(short.contains("// Config: ../../config/.gluerc.yaml\n"));
         assert!(!short.contains("Glue version:"));
         assert!(!short.contains("// Config: ../../source/models/user.glue\n"));
+        assert!(!short.contains('\\'));
 
         let full = GlueCli::generate_watemark(
             &config,
@@ -855,6 +860,7 @@ mod tests {
         assert!(full.contains("// Glue version: "));
         assert!(full.contains("// Source: ../../source/models/user.glue\n"));
         assert!(full.contains("// Config: ../../config/.gluerc.yaml\n"));
+        assert!(!full.contains('\\'));
 
         let none = GlueCli::generate_watemark(
             &config,
@@ -874,18 +880,21 @@ mod tests {
             .expect("default watermark should be present");
         assert!(default_without_config.contains("// Source: ../../source/models/user.glue\n"));
         assert!(!default_without_config.contains("Config:"));
+        assert!(!default_without_config.contains('\\'));
 
         let without_output = GlueCli::generate_watemark(&config, None, &source, &None, &CodeGenMode::TypeScript)
             .expect("watermark without output should generate")
             .expect("watermark without output should be present");
-        assert!(without_output.contains(&format!("// Source: {}\n", source_path.display())));
-        assert!(without_output.contains(&format!("// Config: {}\n", config_path.display())));
+        assert!(without_output.contains(&format!("// Source: {}\n", GlueCli::watermark_path_string(&source_path))));
+        assert!(without_output.contains(&format!("// Config: {}\n", GlueCli::watermark_path_string(&config_path))));
+        assert!(!without_output.contains('\\'));
 
         let python = GlueCli::generate_watemark(&config, None, &source, &output, &CodeGenMode::Python)
             .expect("python watermark should generate")
             .expect("python watermark should be present");
         assert!(python.starts_with("# ------------------------------------\n"));
         assert!(python.contains("# Config: ../../config/.gluerc.yaml\n"));
+        assert!(!python.contains('\\'));
 
         for json_mode in [CodeGenMode::JsonSchema, CodeGenMode::OpenApi] {
             let json_watermark = GlueCli::generate_watemark(
