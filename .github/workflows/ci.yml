@@ -661,7 +661,20 @@ jobs:
         uses: taiki-e/install-action@just
 
       - name: Update Glue formula
-        run: just update-glue tag="$RELEASE_TAG"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for attempt in {1..12}; do
+            if just update-glue "$RELEASE_TAG"; then
+              exit 0
+            fi
+
+            echo "Homebrew formula update failed for ${RELEASE_TAG}; retrying after release API/assets settle (${attempt}/12)."
+            sleep 10
+          done
+
+          just update-glue "$RELEASE_TAG"
         working-directory: homebrew-tap
 
       - name: Commit and push formula update
