@@ -27,6 +27,10 @@ export type GlueConfigSchemaGlobal = {
 
 export type GlueConfigSchemaGenConfig = {
   /**
+   * Code generation mode for this entry
+   */
+  mode?: GlueConfigSchemaGenConfigMode;
+  /**
    * Glob selector for input files
    */
   files: string;
@@ -39,6 +43,11 @@ export type GlueConfigSchemaGenConfig = {
    */
   config_overrides?: GlueConfigSchemaGeneration;
 };
+
+/**
+ * Code generation target
+ */
+export type GlueConfigSchemaGenConfigMode = "jsonschema" | "openapi" | "rust" | "python" | "typescript" | "protobuf" | "go";
 
 export type GlueConfigSchemaGeneration = {
   /**
@@ -119,4 +128,3 @@ export type GlueConfigSchemaGenerationProtobuf = {
  * Mode for generating the watermark comment at the top of generated files
  */
 export type GlueConfigSchemaGenerationWatermark = "full" | "short" | "none";
-

@@ -95,6 +95,9 @@ extension-publish:
 precommit:
 	prek run --all-files
 
+# Run all tests (unit and E2E)
+test: test-unit-cli test-e2e-cli test-extension
+
 # Run Rust codegen benchmark on generated large import-heavy fixture.
 perf-codegen iterations="10" warmups="3":
 	cd glue && GLUE_BENCH_ITERATIONS={{iterations}} GLUE_BENCH_WARMUPS={{warmups}} GLUE_BENCH_JSON_OUT=../temp/codegen_perf/latest.json cargo bench -p cli --bench codegen_perf

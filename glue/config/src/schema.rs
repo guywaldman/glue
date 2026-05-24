@@ -27,6 +27,9 @@ pub struct GlueConfigSchemaGlobal {
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
 pub struct GlueConfigSchemaGenConfig {
+    /// Code generation mode for this entry
+    #[serde(skip_serializing_if = "Option::is_none", alias = "language")]
+    pub mode: Option<GlueConfigSchemaGenConfigMode>,
     /// Glob selector for input files
     pub files: String,
     /// Output path template (supports {file_name} and {file_ext})
@@ -35,6 +38,32 @@ pub struct GlueConfigSchemaGenConfig {
     /// Per-generation configuration overrides
     #[serde(skip_serializing_if = "Option::is_none")]
     pub config_overrides: Option<GlueConfigSchemaGeneration>,
+}
+
+/// Code generation target
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
+pub enum GlueConfigSchemaGenConfigMode {
+    /// JSON Schema
+    #[serde(rename = "jsonschema")]
+    Jsonschema,
+    /// OpenAPI
+    #[serde(rename = "openapi")]
+    Openapi,
+    /// Rust
+    #[serde(rename = "rust")]
+    Rust,
+    /// Python
+    #[serde(rename = "python")]
+    Python,
+    /// TypeScript
+    #[serde(rename = "typescript")]
+    Typescript,
+    /// Protobuf
+    #[serde(rename = "protobuf")]
+    Protobuf,
+    /// Go
+    #[serde(rename = "go")]
+    Go,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]

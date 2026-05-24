@@ -4,7 +4,10 @@
     "type": "object",
     "properties": {
         "gen": {
-            "$ref": "#/$defs/GlueConfigSchema::GenConfig",
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/GlueConfigSchema::GenConfig"
+            },
             "description": "Per-generation configuration entries"
         },
         "global": {
@@ -17,7 +20,10 @@
             "type": "object",
             "properties": {
                 "gen": {
-                    "$ref": "#/$defs/GlueConfigSchema::GenConfig",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/GlueConfigSchema::GenConfig"
+                    },
                     "description": "Per-generation configuration entries"
                 },
                 "global": {
@@ -37,11 +43,28 @@
                     "type": "string",
                     "description": "Glob selector for input files"
                 },
+                "mode": {
+                    "$ref": "#/$defs/GlueConfigSchema::GenConfig::Mode",
+                    "description": "Code generation mode for this entry"
+                },
                 "output": {
                     "type": "string",
                     "description": "Output path template (supports {file_name} and {file_ext})"
                 }
             }
+        },
+        "GlueConfigSchema::GenConfig::Mode": {
+            "type": "string",
+            "description": "Code generation target",
+            "enum": [
+                "jsonschema",
+                "openapi",
+                "rust",
+                "python",
+                "typescript",
+                "protobuf",
+                "go"
+            ]
         },
         "GlueConfigSchema::Generation": {
             "type": "object",

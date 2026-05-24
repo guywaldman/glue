@@ -1,6 +1,6 @@
 use anyhow::Result;
 use codegen::{CodeGen, CodeGenError, CodeGenMode};
-use config::{GlueConfig, GlueConfigSchemaGenConfig, GlueConfigSchemaGeneration, GlueConfigSchemaGenerationWatermark};
+use config::{GlueConfig, GlueConfigSchemaGenConfig, GlueConfigSchemaGenConfigMode, GlueConfigSchemaGeneration, GlueConfigSchemaGenerationWatermark};
 use globset::{Glob, GlobSetBuilder};
 use serde_json::{Map, Number, Value};
 use std::{
@@ -63,68 +63,156 @@ impl GlueCli {
                     },
             } => {
                 let input = input.clone().or(input_positional.clone());
-                let mut output = output.clone();
                 let effective_config_path: Option<PathBuf> = config_path.clone().or_else(|| Self::find_gluerc(input.as_deref()));
-                let config = match &effective_config_path {
-                    Some(path) => {
-                        let config_contents = std::fs::read_to_string(path).map_err(CliError::Io)?;
-                        let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-                        match ext {
-                            "json" => Some(GlueConfig::from_json(&config_contents).map_err(|e| CliError::CodeGen(format!("Failed to load config from JSON: {:?}", e)))?),
-                            "yaml" | "yml" | "" => Some(GlueConfig::from_yaml(&config_contents).map_err(|e| CliError::CodeGen(format!("Failed to load config from YAML: {:?}", e)))?),
-                            _ => return Err(CliError::BadInput("Config file must have .json, .yaml, or .yml extension".to_string())),
-                        }
-                    }
-                    None => None,
-                };
-
-                let (resolved_config, resolved_output) = match (config.as_ref(), effective_config_path.as_ref()) {
-                    (Some(config), Some(config_path)) => Self::resolve_generation_config(config, config_path, input.as_ref())?,
-                    _ => (None, None),
-                };
-
+                let config = Self::load_config(effective_config_path.as_ref())?;
                 let cli_overrides = Self::parse_cli_generation_overrides(set, set_string)?;
-                let resolved_config = Self::merge_generation_config(resolved_config, cli_overrides);
 
-                if output.is_none() {
-                    output = resolved_output;
-                }
+                match mode {
+                    Some(mode) => {
+                        let mut output = output.clone();
+                        let (resolved_config, resolved_output) = match (config.as_ref(), effective_config_path.as_ref()) {
+                            (Some(config), Some(config_path)) => Self::resolve_generation_config(config, config_path, input.as_ref(), Some(*mode))?,
+                            _ => (None, None),
+                        };
+                        let resolved_config = Self::merge_generation_config(resolved_config, cli_overrides);
 
-                let codegen_mode = *mode;
-                let source = Self::handle_file(input.clone())?;
-                let mut generated_code = match CodeGen::generate(codegen_mode, &source, resolved_config.clone()) {
-                    Ok(code) => code,
-                    Err(CodeGenError::GenerationErrors(diags)) => {
-                        for diag in diags {
-                            print_report(&diag).expect("Rendering report failed");
+                        if output.is_none() {
+                            output = resolved_output;
                         }
-                        return Err(CliError::CodeGen("Code generation failed with errors".to_string()));
-                    }
-                    Err(e) => {
-                        return Err(CliError::CodeGen(format!("Code generation failed: {:?}", e)));
-                    }
-                };
 
-                if let Some(output) = &output {
-                    // Strip watermarks before comparing to detect actual content changes
-                    if let Ok(output_file_contents) = std::fs::read_to_string(output) {
-                        let stripped_existing = Self::strip_watermark(&output_file_contents);
-                        let stripped_generated = Self::strip_watermark(&generated_code);
-                        if stripped_existing == stripped_generated {
-                            debug!("Output file '{}' is up to date, skipping write", output.display());
-                            return Ok(());
+                        let source = Self::handle_file(input.clone())?;
+                        Self::generate_to_output(*mode, &effective_config_path, resolved_config, source, output)?;
+                    }
+                    None => {
+                        if input.is_some() {
+                            return Err(CliError::BadInput(
+                                "A generation mode is required when --input is provided. For config-driven generation, omit --input and set mode on each gen entry.".to_string(),
+                            ));
                         }
+                        if output.is_some() {
+                            return Err(CliError::BadInput(
+                                "--output is only valid when generating a single input. For config-driven generation, set output on each gen entry.".to_string(),
+                            ));
+                        }
+                        let Some(config_path) = effective_config_path.as_ref() else {
+                            return Err(CliError::BadInput(
+                                "glue gen without a mode requires a config file. Pass --config or run it from a directory containing .gluerc, .gluerc.yaml, .gluerc.yml, or .gluerc.json.".to_string(),
+                            ));
+                        };
+                        let Some(config) = config.as_ref() else {
+                            return Err(CliError::BadInput("Config file could not be loaded".to_string()));
+                        };
+                        Self::generate_from_config(config, config_path, cli_overrides)?;
                     }
                 }
-
-                if let Ok(Some(watermark)) = Self::generate_watemark(&effective_config_path, resolved_config, &source, &output, mode) {
-                    generated_code = format!("{}{}", watermark, generated_code);
-                }
-
-                Self::write_to_file_or_stdout(&output, generated_code)?;
             }
         }
         Ok(())
+    }
+
+    fn load_config(config_path: Option<&PathBuf>) -> Result<Option<GlueConfig>, CliError> {
+        let Some(path) = config_path else {
+            return Ok(None);
+        };
+
+        let config_contents = std::fs::read_to_string(path).map_err(CliError::Io)?;
+        let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+        match ext {
+            "json" => GlueConfig::from_json(&config_contents)
+                .map(Some)
+                .map_err(|e| CliError::CodeGen(format!("Failed to load config from JSON: {:?}", e))),
+            "yaml" | "yml" | "" => GlueConfig::from_yaml(&config_contents)
+                .map(Some)
+                .map_err(|e| CliError::CodeGen(format!("Failed to load config from YAML: {:?}", e))),
+            _ => Err(CliError::BadInput("Config file must have .json, .yaml, or .yml extension".to_string())),
+        }
+    }
+
+    fn generate_to_output(
+        mode: CodeGenMode,
+        config_path: &Option<PathBuf>,
+        resolved_config: Option<GlueConfigSchemaGeneration>,
+        source: SourceCodeMetadata,
+        output: Option<PathBuf>,
+    ) -> Result<(), CliError> {
+        let mut generated_code = match CodeGen::generate(mode, &source, resolved_config.clone()) {
+            Ok(code) => code,
+            Err(CodeGenError::GenerationErrors(diags)) => {
+                for diag in diags {
+                    print_report(&diag).expect("Rendering report failed");
+                }
+                return Err(CliError::CodeGen("Code generation failed with errors".to_string()));
+            }
+            Err(e) => {
+                return Err(CliError::CodeGen(format!("Code generation failed: {:?}", e)));
+            }
+        };
+
+        if let Some(output) = &output {
+            // Strip watermarks before comparing to detect actual content changes
+            if let Ok(output_file_contents) = std::fs::read_to_string(output) {
+                let stripped_existing = Self::strip_watermark(&output_file_contents);
+                let stripped_generated = Self::strip_watermark(&generated_code);
+                if stripped_existing == stripped_generated {
+                    debug!("Output file '{}' is up to date, skipping write", output.display());
+                    return Ok(());
+                }
+            }
+        }
+
+        if let Ok(Some(watermark)) = Self::generate_watemark(config_path, resolved_config, &source, &output, &mode) {
+            generated_code = format!("{}{}", watermark, generated_code);
+        }
+
+        Self::write_to_file_or_stdout(&output, generated_code)
+    }
+
+    fn generate_from_config(config: &GlueConfig, config_path: &Path, cli_overrides: Option<GlueConfigSchemaGeneration>) -> Result<(), CliError> {
+        let Some(entries) = config.r#gen.as_ref().filter(|entries| !entries.is_empty()) else {
+            return Err(CliError::BadInput("Config-driven generation requires at least one gen entry".to_string()));
+        };
+
+        let config_dir = Self::config_dir(config_path);
+        let global_config = config.global.as_ref().and_then(|g| g.config.clone());
+        let output_base_dir = config.global.as_ref().and_then(|g| g.output_base_dir.clone());
+        let effective_config_path = Some(config_path.to_path_buf());
+
+        for entry in entries {
+            let mode = entry
+                .mode
+                .as_ref()
+                .map(Self::config_mode_to_codegen_mode)
+                .ok_or_else(|| CliError::BadInput(format!("Config gen entry for '{}' is missing mode", entry.files)))?;
+            let input_paths = Self::expand_gen_entry_files(&entry.files, config_dir)?;
+            if input_paths.is_empty() {
+                return Err(CliError::BadInput(format!("Config gen entry '{}' did not match any files", entry.files)));
+            }
+            let Some(output_template) = entry.output.as_deref() else {
+                return Err(CliError::BadInput(format!("Config gen entry for '{}' is missing output", entry.files)));
+            };
+
+            for input_path in input_paths {
+                let resolved_config = Self::merge_generation_config(global_config.clone(), entry.config_overrides.clone());
+                let resolved_config = Self::merge_generation_config(resolved_config, cli_overrides.clone());
+                let output = Self::resolve_output_path(Some(output_template), output_base_dir.as_deref(), Some(&input_path), config_dir, Some(mode));
+                let source = Self::handle_file(Some(input_path))?;
+                Self::generate_to_output(mode, &effective_config_path, resolved_config, source, output)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn config_mode_to_codegen_mode(mode: &GlueConfigSchemaGenConfigMode) -> CodeGenMode {
+        match mode {
+            GlueConfigSchemaGenConfigMode::Jsonschema => CodeGenMode::JsonSchema,
+            GlueConfigSchemaGenConfigMode::Openapi => CodeGenMode::OpenApi,
+            GlueConfigSchemaGenConfigMode::Rust => CodeGenMode::Rust,
+            GlueConfigSchemaGenConfigMode::Python => CodeGenMode::Python,
+            GlueConfigSchemaGenConfigMode::Typescript => CodeGenMode::TypeScript,
+            GlueConfigSchemaGenConfigMode::Protobuf => CodeGenMode::Protobuf,
+            GlueConfigSchemaGenConfigMode::Go => CodeGenMode::Go,
+        }
     }
 
     fn strip_watermark(file_contents: &str) -> String {
@@ -444,13 +532,18 @@ impl GlueCli {
         None
     }
 
-    fn resolve_generation_config(config: &GlueConfig, config_path: &Path, input_path: Option<&PathBuf>) -> Result<(Option<GlueConfigSchemaGeneration>, Option<PathBuf>), CliError> {
-        let config_dir = config_path.parent().unwrap_or_else(|| Path::new("."));
+    fn resolve_generation_config(
+        config: &GlueConfig,
+        config_path: &Path,
+        input_path: Option<&PathBuf>,
+        mode: Option<CodeGenMode>,
+    ) -> Result<(Option<GlueConfigSchemaGeneration>, Option<PathBuf>), CliError> {
+        let config_dir = Self::config_dir(config_path);
         let global_config = config.global.as_ref().and_then(|g| g.config.clone());
         let output_base_dir = config.global.as_ref().and_then(|g| g.output_base_dir.clone());
 
         let matched = match input_path {
-            Some(path) => Self::match_gen_entry(config, config_dir, path)?,
+            Some(path) => Self::match_gen_entry(config, config_dir, path, mode)?,
             None => None,
         };
 
@@ -458,17 +551,22 @@ impl GlueCli {
         let resolved_config = Self::merge_generation_config(global_config, overrides);
 
         let output_template = matched.and_then(|entry| entry.output);
-        let resolved_output = Self::resolve_output_path(output_template.as_deref(), output_base_dir.as_deref(), input_path, config_dir);
+        let resolved_output = Self::resolve_output_path(output_template.as_deref(), output_base_dir.as_deref(), input_path, config_dir, mode);
 
         Ok((resolved_config, resolved_output))
     }
 
-    fn match_gen_entry(config: &GlueConfig, config_dir: &Path, input_path: &Path) -> Result<Option<GlueConfigSchemaGenConfig>, CliError> {
+    fn match_gen_entry(config: &GlueConfig, config_dir: &Path, input_path: &Path, mode: Option<CodeGenMode>) -> Result<Option<GlueConfigSchemaGenConfig>, CliError> {
         let Some(entries) = &config.r#gen else {
             return Ok(None);
         };
 
         for entry in entries {
+            if let (Some(requested), Some(entry_mode)) = (mode, entry.mode.as_ref())
+                && Self::config_mode_to_codegen_mode(entry_mode) != requested
+            {
+                continue;
+            }
             if Self::glob_matches(&entry.files, config_dir, input_path)? {
                 return Ok(Some(entry.clone()));
             }
@@ -477,19 +575,43 @@ impl GlueCli {
         Ok(None)
     }
 
+    fn config_dir(config_path: &Path) -> &Path {
+        config_path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."))
+    }
+
     fn glob_matches(pattern: &str, config_dir: &Path, input_path: &Path) -> Result<bool, CliError> {
         let glob = Glob::new(pattern).map_err(|e| CliError::BadInput(format!("Invalid glob pattern '{}': {}", pattern, e)))?;
         let mut builder = GlobSetBuilder::new();
         builder.add(glob);
         let set = builder.build().map_err(|e| CliError::BadInput(format!("Invalid glob pattern '{}': {}", pattern, e)))?;
 
-        let target_path = if input_path.is_absolute() {
-            input_path.strip_prefix(config_dir).unwrap_or(input_path)
-        } else {
-            input_path
-        };
+        let target_path = input_path.strip_prefix(config_dir).or_else(|_| input_path.strip_prefix(Path::new("."))).unwrap_or(input_path);
 
         Ok(set.is_match(target_path))
+    }
+
+    fn expand_gen_entry_files(pattern: &str, config_dir: &Path) -> Result<Vec<PathBuf>, CliError> {
+        Glob::new(pattern).map_err(|e| CliError::BadInput(format!("Invalid glob pattern '{}': {}", pattern, e)))?;
+
+        let mut paths = Vec::new();
+        Self::walk_files(config_dir, &mut paths)?;
+        paths.retain(|path| Self::glob_matches(pattern, config_dir, path).unwrap_or(false));
+        paths.sort();
+        Ok(paths)
+    }
+
+    fn walk_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), CliError> {
+        for entry in std::fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            let file_type = entry.file_type()?;
+            if file_type.is_dir() {
+                Self::walk_files(&path, out)?;
+            } else if file_type.is_file() {
+                out.push(path);
+            }
+        }
+        Ok(())
     }
 
     fn merge_generation_config(base: Option<GlueConfigSchemaGeneration>, overrides: Option<GlueConfigSchemaGeneration>) -> Option<GlueConfigSchemaGeneration> {
@@ -569,13 +691,13 @@ impl GlueCli {
         }
     }
 
-    fn resolve_output_path(output_template: Option<&str>, output_base_dir: Option<&str>, input_path: Option<&PathBuf>, config_dir: &Path) -> Option<PathBuf> {
+    fn resolve_output_path(output_template: Option<&str>, output_base_dir: Option<&str>, input_path: Option<&PathBuf>, config_dir: &Path, mode: Option<CodeGenMode>) -> Option<PathBuf> {
         let template = output_template?;
         let mut output = template.to_string();
 
         if let Some(input_path) = input_path {
             let file_name = input_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-            let file_ext = input_path.extension().and_then(|s| s.to_str()).unwrap_or("");
+            let file_ext = mode.map(|mode| mode.file_extension()).or_else(|| input_path.extension().and_then(|s| s.to_str())).unwrap_or("");
             output = output.replace("{file_name}", file_name).replace("{file_ext}", file_ext);
         }
 
@@ -676,7 +798,11 @@ impl GlueCli {
 #[cfg(test)]
 mod tests {
     use super::GlueCli;
-    use config::{GlueConfigSchemaGeneration, GlueConfigSchemaGenerationPythonDataModelLibrary, GlueConfigSchemaGenerationWatermark};
+    use codegen::CodeGenMode;
+    use config::{
+        GlueConfig, GlueConfigSchemaGenConfig, GlueConfigSchemaGenConfigMode, GlueConfigSchemaGeneration, GlueConfigSchemaGenerationPythonDataModelLibrary, GlueConfigSchemaGenerationWatermark,
+    };
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn parse_cli_generation_overrides_parses_nested_values() {
@@ -726,5 +852,31 @@ mod tests {
         let merged = GlueCli::merge_generation_config(Some(base), cli_overrides).expect("merged config should exist");
 
         assert_eq!(merged.watermark, Some(GlueConfigSchemaGenerationWatermark::None));
+    }
+
+    #[test]
+    fn resolve_generation_config_matches_explicit_mode() {
+        let config = GlueConfig {
+            global: None,
+            r#gen: Some(vec![
+                GlueConfigSchemaGenConfig {
+                    mode: Some(GlueConfigSchemaGenConfigMode::Typescript),
+                    files: "models/*.glue".to_string(),
+                    output: Some("ts/{file_name}.{file_ext}".to_string()),
+                    config_overrides: None,
+                },
+                GlueConfigSchemaGenConfig {
+                    mode: Some(GlueConfigSchemaGenConfigMode::Python),
+                    files: "models/*.glue".to_string(),
+                    output: Some("py/{file_name}.{file_ext}".to_string()),
+                    config_overrides: None,
+                },
+            ]),
+        };
+
+        let input = PathBuf::from("/tmp/glue-config-test/models/user.glue");
+        let (_, output) = GlueCli::resolve_generation_config(&config, Path::new("/tmp/glue-config-test/.gluerc.yaml"), Some(&input), Some(CodeGenMode::Python)).expect("config should resolve");
+
+        assert_eq!(output, Some(PathBuf::from("/tmp/glue-config-test/py/user.py")));
     }
 }

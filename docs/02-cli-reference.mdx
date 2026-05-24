@@ -58,9 +58,9 @@ You can also override specific config options inline with `--set key=value` (e.g
 
 ```shell
 # Use `.gluerc` in the current directory if it exists
-glue gen go https://raw.githubusercontent.com/guywaldman/glue/refs/heads/main/examples/basic.glue
+glue gen
 # ...or specify a config file explicitly
-glue gen go https://raw.githubusercontent.com/guywaldman/glue/refs/heads/main/examples/basic.glue --config path/to/.gluerc.yaml
+glue gen --config path/to/.gluerc.yaml
 # ...or override specific config options inline:
 glue gen go https://raw.githubusercontent.com/guywaldman/glue/refs/heads/main/examples/basic.glue --set "watermark=none"
 ```

@@ -181,6 +181,12 @@ impl GlueTestFixture {
     }
 }
 
+fn glue_bin_command() -> Command {
+    let mut cmd = Command::new("cargo");
+    cmd.args(["run", "--manifest-path", concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"), "--bin", "glue", "--"]);
+    cmd
+}
+
 fn cleanup(path: &PathBuf) {
     let _ = std::fs::remove_file(path);
 }
@@ -434,6 +440,111 @@ fn e2e_python_msgspec() -> Result<()> {
 }
 
 #[test]
+fn e2e_config_driven_generation_uses_default_gluerc_and_explicit_config() -> Result<()> {
+    let temp_dir = unique_temp_dir("config_driven_generation");
+    let models_dir = temp_dir.join("models");
+    std::fs::create_dir_all(&models_dir)?;
+
+    std::fs::write(
+        models_dir.join("user.glue"),
+        r#"
+            model User {
+                id: string
+                name: string
+            }
+        "#,
+    )?;
+    std::fs::write(
+        models_dir.join("order.glue"),
+        r#"
+            enum OrderStatus: "pending" | "paid"
+
+            model Order {
+                id: string
+                total: int
+                status: OrderStatus
+            }
+        "#,
+    )?;
+    std::fs::write(
+        temp_dir.join(".gluerc.yaml"),
+        r#"
+global:
+  output_base_dir: generated
+  config:
+    watermark: none
+    lint_suppressions: false
+
+gen:
+  - mode: python
+    files: "models/*.glue"
+    output: "python/{file_name}.{file_ext}"
+    config_overrides:
+      python:
+        data_model_library: dataclasses
+
+  - mode: go
+    files: "models/*.glue"
+    output: "go/{file_name}.{file_ext}"
+    config_overrides:
+      go:
+        package_name: configbatch
+"#,
+    )?;
+
+    let output = glue_bin_command().arg("gen").current_dir(&temp_dir).output()?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "Config-driven glue gen failed:\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    let generated_python_user = temp_dir.join("generated/python/user.py");
+    let generated_python_order = temp_dir.join("generated/python/order.py");
+    let generated_go_user = temp_dir.join("generated/go/user.go");
+    let generated_go_order = temp_dir.join("generated/go/order.go");
+
+    for path in [&generated_python_user, &generated_python_order, &generated_go_user, &generated_go_order] {
+        assert!(path.exists(), "Expected generated file {}", path.display());
+    }
+
+    validate_python_syntax_without_deps(&generated_python_user)?;
+    validate_python_syntax_without_deps(&generated_python_order)?;
+
+    let user_py = std::fs::read_to_string(&generated_python_user)?;
+    let order_py = std::fs::read_to_string(&generated_python_order)?;
+    let user_go = std::fs::read_to_string(&generated_go_user)?;
+    let order_go = std::fs::read_to_string(&generated_go_order)?;
+
+    assert!(user_py.contains("@dataclass"));
+    assert!(user_py.contains("class User"));
+    assert!(order_py.contains("class Order"));
+    assert!(user_go.contains("package configbatch"));
+    assert!(user_go.contains("type User struct"));
+    assert!(order_go.contains("type Order struct"));
+
+    std::fs::remove_dir_all(temp_dir.join("generated"))?;
+
+    let output = glue_bin_command().args(["gen", "--config", ".gluerc.yaml"]).current_dir(&temp_dir).output()?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "Explicit config-driven glue gen failed:\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    for path in [&generated_python_user, &generated_python_order, &generated_go_user, &generated_go_order] {
+        assert!(path.exists(), "Expected generated file {}", path.display());
+    }
+
+    std::fs::remove_dir_all(&temp_dir).ok();
+    Ok(())
+}
+
+#[test]
 fn e2e_openapi_todos_valid_json() -> Result<()> {
     let fixture = GlueTestFixture::new("openapi_json", "todos.glue")?;
     let output_path = fixture.generate_openapi()?;
@@ -633,6 +744,16 @@ fn e2e_rust_valid_syntax() -> Result<()> {
 
 fn validate_python_syntax(path: &Path) -> Result<()> {
     let output = uv_run(&[]).args(["python3", "-m", "py_compile", path.to_str().unwrap()]).output()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow!("Python syntax error:\n{}", stderr));
+    }
+    Ok(())
+}
+
+fn validate_python_syntax_without_deps(path: &Path) -> Result<()> {
+    let output = Command::new("python3").args(["-m", "py_compile", path.to_str().unwrap()]).output()?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);

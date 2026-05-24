@@ -24,9 +24,9 @@ pub struct CliGenArgs {
     #[arg(short = 'o', long)]
     pub output: Option<PathBuf>,
 
-    /// Code generation mode
+    /// Code generation mode. When omitted, Glue runs the entries from the resolved config file.
     #[arg(value_enum)]
-    pub mode: CodeGenMode,
+    pub mode: Option<CodeGenMode>,
 
     /// Path to a custom config file. If not specified, the generator will automatically use `.gluerc`, `.gluerc.json`, or `.gluerc.yaml` from the input file's directory when available.
     #[arg(short = 'c', long)]

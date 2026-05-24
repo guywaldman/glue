@@ -86,7 +86,8 @@ global:
   output_base_dir: "./src/generated"
 
 gen:
-  - files: "models/*.glue"
+  - mode: typescript
+    files: "models/*.glue"
     output: "{file_name}.ts"
     config_overrides:
       typescript:

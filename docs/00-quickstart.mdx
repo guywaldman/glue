@@ -104,17 +104,20 @@ To support different use-cases, you can configure code generation with a `.gluer
 ```yaml
 # .gluerc.yaml
 global:
-  watermark: "none" # Don't generate a watermark
-  lint_suppressions: false # Don't generate lint suppression comments in generated code
   output_base_dir: "./src/generated" # Base output directory for all generated code
+  config:
+    watermark: "none" # Don't generate a watermark
+    lint_suppressions: false # Don't generate lint suppression comments in generated code
 
 gen:
-  - files: "models/*.glue"
+  - mode: typescript
+    files: "models/*.glue"
     output: "{file_name}.ts" # Output path template (relative to output_base_dir)
     config_overrides:
       typescript:
         zod: true # Emit Zod types for TypeScript generation
-  - files: "schemas/*.glue"
+  - mode: python
+    files: "schemas/*.glue"
     output: "schemas/{file_name}.py"
     config_overrides:
       python:

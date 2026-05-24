@@ -13,6 +13,25 @@ model GlueConfigSchema {
 	}
 
 	model GenConfig {
+		/// Code generation mode for this entry
+		mode?: Mode
+		/// Code generation target
+		enum Mode:
+			/// JSON Schema
+			"jsonschema" |
+			/// OpenAPI
+			"openapi" |
+			/// Rust
+			"rust" |
+			/// Python
+			"python" |
+			/// TypeScript
+			"typescript" |
+			/// Protobuf
+			"protobuf" |
+			/// Go
+			"go"
+
 		/// Glob selector for input files
 		files: string
 		/// Output path template (supports {file_name} and {file_ext})
