@@ -1,6 +1,6 @@
 .DS_Store
 ui
-*copilot*
 target
 .vscode
 skills/glue/REFERENCE.md
+*.snap.new
