@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.0](https://github.com/guywaldman/glue/compare/v0.8.0...v1.0.0) (2026-05-24)
+
+
+### ⚠ BREAKING CHANGES
+
+* **cli:** support codegen with multiple outputs
+
+### Features
+
+* **cli:** support codegen with multiple outputs ([dd3345a](https://github.com/guywaldman/glue/commit/dd3345ad79a47dc9d0d9f689964b9d6e0382e282))
+
 ## [0.8.0](https://github.com/guywaldman/glue/compare/v0.7.1...v0.8.0) (2026-02-27)
 
 
