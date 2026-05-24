@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.2](https://github.com/guywaldman/glue/compare/v1.1.1...v1.1.2) (2026-05-24)
+
+
+### Bug Fixes
+
+* fix CI errors when testing/publishing extension ([0f792cf](https://github.com/guywaldman/glue/commit/0f792cfe61825b98e481fe47201fb92e827ebb3b))
+
 ## [1.1.1](https://github.com/guywaldman/glue/compare/v1.1.0...v1.1.1) (2026-05-24)
 
 
