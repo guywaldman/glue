@@ -83,7 +83,7 @@ jobs:
             glue/target
           key: ${{ runner.os }}-cargo-lint-${{ hashFiles('**/Cargo.lock') }}
 
-      - uses: j178/prek-action@v1
+      - uses: j178/prek-action@v2
 
   skill:
     name: Skill
