@@ -26,9 +26,15 @@ glue gen --config path/to/.gluerc ...
 - `global`: defaults applied to every generation entry.
 - `gen`: a list of per-input rules (`mode`, `files`) with optional output and overrides.
 
+## JSON schema
+
+Glue ships a JSON schema for config files at [`glue/assets/config_schema.json`](https://github.com/guywaldman/glue/blob/main/glue/assets/config_schema.json). Use it with VS Code's YAML support to get autocomplete and validation in `.gluerc.yaml` files.
+
 ## Example
 
 ```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/guywaldman/glue/main/glue/assets/config_schema.json
+
 global:
   output_base_dir: ./generated
   config:

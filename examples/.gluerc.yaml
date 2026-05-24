@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/guywaldman/glue/main/glue/assets/config_schema.json
+
+global:
+  output_base_dir: ./generated
+  config:
+    watermark: none
+    lint_suppressions: true
+
+gen:
+  - mode: typescript
+    files: "*.glue"
+    output: "{file_name}.{file_ext}"
+    config_overrides:
+      typescript:
+        zod: true
+
+  - mode: python
+    files: "*.glue"
+    output: "python/{file_name}.{file_ext}"
+    config_overrides:
+      python:
+        data_model_library: dataclasses
