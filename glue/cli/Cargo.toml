@@ -30,10 +30,10 @@ serde_yaml = { workspace = true }
 thiserror = { workspace = true }
 pathdiff = { workspace = true }
 reqwest = { version = "0.12.24", default-features = false, features = ["blocking", "rustls-tls"] }
-url = "2.5.7"
+url = "2.5.8"
 
 [dev-dependencies]
 indoc.workspace = true
 insta.workspace = true
 rand.workspace = true
-testcontainers = { version = "0.27.0", features = ["blocking"] }
+testcontainers = { version = "0.27.3", features = ["blocking"] }
