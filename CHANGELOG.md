@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.1](https://github.com/guywaldman/glue/compare/v1.1.0...v1.1.1) (2026-05-24)
+
+
+### Bug Fixes
+
+* fix bug where watermark generated the wrong path for the config ([e8bad13](https://github.com/guywaldman/glue/commit/e8bad1326dc82978d3a1ed12b28e8364da369792))
+* normalize file paths in watermarks to UNIX ([0b05968](https://github.com/guywaldman/glue/commit/0b0596846c9f3121aa6c98a8b4ccda64c12c3553))
+
 ## [1.1.0](https://github.com/guywaldman/glue/compare/v1.0.0...v1.1.0) (2026-05-24)
 
 
