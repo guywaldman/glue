@@ -1,8 +1,128 @@
-<!-- Generated from https://gluelang.dev/llms.txt by scripts/update_glue_skill_reference.sh. Do not edit manually. -->
+<!-- Generated from repo docs by scripts/update_glue_skill_reference.sh. Do not edit manually. -->
 
 # Glue Reference
 
-This file mirrors the public Glue documentation published at https://gluelang.dev/llms.txt for use by the repo-published Glue skill.
+This file mirrors the Glue documentation in this repository for use by the repo-published Glue skill.
+
+
+---
+
+## Source: README.md
+
+# Glue
+
+Glue is an IDL (Interface Definition Language) and toolchain for modeling data and interfaces, and a unified toolchain for code generation, IDE support, and more.  
+Designed to be simple, fast, human-friendly, AI-friendly, and language-agnostic.
+
+> [!IMPORTANT]
+>
+> The Glue toolchain is in **beta**, use for production with caution and at your own risk. Expect breaking changes and bugs, though we will try to minimize these.
+> Feedback and contributions are very welcome!
+
+**For an interactive playground, documentation and more details see the [Glue website](https://gluelang.dev).**
+
+---
+
+## AI & LLMs
+
+Glue is designed to be LLM-friendly. [/llms.txt](https://gluelang.dev/llms.txt) includes the entirety of the Glue docs (~4K tokens) — simply provide it to your favorite agentic coding solution.  
+Glue's syntax is concise and forgiving, making it easy for LLMs to work with while remaining unambiguous and easy to parse.
+
+If your agent supports the open skills ecosystem, you can install the official Glue skill from this repository:
+
+```shell
+pnpm dlx skills add guywaldman/glue --skill glue
+```
+
+If your shell does not define `pnpm`, use `npx skills add guywaldman/glue --skill glue`.
+
+The published skill includes a generated reference sourced from this repository's docs. To refresh that reference locally, run `just update-skill`.
+
+## Quickstart
+
+### 1. Install
+
+```shell
+# Homebrew
+brew install guywaldman/tap/glue
+
+# Linux/macOS
+curl -fsSL https://github.com/guywaldman/glue/releases/latest/download/install.sh | bash
+
+# Windows (PowerShell)
+iwr -useb https://github.com/guywaldman/glue/releases/latest/download/install.ps1 | iex
+```
+
+### 2. Create a Glue file
+
+Define your data models and interfaces using the Glue IDL:
+
+```glue
+// models.glue
+
+model Person {
+  name: string
+  age: int
+  residence_end_date?: string // Optional fields are denoted with a `?`
+  is_employed: bool = false   // Default values are supported
+}
+
+model Building {
+  name: string
+  apartments: Record<int, Apartment>
+  address: Address
+
+  // Nested models are supported
+  model Address {
+    street: string
+    city: string
+    country_code: string
+    zipcode: string
+  }
+}
+
+// Endpoints (like OpenAPI) are supported
+endpoint "GET /building/{building_id}" GetBuilding {
+  responses: {
+    200: Building
+    4XX: ApiError
+  }
+}
+```
+
+### 3. Generate code
+
+Pick a target (`typescript`, `python`, `rust`, `go`, `openapi`, `jsonschema`, `protobuf`) and generate code:
+
+```shell
+glue gen typescript -i models.glue -o ./generated
+```
+
+### 4. (Optional) Configure code generation
+
+Use a `.gluerc.yaml` file to customize output:
+
+```yaml
+global:
+  output_base_dir: "./src/generated"
+
+gen:
+  - mode: typescript
+    files: "models/*.glue"
+    output: "{file_name}.ts"
+    config_overrides:
+      typescript:
+        zod: true
+```
+
+### 5. (Optional) Install the VS Code extension
+
+Install the [Glue VS Code extension](https://marketplace.visualstudio.com/items?itemName=guywaldman.glue) for syntax highlighting, diagnostics, hover definitions, go-to definitions, and more.
+
+
+---
+
+## Source: docs/00-quickstart.mdx
 
 ---
 title: Quickstart
@@ -110,17 +230,20 @@ To support different use-cases, you can configure code generation with a `.gluer
 ```yaml
 # .gluerc.yaml
 global:
-  watermark: "none" # Don't generate a watermark
-  lint_suppressions: false # Don't generate lint suppression comments in generated code
   output_base_dir: "./src/generated" # Base output directory for all generated code
+  config:
+    watermark: "none" # Don't generate a watermark
+    lint_suppressions: false # Don't generate lint suppression comments in generated code
 
 gen:
-  - files: "models/*.glue"
+  - mode: typescript
+    files: "models/*.glue"
     output: "{file_name}.ts" # Output path template (relative to output_base_dir)
     config_overrides:
       typescript:
         zod: true # Emit Zod types for TypeScript generation
-  - files: "schemas/*.glue"
+  - mode: python
+    files: "schemas/*.glue"
     output: "schemas/{file_name}.py"
     config_overrides:
       python:
@@ -130,6 +253,12 @@ gen:
 # 5. Install VS Code extension (optional)
 
 For a better development experience, install the [Glue VS Code extension](https://marketplace.visualstudio.com/items?itemName=guywaldman.glue) for syntax highlighting, error diagnostics, hover definitions, go-to definitions and more for Glue files (by default, those ending with `.glue`).
+
+
+---
+
+## Source: docs/01-overview.mdx
+
 ---
 title: Overview
 ---
@@ -235,6 +364,12 @@ glue gen typescript -i user.glue -o ./generated
 ```
 
 Glue currently supports generation for `typescript`, `python`, `rust`, `go`, `protobuf`, `openapi`, and `jsonschema`.
+
+
+---
+
+## Source: docs/02-cli-reference.mdx
+
 ---
 title: CLI reference
 ---
@@ -295,9 +430,9 @@ You can also override specific config options inline with `--set key=value` (e.g
 
 ```shell
 # Use `.gluerc` in the current directory if it exists
-glue gen go https://raw.githubusercontent.com/guywaldman/glue/refs/heads/main/examples/basic.glue
+glue gen
 # ...or specify a config file explicitly
-glue gen go https://raw.githubusercontent.com/guywaldman/glue/refs/heads/main/examples/basic.glue --config path/to/.gluerc.yaml
+glue gen --config path/to/.gluerc.yaml
 # ...or override specific config options inline:
 glue gen go https://raw.githubusercontent.com/guywaldman/glue/refs/heads/main/examples/basic.glue --set "watermark=none"
 ```
@@ -320,7 +455,7 @@ Glue resolves imports recursively for both `check` and `gen`.
 - Local file inputs resolve imports relative to the importing file.
 - URL inputs resolve imports relative to the base URL.
 - Import cycles are handled safely (already-visited sources are skipped).
-- Imports must be declared at the top of the file.
+- Imports must be declared at the top of the file (before `type`, `model`, `endpoint`, and `enum` declarations).
 
 # Advanced usage
 
@@ -331,65 +466,11 @@ Glue can emit the intermediate representation (IR) it uses for code generation, 
 ```shell
 glue ast https://raw.githubusercontent.com/guywaldman/glue/refs/heads/main/examples/basic.glue
 ```
+
+
 ---
-title: Quickstart
----
 
-Create a Glue file, validate it, and generate code in a few commands.
-
-## 1) Create a model
-
-Create a file named `person.glue`:
-
-```glue
-model Person {
-	name: string
-	age: int
-	address: Address
-
-	model Address {
-		street: string
-		city: string
-		country_code: string
-		zipcode: string
-	}
-}
-```
-
-## 2) Validate it
-
-```shell
-glue check person.glue
-```
-
-If the model is valid, the command exits successfully without errors.
-
-## 3) Generate code
-
-Generate TypeScript code into `./generated`:
-
-```shell
-glue gen typescript -i person.glue -o ./generated
-```
-
-You can replace `typescript` with any supported target:
-
-- `python`
-- `rust`
-- `go`
-- `protobuf`
-- `openapi`
-- `jsonschema`
-
-## 4) Use project configuration (optional)
-
-If your project has a `.gluerc` (or `.gluerc.yml`, `.gluerc.yaml`, `.gluerc.json`), run:
-
-```shell
-glue gen --config path/to/.gluerc
-```
-
-See the [Configuration](./03-configuration) page for full details.
+## Source: docs/03-configuration.mdx
 
 ---
 title: Configuration
@@ -417,11 +498,17 @@ glue gen --config path/to/.gluerc ...
 ## How the config is structured
 
 - `global`: defaults applied to every generation entry.
-- `gen`: a list of per-input rules (`files`) with optional output and overrides.
+- `gen`: a list of per-input rules (`mode`, `files`) with optional output and overrides.
+
+## JSON schema
+
+Glue ships a JSON schema for config files at [`glue/assets/config_schema.json`](https://github.com/guywaldman/glue/blob/main/glue/assets/config_schema.json). Use it with VS Code's YAML support to get autocomplete and validation in `.gluerc.yaml` files.
 
 ## Example
 
 ```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/guywaldman/glue/main/glue/assets/config_schema.json
+
 global:
   output_base_dir: ./generated
   config:
@@ -440,20 +527,23 @@ global:
       package_name: glue
 
 gen:
-  - files: "**/*.glue"
+  - mode: typescript
+    files: "**/*.glue"
     output: "src/types/{file_name}.ts"
     config_overrides:
       typescript:
         zod: true
 
-  - files: "schemas/api/*.glue"
+  - mode: python
+    files: "schemas/api/*.glue"
     output: "src/generated/{file_name}.py"
     config_overrides:
       python:
         data_model_library: dataclasses
       lint_suppressions: false
 
-  - files: "models/*.glue"
+  - mode: protobuf
+    files: "models/*.glue"
     output: "proto/{file_name}.proto"
     config_overrides:
       protobuf:
@@ -462,9 +552,17 @@ gen:
 
 ## Notes
 
+- Run `glue gen` to use an auto-discovered config file, or `glue gen --config path/to/.gluerc.yaml` to use one explicitly.
 - `output` supports `{file_name}` and `{file_ext}` placeholders.
 - `watermark` supports `full`, `short`, or `none`.
-- `python.data_model_library` supports `pydantic`, `dataclasses`, `attrs`, or `msgspec`.---
+- `python.data_model_library` supports `pydantic`, `dataclasses`, `attrs`, or `msgspec`.
+
+
+---
+
+## Source: docs/04-language-reference.mdx
+
+---
 title: Language reference
 ---
 
@@ -485,9 +583,29 @@ Glue supports the following primitive types:
 
 - `model` (a structured type with named fields)
 - `enum` (enumeration of string values)
+- `type` alias declarations (e.g., `type UserID = string`)
 - `T[]` (an array/list of type `T`)
 - `Record<T, U>` (a map/dictionary type with keys of type `T` and values of type `U`)
 - `endpoint` (an API endpoint definition with method, path, parameters, and responses)
+
+# Type aliases
+
+Glue supports type aliases, which let you define reusable names for existing types.
+
+```glue
+type UserId = string
+type UserIds = UserId[]
+
+model User {
+  id: UserId
+  related: UserIds
+}
+```
+
+Notes:
+
+- Aliases declared inside a model are scoped to that model.
+- Alias targets can be any valid type expression.
 
 # Models
 
@@ -558,7 +676,7 @@ model Product {
 
 # Imports
 
-Glue supports explicit imports, which must appear at the top of the file (before any `model`, `endpoint`, or `enum` declarations).
+Glue supports explicit imports, which must appear at the top of the file (before any `type`, `model`, `endpoint`, or `enum` declarations).
 
 ```glue
 // Import all exported symbols
@@ -624,12 +742,17 @@ endpoint "GET /users/{user_id}/posts" ListUserPosts {
 Below is a non-exhaustive list of features that are commonly requested or expected in an IDL like Glue, but are not currently supported.
 If Glue gains some traction, these will be managed as issues and prioritized accordingly, however for now this acts as a reference for common features you may expect to see in Glue but are not yet implemented:
 * Endpoints - proper typing of query/path parameters, authentication/authorization schemes, and some other common API features are not yet supported
-* Type aliasing (e.g., `type UserID = string`)
 * Intersections of types (e.g., `type A = B & C`)
 * Generics (e.g., `model Response<T> { data: T }`)
 
 
 If you would like to see any of these supported in Glue, please open (or upvote) a feature request in the [Glue GitHub repo](https://github.com/guywaldman/glue).
+
+
+
+---
+
+## Source: docs/05-ai-and-llms.mdx
 
 ---
 title: AI & LLMs
@@ -642,6 +765,12 @@ We hope that Glue gains adoption and will be included favorably in the training 
 Note that Glue is designed to be human-friendly and additionally LLM-friendly, at least to a reasonable extent.  
 LLMs can excel at structured formats (such as OpenAPI specs written in JSON/YAML), however they can often make small mistakes due to the verbose and strict nature of those formats.  
 Therefore, you will find that Glue's syntax is a bit more concise and forgiving, while still being unambiguous and easy to parse for both humans and machines.  
+
+
+---
+
+## Source: docs/10-codegen-openapi.mdx
+
 ---
 title: OpenAPI
 section: Code generation
@@ -850,7 +979,13 @@ glue gen openapi -i api.glue -o ./openapi.json
 
 # Current limitations
 
-* Proper typing of query/path parameters, authentication/authorization schemes are not yet supported---
+* Proper typing of query/path parameters, authentication/authorization schemes are not yet supported
+
+---
+
+## Source: docs/11-codegen-jsonschema.mdx
+
+---
 title: JSON Schema
 section: Code generation
 ---
@@ -964,7 +1099,13 @@ glue gen jsonschema -i config.glue -o ./config.json
     }
   }
 }
-```---
+```
+
+---
+
+## Source: docs/12-codegen-protobuf.mdx
+
+---
 title: Protobuf
 section: Code generation
 ---
@@ -1032,6 +1173,12 @@ enum Role {
 - Optional fields (`?`) are not supported in Protobuf generation.
 - `Record<..., ...>` and anonymous model types are not supported.
 - Endpoint declarations are ignored by the Protobuf generator.
+
+
+---
+
+## Source: docs/13-codegen-python.mdx
+
 ---
 title: Python
 section: Code generation
@@ -1110,6 +1257,12 @@ class UserRole(StrEnum):
 - Nested Glue models are emitted as flattened class names (e.g. `Parent_Child`).
 - `@field(alias="...")` is applied in all supported Python model libraries.
 - Anonymous model type atoms are currently not supported in Python code generation.
+
+
+---
+
+## Source: docs/14-codegen-typescript.mdx
+
 ---
 title: TypeScript
 section: Code generation
@@ -1189,6 +1342,12 @@ export type User = z.infer<typeof UserSchema>;
 - Nested Glue models are emitted as flattened names (e.g. `Parent_Child`).
 - `Record<K, V>` is emitted as `Record<K, V>` (or `z.record(...)` in Zod mode).
 - Anonymous model type atoms are currently not supported in TypeScript code generation.
+
+
+---
+
+## Source: docs/15-codegen-go.mdx
+
 ---
 title: Go
 section: Code generation
@@ -1259,6 +1418,12 @@ const (
 - Unions are emitted as `interface{}`.
 - `Record<K, V>` is emitted as `map[K]V`.
 - Anonymous model type atoms are currently not supported in Go code generation.
+
+
+---
+
+## Source: docs/16-codegen-rust.mdx
+
 ---
 title: Rust
 section: Code generation
@@ -1337,3 +1502,4 @@ pub enum Status {
 - Arrays are emitted as `Vec<T>`.
 - `Record<K, V>` is emitted as `HashMap<K, V>`.
 - Anonymous model type atoms currently not supported.
+

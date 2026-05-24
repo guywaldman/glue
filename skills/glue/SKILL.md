@@ -1,6 +1,7 @@
 ---
 name: glue
 description: Official Glue IDL guide for agents. Use when writing, explaining, validating, configuring, or generating code from Glue files into TypeScript, Python, Rust, Go, OpenAPI, JSON Schema, or Protobuf.
+license: MIT
 ---
 
 # Glue
@@ -12,7 +13,7 @@ Use this skill for Glue, a compact IDL for defining models, enums, imports, endp
 1. Start with the smallest valid `.glue` file or `.gluerc` config that satisfies the request.
 2. Validate Glue source with `glue check <file>` when a CLI is available.
 3. Generate code with `glue gen <target> -i <file> -o <output>`, or use `glue gen`/`glue gen --config <path>` for config-driven generation.
-4. When exact syntax, config fields, or target behavior matters, read `REFERENCE.md` if present. Published skill releases include it as a generated mirror of `https://gluelang.dev/llms.txt`.
+4. When exact syntax, config fields, or target behavior matters, read `REFERENCE.md` if present. Published skill releases include it as a generated mirror of this repository's docs.
 5. If `REFERENCE.md` is not present or may be stale, fetch `https://gluelang.dev/llms.txt` as the canonical current docs.
 
 ## Guardrails
