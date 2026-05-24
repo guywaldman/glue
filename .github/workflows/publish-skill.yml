@@ -1,0 +1,61 @@
+name: Publish Glue Skill
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag for gh skill publish (for example, v1.0.0)"
+        required: false
+        type: string
+      dry_run:
+        description: "Validate without creating a GitHub release"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  publish-glue-skill:
+    name: Publish Glue skill
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install latest GitHub CLI
+        run: |
+          set -euo pipefail
+          sudo mkdir -p -m 755 /etc/apt/keyrings
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+            | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg >/dev/null
+          sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+            | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
+          sudo apt-get update
+          sudo apt-get install -y gh
+          gh --version
+
+      - name: Install just
+        uses: taiki-e/install-action@just
+
+      - name: Publish skill
+        if: ${{ github.event_name == 'release' || github.event.inputs.dry_run != 'true' }}
+        run: |
+          set -euo pipefail
+          tag="${{ github.event.release.tag_name || github.event.inputs.tag }}"
+          if [ -z "$tag" ]; then
+            echo "::error::A tag is required when running this workflow manually unless dry_run is true."
+            exit 1
+          fi
+          just publish-skill "$tag"
+
+      - name: Validate skill only
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true' }}
+        run: just validate-skill

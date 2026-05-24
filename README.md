@@ -17,6 +17,14 @@ Designed to be simple, fast, human-friendly, AI-friendly, and language-agnostic.
 Glue is designed to be LLM-friendly. [/llms.txt](https://gluelang.dev/llms.txt) includes the entirety of the Glue docs (~4K tokens) — simply provide it to your favorite agentic coding solution.  
 Glue's syntax is concise and forgiving, making it easy for LLMs to work with while remaining unambiguous and easy to parse.
 
+If your agent supports the open skills ecosystem, you can install the official Glue skill from this repository:
+
+```shell
+npx skills add guywaldman/glue --skill glue
+```
+
+The published skill includes a generated reference sourced from `https://gluelang.dev/llms.txt`. To generate that reference locally for inspection, run `just update-skill`.
+
 ## Quickstart
 
 ### 1. Install
