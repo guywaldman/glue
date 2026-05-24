@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.3](https://github.com/guywaldman/glue/compare/v1.1.2...v1.1.3) (2026-05-24)
+
+
+### Bug Fixes
+
+* fix bug where `glue gen` did not overwrite files ([4c3f192](https://github.com/guywaldman/glue/commit/4c3f1923622aa3a9d51e647f7546689020c07730))
+
 ## [1.1.2](https://github.com/guywaldman/glue/compare/v1.1.1...v1.1.2) (2026-05-24)
 
 
