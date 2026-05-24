@@ -1,11 +1,11 @@
 use config::{GlueConfigSchemaGeneration, GlueConfigSchemaGenerationGo};
-use convert_case::{Case, Casing};
+use convert_case::Case;
 use lang::{AstNode, Enum, Field, GlueIr, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
     codegen::CodeGenResult,
-    context::{CodeGenContext, FieldExt, NamedExt, TypeMapper},
+    context::{CodeGenContext, FieldExt, NamedExt, TypeMapper, convert_generated_identifier_case, convert_user_identifier_case},
 };
 
 #[derive(Default)]
@@ -82,7 +82,7 @@ impl<'a> GoGenerator<'a> {
         for field in fields {
             let field_name = field.name()?;
             let field_type = field.field_type()?;
-            let go_field_name = field_name.to_case(Case::Pascal);
+            let go_field_name = convert_user_identifier_case(&field_name, Case::Pascal, self.ctx.preserve_generated_identifiers());
 
             let type_atoms = field_type.type_atoms();
             let type_strs: Vec<String> = type_atoms.iter().map(|atom| self.emit_type_atom(atom, Some(scope_id))).collect::<Result<Vec<_>, _>>()?;
@@ -171,7 +171,7 @@ impl<'a> GoGenerator<'a> {
 
         for variant in variants {
             let variant_value = variant.value().ok_or_else(|| CodeGenContext::internal_error("Enum variant missing value"))?;
-            let variant_name = format!("{}{}", qualified_name, variant_value.to_case(Case::Pascal));
+            let variant_name = format!("{}{}", qualified_name, convert_generated_identifier_case(&variant_value, Case::Pascal));
             max_variant_name_len = max_variant_name_len.max(variant_name.len());
             variant_rows.push((variant, variant_name, variant_value));
         }
@@ -268,13 +268,18 @@ impl<'a> GoGenerator<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use config::GlueConfigSchemaGeneration;
     use indoc::indoc;
     use insta::assert_snapshot;
 
-    use crate::test_utils::gen_test;
+    use crate::test_utils::{gen_test, gen_test_with_config};
 
     fn gen_go(src: &str) -> String {
         gen_test(&CodeGenGo, src)
+    }
+
+    fn gen_go_with_config(src: &str, config: GlueConfigSchemaGeneration) -> String {
+        gen_test_with_config(&CodeGenGo, src, Some(config))
     }
 
     #[test]
@@ -412,5 +417,76 @@ mod tests {
             }
         "#};
         assert_snapshot!(gen_go(src));
+    }
+
+    #[test]
+    fn test_pascal_type_identifiers_preserve_uppercase_and_generated_identifiers_default_to_pascal() {
+        let src = indoc! {r#"
+            model XMLDocument {
+                XML_version: string
+            }
+
+            model XMLParser {
+                document: XMLDocument
+            }
+
+            enum XMLParseMode: "STRICT_MODE" | "HTML-mode"
+        "#};
+
+        let output = gen_go(src);
+        assert!(output.contains("type XMLDocument struct {"), "Expected model acronym to be preserved:\n{}", output);
+        assert!(output.contains("type XMLParser struct {"), "Expected model acronym to be preserved:\n{}", output);
+        assert!(
+            output.contains("XMLVersion"),
+            "Expected user-provided field acronym to be preserved while exporting the Go field:\n{}",
+            output
+        );
+        assert!(output.contains("Document XMLDocument"), "Expected reference acronym to be preserved:\n{}", output);
+        assert!(
+            output.contains("XMLParseModeStrictMode"),
+            "Expected generated enum variant from uppercase value to default to PascalCase:\n{}",
+            output
+        );
+        assert!(output.contains("XMLParseModeHtmlMode"), "Expected generated enum variant to default to PascalCase:\n{}", output);
+    }
+
+    #[test]
+    fn test_preserve_generated_identifiers_config() {
+        let src = indoc! {r#"
+            model xml_document {
+                XML_version: string
+            }
+
+            enum xml_parse_mode: "STRICT_MODE" | "HTML-mode"
+        "#};
+
+        let output = gen_go_with_config(
+            src,
+            GlueConfigSchemaGeneration {
+                preserve_generated_identifiers: Some(true),
+                ..Default::default()
+            },
+        );
+        assert!(
+            output.contains("type xml_document struct {"),
+            "Expected configured model identifier to be preserved exactly:\n{}",
+            output
+        );
+        assert!(output.contains("XML_version string"), "Expected configured field identifier to be preserved exactly:\n{}", output);
+        assert!(
+            output.contains("type xml_parse_mode string"),
+            "Expected configured enum identifier to be preserved exactly:\n{}",
+            output
+        );
+        assert!(
+            output.contains("xml_parse_modeStrictMode"),
+            "Expected generated enum variant suffix to keep normal PascalCase:\n{}",
+            output
+        );
+        assert!(
+            output.contains("xml_parse_modeHtmlMode"),
+            "Expected generated enum variant suffix to keep normal PascalCase:\n{}",
+            output
+        );
     }
 }

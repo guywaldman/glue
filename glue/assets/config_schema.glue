@@ -44,6 +44,9 @@ model GlueConfigSchema {
 		/// Whether to emit lint suppression comments in generated files. Defaults to true.
 		lint_suppressions?: bool
 
+		/// Preserve user-provided identifiers exactly instead of normalizing them for target languages. Generated identifiers derived from enum values may still be normalized. Defaults to false.
+		preserve_generated_identifiers?: bool
+
 		/// Configurations for TypeScript code generation (`glue gen typescript [...]`)
 		typescript?: TypeScript
 		model TypeScript {

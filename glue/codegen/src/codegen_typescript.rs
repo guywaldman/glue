@@ -1,5 +1,5 @@
 use config::GlueConfigSchemaGeneration;
-use convert_case::{Case, Casing};
+use convert_case::Case;
 use lang::{AstNode, Enum, Field, GlueIr, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
 
 use crate::{
@@ -16,9 +16,9 @@ impl CodeGenerator for CodeGenTypeScript {
         let program = ir
             .into_analyzed_program()
             .ok_or_else(|| CodeGenError::InternalError("Glue IR does not contain an analyzed program".to_string()))?;
-        let ts_config = config.and_then(|g| g.typescript).unwrap_or_default();
+        let ts_config = config.as_ref().and_then(|g| g.typescript.clone()).unwrap_or_default();
         let zod_enabled = ts_config.zod.unwrap_or(false);
-        let ctx = CodeGenContext::new(program.ast_root.clone(), program.symbols, source, None);
+        let ctx = CodeGenContext::new(program.ast_root.clone(), program.symbols, source, config.as_ref());
         let mut generator = TypeScriptGenerator::new(ctx, zod_enabled);
         generator.generate()
     }
@@ -170,7 +170,7 @@ impl<'a> TypeScriptGenerator<'a> {
                     .ctx
                     .resolve(scope, &type_name)
                     .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved type: {}", type_name)))?;
-                lang::symbol_name_to_parts(&sym.name).join("_").to_case(Case::Pascal)
+                self.ctx.symbol_name(&sym.name, Case::Pascal)
             }
         } else if atom.as_anon_model().is_some() {
             return Err(self.ctx.error(atom.syntax(), "Anonymous models not supported"));
@@ -218,7 +218,7 @@ impl<'a> TypeScriptGenerator<'a> {
                     .ctx
                     .resolve(scope, &type_name)
                     .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved type: {}", type_name)))?;
-                let qualified = lang::symbol_name_to_parts(&sym.name).join("_").to_case(Case::Pascal);
+                let qualified = self.ctx.symbol_name(&sym.name, Case::Pascal);
                 format!("{}Schema", qualified)
             }
         } else if atom.as_anon_model().is_some() {
@@ -323,5 +323,68 @@ mod tests {
     #[test]
     fn test_zod() {
         assert_snapshot!(gen_typescript_with_zod(SIMPLE_MODEL, true));
+    }
+
+    #[test]
+    fn test_pascal_identifiers_preserve_uppercase() {
+        let src = indoc! { r#"
+            model XMLDocument {
+                region: string
+            }
+
+            model XMLParser {
+                document: XMLDocument
+            }
+        "# };
+
+        let output = gen_typescript(src);
+        assert!(output.contains("export type XMLDocument = {"), "Expected model acronym to be preserved:\n{}", output);
+        assert!(output.contains("export type XMLParser = {"), "Expected model acronym to be preserved:\n{}", output);
+        assert!(output.contains("document: XMLDocument;"), "Expected reference acronym to be preserved:\n{}", output);
+    }
+
+    #[test]
+    fn test_preserve_generated_identifiers_config() {
+        let src = indoc! { r#"
+            model xml_document {
+                XML_version: string
+            }
+
+            model xml_parser {
+                document: xml_document
+            }
+
+            enum xml_parse_mode: "STRICT_MODE" | "HTML-mode"
+        "# };
+
+        let output = gen_test_with_config(
+            &CodeGenTypeScript,
+            src,
+            Some(GlueConfigSchemaGeneration {
+                preserve_generated_identifiers: Some(true),
+                ..Default::default()
+            }),
+        );
+        assert!(
+            output.contains("export type xml_document = {"),
+            "Expected configured model identifier to be preserved exactly:\n{}",
+            output
+        );
+        assert!(output.contains("XML_version: string;"), "Expected field identifier to remain unchanged:\n{}", output);
+        assert!(
+            output.contains("export type xml_parser = {"),
+            "Expected configured model identifier to be preserved exactly:\n{}",
+            output
+        );
+        assert!(
+            output.contains("document: xml_document;"),
+            "Expected configured reference identifier to be preserved exactly:\n{}",
+            output
+        );
+        assert!(
+            output.contains("export type xml_parse_mode = \"STRICT_MODE\" | \"HTML-mode\";"),
+            "Expected configured enum identifier to be preserved exactly:\n{}",
+            output
+        );
     }
 }

@@ -55,6 +55,10 @@ export type GlueConfigSchemaGeneration = {
    */
   lint_suppressions?: boolean;
   /**
+   * Preserve user-provided identifiers exactly instead of normalizing them for target languages. Generated identifiers derived from enum values may still be normalized. Defaults to false.
+   */
+  preserve_generated_identifiers?: boolean;
+  /**
    * Configurations for TypeScript code generation (`glue gen typescript [...]`)
    */
   typescript?: GlueConfigSchemaGenerationTypeScript;

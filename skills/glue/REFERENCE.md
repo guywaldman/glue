@@ -513,6 +513,7 @@ global:
   output_base_dir: ./generated
   config:
     lint_suppressions: true
+    preserve_generated_identifiers: false
     watermark: short
     typescript:
       zod: false
@@ -555,6 +556,7 @@ gen:
 - Run `glue gen` to use an auto-discovered config file, or `glue gen --config path/to/.gluerc.yaml` to use one explicitly.
 - `output` supports `{file_name}` and `{file_ext}` placeholders.
 - `watermark` supports `full`, `short`, or `none`.
+- `preserve_generated_identifiers` keeps user-provided identifiers exactly as written, such as model names and fields. Glue may still normalize identifiers it synthesizes from values, such as enum variant constants.
 - `python.data_model_library` supports `pydantic`, `dataclasses`, `attrs`, or `msgspec`.
 
 

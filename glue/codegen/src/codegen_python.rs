@@ -1,11 +1,11 @@
 use config::{GlueConfigSchemaGeneration, GlueConfigSchemaGenerationPython, GlueConfigSchemaGenerationPythonDataModelLibrary};
-use convert_case::{Case, Casing};
+use convert_case::Case;
 use lang::{AstNode, Enum, Field, GlueIr, Literal, LiteralExpr, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
     codegen::CodeGenResult,
-    context::{CodeGenContext, DocEmitter, EnumVariantExt, FieldExt, NamedExt, TypeMapper, indent},
+    context::{CodeGenContext, DocEmitter, EnumVariantExt, FieldExt, NamedExt, TypeMapper, convert_generated_identifier_case, convert_user_identifier_case, indent},
 };
 
 enum PyModelLibrary {
@@ -95,10 +95,10 @@ impl CodeGenerator for CodeGenPython {
             .into_analyzed_program()
             .ok_or_else(|| CodeGenError::InternalError("Glue IR does not contain an analyzed program".to_string()))?;
         let lint_suppressions = config.as_ref().and_then(|g| g.lint_suppressions).unwrap_or(true);
-        let py_config = config.and_then(|g| g.python).unwrap_or_default();
+        let py_config = config.as_ref().and_then(|g| g.python.clone()).unwrap_or_default();
 
         let lib = PyModelLibrary::from_config(py_config)?;
-        let ctx = CodeGenContext::new(program.ast_root.clone(), program.symbols, source, None);
+        let ctx = CodeGenContext::new(program.ast_root.clone(), program.symbols, source, config.as_ref());
         let mut generator = PythonGenerator::new(ctx, lib, lint_suppressions);
         generator.generate()
     }
@@ -178,7 +178,7 @@ impl<'a> PythonGenerator<'a> {
 
     fn emit_field(&mut self, field: &Field, scope: Option<SymId>) -> CodeGenResult<()> {
         let field_name = field.name()?;
-        let py_name = field_name.to_case(Case::Snake);
+        let py_name = convert_user_identifier_case(&field_name, Case::Snake, self.ctx.preserve_generated_identifiers());
 
         let mut type_code = self.emit_type(&field.field_type()?, scope)?;
         if field.is_optional() {
@@ -304,7 +304,7 @@ impl<'a> PythonGenerator<'a> {
 
         for variant in enum_.variants() {
             let value = variant.variant_value()?;
-            let ident = value.replace('-', "_").to_case(Case::UpperSnake);
+            let ident = convert_generated_identifier_case(&value.replace('-', "_"), Case::UpperSnake);
             self.output.push_str(&indent(&format!("{} = \"{}\"\n", ident, value), 4));
 
             if let Some(docs) = variant.docs() {
@@ -345,7 +345,7 @@ impl<'a> PythonGenerator<'a> {
                     .ctx
                     .resolve(scope, &type_name)
                     .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved type: {}", type_name)))?;
-                let qualified = lang::symbol_name_to_parts(&sym.name).join("_").to_case(Case::Pascal);
+                let qualified = self.ctx.symbol_name(&sym.name, Case::Pascal);
                 format!("\"{}\"", qualified)
             }
         } else if atom.as_anon_model().is_some() {
@@ -467,6 +467,83 @@ mod tests {
     #[test]
     fn test_msgspec_alias() {
         assert_snapshot!(gen_python_with_data_model_lib(ALIAS_MODEL, GlueConfigSchemaGenerationPythonDataModelLibrary::Msgspec));
+    }
+
+    #[test]
+    fn test_pascal_identifiers_preserve_uppercase() {
+        let src = indoc! { r#"
+            model XMLDocument {
+                region: string
+            }
+
+            model XMLParser {
+                document: XMLDocument
+            }
+        "# };
+
+        let output = gen_python(src);
+        assert!(output.contains("class XMLDocument(BaseModel):"), "Expected model acronym to be preserved:\n{}", output);
+        assert!(output.contains("class XMLParser(BaseModel):"), "Expected model acronym to be preserved:\n{}", output);
+        assert!(
+            output.contains("document: Annotated[\"XMLDocument\", Field()]"),
+            "Expected reference acronym to be preserved:\n{}",
+            output
+        );
+    }
+
+    #[test]
+    fn test_preserve_generated_identifiers_config() {
+        let src = indoc! { r#"
+            model xml_document {
+                XML_version: string
+            }
+
+            model xml_parser {
+                document: xml_document
+            }
+
+            enum xml_parse_mode: "STRICT_MODE" | "HTML-mode"
+        "# };
+
+        let output = gen_test_with_config(
+            &CodeGenPython,
+            src,
+            Some(GlueConfigSchemaGeneration {
+                preserve_generated_identifiers: Some(true),
+                ..Default::default()
+            }),
+        );
+        assert!(
+            output.contains("class xml_document(BaseModel):"),
+            "Expected configured model identifier to be preserved exactly:\n{}",
+            output
+        );
+        assert!(
+            output.contains("XML_version: Annotated[str, Field()]"),
+            "Expected configured field identifier to be preserved exactly:\n{}",
+            output
+        );
+        assert!(
+            output.contains("class xml_parser(BaseModel):"),
+            "Expected configured model identifier to be preserved exactly:\n{}",
+            output
+        );
+        assert!(
+            output.contains("document: Annotated[\"xml_document\", Field()]"),
+            "Expected configured reference identifier to be preserved exactly:\n{}",
+            output
+        );
+        assert!(
+            output.contains("class xml_parse_mode(StrEnum):"),
+            "Expected configured enum identifier to be preserved exactly:\n{}",
+            output
+        );
+        assert!(
+            output.contains("STRICT_MODE = \"STRICT_MODE\""),
+            "Expected generated enum member to keep normal UpperSnake:\n{}",
+            output
+        );
+        assert!(output.contains("HTML_MODE = \"HTML-mode\""), "Expected generated enum member to keep normal UpperSnake:\n{}", output);
     }
 
     #[test]

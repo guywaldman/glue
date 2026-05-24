@@ -1,5 +1,5 @@
 use config::GlueConfigSchemaGeneration;
-use convert_case::{Case, Casing};
+use convert_case::{Case, Casing, Converter};
 use lang::{
     AstNode, DiagnosticContext, Enum, EnumVariant, Field, LNode, LSyntaxKind, Literal, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG, Model, PrimitiveType, SourceCodeMetadata, SymId,
     SymTable, Type, TypeAlias, TypeAtom,
@@ -28,8 +28,21 @@ impl<'a> CodeGenContext<'a> {
         self.symbols.resolve(scope, name)
     }
 
+    pub fn symbol_name(&self, name: &str, case: Case) -> String {
+        let parts = lang::symbol_name_to_parts(name);
+        if self.preserve_generated_identifiers() {
+            parts.join("")
+        } else {
+            convert_identifier_case(&parts.join("_"), case)
+        }
+    }
+
     pub fn qualified_name(&self, scope: Option<SymId>, name: &str, case: Case) -> Option<String> {
-        self.resolve(scope, name).map(|entry| lang::symbol_name_to_parts(&entry.name).join("_").to_case(case))
+        self.resolve(scope, name).map(|entry| self.symbol_name(&entry.name, case))
+    }
+
+    pub fn preserve_generated_identifiers(&self) -> bool {
+        self.config.and_then(|config| config.preserve_generated_identifiers).unwrap_or(false)
     }
 
     pub fn top_level_models(&self) -> impl Iterator<Item = Model> + '_ {
@@ -119,6 +132,34 @@ impl<'a> CodeGenContext<'a> {
 
     pub fn internal_error(message: impl Into<String>) -> CodeGenError {
         CodeGenError::InternalError(message.into())
+    }
+}
+
+pub fn convert_identifier_case(name: &str, case: Case) -> String {
+    if case == Case::Pascal {
+        return Converter::new().to_case(Case::Pascal).set_pattern(pascal_preserve_uppercase).convert(name);
+    }
+
+    name.to_case(case)
+}
+
+pub fn convert_user_identifier_case(name: &str, case: Case, preserve: bool) -> String {
+    if preserve { name.to_string() } else { convert_identifier_case(name, case) }
+}
+
+pub fn convert_generated_identifier_case(name: &str, case: Case) -> String {
+    name.to_case(case)
+}
+
+fn pascal_preserve_uppercase(words: &[&str]) -> Vec<String> {
+    words.iter().map(|word| uppercase_first_preserve_rest(word)).collect()
+}
+
+fn uppercase_first_preserve_rest(word: &str) -> String {
+    let mut chars = word.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
     }
 }
 
@@ -296,4 +337,23 @@ pub fn indent(text: &str, spaces: usize) -> String {
         .collect::<Vec<_>>()
         .join("\n")
         + if text.ends_with('\n') { "\n" } else { "" }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pascal_case_preserves_existing_uppercase_runs() {
+        assert_eq!(convert_identifier_case("XMLDocument", Case::Pascal), "XMLDocument");
+        assert_eq!(convert_identifier_case("HTMLParser", Case::Pascal), "HTMLParser");
+        assert_eq!(convert_identifier_case("xml_document", Case::Pascal), "XmlDocument");
+        assert_eq!(convert_identifier_case("XML_document", Case::Pascal), "XMLDocument");
+    }
+
+    #[test]
+    fn generated_identifiers_use_standard_case_conversion() {
+        assert_eq!(convert_generated_identifier_case("PRODUCT_NOT_FOUND", Case::Pascal), "ProductNotFound");
+        assert_eq!(convert_generated_identifier_case("HTML-mode", Case::Pascal), "HtmlMode");
+    }
 }

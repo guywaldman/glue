@@ -621,6 +621,7 @@ impl GlueCli {
             (None, Some(overrides)) => Some(overrides),
             (Some(base), Some(overrides)) => Some(GlueConfigSchemaGeneration {
                 lint_suppressions: overrides.lint_suppressions.or(base.lint_suppressions),
+                preserve_generated_identifiers: overrides.preserve_generated_identifiers.or(base.preserve_generated_identifiers),
                 watermark: overrides.watermark.or(base.watermark),
                 python: Self::merge_python_config(base.python, overrides.python),
                 rust: Self::merge_rust_config(base.rust, overrides.rust),

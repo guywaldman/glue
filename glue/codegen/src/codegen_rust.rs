@@ -1,11 +1,11 @@
 use config::GlueConfigSchemaGeneration;
-use convert_case::{Case, Casing};
+use convert_case::Case;
 use lang::{AstNode, Enum, Field, GlueIr, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
     codegen::CodeGenResult,
-    context::{CodeGenContext, DocEmitter, FieldExt, NamedExt, TypeMapper},
+    context::{CodeGenContext, DocEmitter, FieldExt, NamedExt, TypeMapper, convert_generated_identifier_case},
 };
 
 #[derive(Default)]
@@ -113,7 +113,7 @@ impl<'a> RustGenerator<'a> {
 
         for variant in enum_.variants() {
             let variant_value = variant.value().ok_or_else(|| CodeGenContext::internal_error("Enum variant missing value"))?;
-            let variant_name = variant_value.to_case(Case::Pascal);
+            let variant_name = convert_generated_identifier_case(&variant_value, Case::Pascal);
 
             if let Some(docs) = variant.docs() {
                 output.push_str(&DocEmitter::rust_docs(&docs, 1));
@@ -222,13 +222,18 @@ impl<'a> RustGenerator<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use config::GlueConfigSchemaGeneration;
     use indoc::indoc;
     use insta::assert_snapshot;
 
-    use crate::test_utils::gen_test;
+    use crate::test_utils::{gen_test, gen_test_with_config};
 
     fn gen_rust(src: &str) -> String {
         gen_test(&CodeGenRust, src)
+    }
+
+    fn gen_rust_with_config(src: &str, config: GlueConfigSchemaGeneration) -> String {
+        gen_test_with_config(&CodeGenRust, src, Some(config))
     }
 
     #[test]
@@ -343,5 +348,60 @@ mod tests {
         // Record<K,V>[] syntax may need Vec wrapping - check actual output
         assert!(output.contains("HashMap<String, i64>"), "Expected HashMap in output:\n{}", output);
         assert_snapshot!(output);
+    }
+
+    #[test]
+    fn test_pascal_type_identifiers_preserve_uppercase_and_generated_identifiers_default_to_pascal() {
+        let src = indoc! { r#"
+            model XMLDocument {
+                region: string
+            }
+
+            model XMLParser {
+                document: XMLDocument
+            }
+
+            enum XMLParseMode: "STRICT_MODE" | "HTML-mode"
+        "# };
+
+        let output = gen_rust(src);
+        assert!(output.contains("pub struct XMLDocument {"), "Expected model acronym to be preserved:\n{}", output);
+        assert!(output.contains("pub struct XMLParser {"), "Expected model acronym to be preserved:\n{}", output);
+        assert!(output.contains("pub document: XMLDocument,"), "Expected reference acronym to be preserved:\n{}", output);
+        assert!(output.contains("pub enum XMLParseMode {"), "Expected enum acronym to be preserved:\n{}", output);
+        assert!(
+            output.contains("StrictMode,"),
+            "Expected generated enum variant from uppercase value to default to PascalCase:\n{}",
+            output
+        );
+        assert!(output.contains("HtmlMode,"), "Expected generated enum variant to default to PascalCase:\n{}", output);
+    }
+
+    #[test]
+    fn test_preserve_generated_identifiers_config() {
+        let src = indoc! { r#"
+            model xml_document {
+                XML_version: string
+            }
+
+            enum xml_parse_mode: "STRICT_MODE" | "HTML-mode"
+        "# };
+
+        let output = gen_rust_with_config(
+            src,
+            GlueConfigSchemaGeneration {
+                preserve_generated_identifiers: Some(true),
+                ..Default::default()
+            },
+        );
+        assert!(
+            output.contains("pub struct xml_document {"),
+            "Expected configured model identifier to be preserved exactly:\n{}",
+            output
+        );
+        assert!(output.contains("pub XML_version: String,"), "Expected configured field identifier to be preserved exactly:\n{}", output);
+        assert!(output.contains("pub enum xml_parse_mode {"), "Expected configured enum identifier to be preserved exactly:\n{}", output);
+        assert!(output.contains("StrictMode,"), "Expected generated enum variant to keep normal PascalCase:\n{}", output);
+        assert!(output.contains("HtmlMode,"), "Expected generated enum variant to keep normal PascalCase:\n{}", output);
     }
 }
