@@ -15,9 +15,34 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Run release-please
+        id: release
         uses: googleapis/release-please-action@v4
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           target-branch: main
           config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      - name: Check out release PR branch
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ fromJSON(steps.release.outputs.prs)[0].headBranchName }}
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+
+      - name: Sync Cargo.lock after version bump
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        env:
+          RELEASE_PR_BRANCH: ${{ fromJSON(steps.release.outputs.prs)[0].headBranchName }}
+        run: |
+          cargo metadata --manifest-path glue/Cargo.toml --format-version 1 > /dev/null
+
+          if git diff --quiet -- glue/Cargo.lock; then
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add glue/Cargo.lock
+          git commit -m "chore: sync Cargo.lock"
+          git push origin HEAD:"${RELEASE_PR_BRANCH}"
