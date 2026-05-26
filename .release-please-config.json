@@ -11,7 +11,11 @@
           "jsonpath": "$.workspace.package.version"
         },
         "extension/package.json",
-        "extension/package-lock.json"
+        "extension/package-lock.json",
+        {
+          "type": "generic",
+          "path": "skills/glue/SKILL.md"
+        }
       ]
     }
   }
