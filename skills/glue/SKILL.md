@@ -1,5 +1,6 @@
 ---
 name: glue
+displayName: Glue
 description: "Official Glue IDL guide for agents. Use when designing, writing, reviewing, validating, or generating code from Glue files and .gluerc config for TypeScript, Python, Rust, Go, OpenAPI, JSON Schema, or Protobuf."
 license: MIT
 metadata:
