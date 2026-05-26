@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.1.4](https://github.com/guywaldman/glue/compare/v1.1.3...v1.1.4) (2026-05-26)
+
+
+### Bug Fixes
+
+* **ci:** have release-please update lockfiles ([61e0e9d](https://github.com/guywaldman/glue/commit/61e0e9d16d1fcdacd273d63c0b22c95d13a719dc))
+* **ci:** make release-please update the version in SKILL.md ([2264867](https://github.com/guywaldman/glue/commit/226486779d0178a269c1b6a92d1f8708be35931e))
+* **cli:** fix issue where the CLI did not display the correct version after releases ([e5f22a0](https://github.com/guywaldman/glue/commit/e5f22a03d76cc2eb6c539590ccae6165d90dad96))
+* **skill:** shorten and polish the skill & remove skill reference auto-generation ([459fce1](https://github.com/guywaldman/glue/commit/459fce12dac254ae663809a8ed168ef132329615))
+
 ## [1.1.3](https://github.com/guywaldman/glue/compare/v1.1.2...v1.1.3) (2026-05-24)
 
 
