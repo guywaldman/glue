@@ -8,12 +8,10 @@ Usage:
   scripts/publish_glue_skill.sh --dry-run
   scripts/publish_glue_skill.sh --tag <tag>
 
-Generates the Glue skill reference, validates that this repository exposes the
-Glue skill through the skills CLI, and validates/publishes through GitHub
-agent skills.
+Validates that this repository exposes the Glue skill through the skills CLI,
+and validates/publishes through GitHub agent skills.
 
 Environment:
-  CI=true  Fail if generated skill files are not committed.
   SKILLS_SH_INSTALL_SOURCE=<url-or-repo>  Install from this public source in a
     temporary directory so skills.sh sees the GitHub repo.
 EOF
@@ -124,19 +122,6 @@ if [[ "$mode" != "check" && "$mode" != "publish" ]]; then
   echo "error: unsupported mode: $mode" >&2
   usage >&2
   exit 2
-fi
-
-"$repo_root/scripts/update_glue_skill_reference.sh"
-
-if [[ "${CI:-}" == "true" ]]; then
-  if ! git -C "$repo_root" diff --exit-code -- skills/glue/SKILL.md skills/glue/REFERENCE.md; then
-    cat >&2 <<'EOF'
-error: generated skill files are not committed.
-
-Run `just update-skill`, commit the resulting skill files, and rerun CI.
-EOF
-    exit 1
-  fi
 fi
 
 if [[ -n "$tag" ]]; then

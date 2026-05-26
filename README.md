@@ -25,7 +25,7 @@ pnpm dlx skills add guywaldman/glue --skill glue
 
 If your shell does not define `pnpm`, use `npx skills add guywaldman/glue --skill glue`.
 
-The published skill includes a generated reference sourced from this repository's docs. To refresh that reference locally, run `just update-skill`.
+The published skill points agents to the live docs, [/llms.txt](https://gluelang.dev/llms.txt), and repository documentation instead of bundling a generated docs mirror.
 
 ## Quickstart
 

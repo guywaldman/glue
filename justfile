@@ -33,10 +33,6 @@ generate: build
 	cargo run --bin glue -- gen rust -i {{config_schema}} -o $config_rust_file
 	cargo fmt -- $config_rust_file
 
-# Generate the repo-published Glue skill reference from repo docs.
-update-skill:
-	./scripts/update_glue_skill_reference.sh
-
 # Validate the repo-published Glue skill with the skills CLI.
 validate-skill:
 	./scripts/publish_glue_skill.sh --check
