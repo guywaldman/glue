@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.6](https://github.com/guywaldman/glue/compare/v1.1.5...v1.1.6) (2026-05-26)
+
+
+### Bug Fixes
+
+* **ci:** don't fail the release is the VSC extension was already published ([d55049a](https://github.com/guywaldman/glue/commit/d55049a676ed0170083280587f9deeacbe9b6b28))
+
 ## [1.1.5](https://github.com/guywaldman/glue/compare/v1.1.4...v1.1.5) (2026-05-26)
 
 
