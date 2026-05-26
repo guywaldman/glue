@@ -29,7 +29,7 @@ jobs:
       pull-requests: read
     steps:
       - name: Validate PR title follows Conventional Commits
-        uses: amannn/action-semantic-pull-request@v5
+        uses: amannn/action-semantic-pull-request@v6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -41,13 +41,13 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -67,7 +67,7 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -75,7 +75,7 @@ jobs:
           components: clippy, rustfmt
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -83,7 +83,7 @@ jobs:
             glue/target
           key: ${{ runner.os }}-cargo-lint-${{ hashFiles('**/Cargo.lock') }}
 
-      - uses: j178/prek-action@v1
+      - uses: j178/prek-action@v2
 
   skill:
     name: Skill
@@ -91,15 +91,15 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "22"
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 10
 
@@ -110,13 +110,13 @@ jobs:
     name: E2E tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -134,7 +134,7 @@ jobs:
         uses: taiki-e/install-action@just
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: "1.24"
 
@@ -152,7 +152,7 @@ jobs:
       GLUE_BENCH_ITERATIONS: "10"
       GLUE_BENCH_WARMUPS: "3"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -160,7 +160,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -225,7 +225,7 @@ jobs:
 
       - name: Upload perf artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: codegen-perf-results
           path: |
@@ -243,7 +243,7 @@ jobs:
     env:
       COVERAGE_THRESHOLD: "60"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -251,7 +251,7 @@ jobs:
           components: llvm-tools-preview
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -270,7 +270,7 @@ jobs:
         working-directory: .
 
       - name: Upload coverage artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-lcov
           path: glue/lcov.info
@@ -280,10 +280,10 @@ jobs:
     name: VS Code Extension Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "22"
 
@@ -291,7 +291,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -341,10 +341,10 @@ jobs:
             target: aarch64-pc-windows-msvc
             platform: win32-arm64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "22"
 
@@ -366,7 +366,7 @@ jobs:
           sudo apt-get install -y gcc-aarch64-linux-gnu
 
       - name: Cache cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-${{ matrix.target }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
@@ -431,12 +431,12 @@ jobs:
             target: aarch64-pc-windows-msvc
             platform: win32-arm64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ env.RELEASE_TAG }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "22"
 
@@ -458,7 +458,7 @@ jobs:
           sudo apt-get install -y gcc-aarch64-linux-gnu
 
       - name: Cache cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-${{ matrix.target }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
@@ -497,7 +497,7 @@ jobs:
         working-directory: extension
 
       - name: Upload VSIX artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: vsix-${{ matrix.platform }}
           path: artifacts/*.vsix
@@ -539,7 +539,7 @@ jobs:
             artifact_name: glue_windows_arm64
             binary_extension: ".exe"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ env.RELEASE_TAG }}
 
@@ -555,7 +555,7 @@ jobs:
           sudo apt-get install -y gcc-aarch64-linux-gnu
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -578,7 +578,7 @@ jobs:
           cp glue/target/${{ matrix.target }}/release/lsp${{ matrix.binary_extension }} artifacts/lsp${{ matrix.binary_extension }}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact_name }}
           path: artifacts/*
@@ -592,12 +592,12 @@ jobs:
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ env.RELEASE_TAG }}
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
@@ -618,7 +618,7 @@ jobs:
           find artifacts -maxdepth 3 -type f -name '*.vsix' -print -exec cp {} dist/ \;
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           files: |
@@ -648,7 +648,7 @@ jobs:
           fi
 
       - name: Check out Homebrew tap
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: guywaldman/homebrew-tap
           path: homebrew-tap

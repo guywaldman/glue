@@ -4,15 +4,15 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-indoc = "2.0.6"
-log = "0.4.28"
+indoc = "2.0.7"
+log = "0.4.30"
 pretty_assertions = { version = "1.4.1", features = ["unstable"] }
 pretty_env_logger = "0.5.0"
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.145"
+serde_json = "1.0.150"
 serde_yaml = "0.9.34"
-thiserror = "2.0.16"
-tsify = { version = "0.4.5", optional = true }
+thiserror = "2.0.18"
+tsify = { version = "0.5.6", optional = true }
 wasm-bindgen = { version = "0.2.105", optional = true }
 
 [features]
