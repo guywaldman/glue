@@ -21,6 +21,56 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  release-gate:
+    name: Release gate
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Validate release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${RELEASE_TAG}"
+          version="${tag#v}"
+
+          if [[ "$tag" == "$version" ]]; then
+            echo "::error::Release tag must start with v, got '${tag}'."
+            exit 1
+          fi
+
+          manifest_version=$(jq -r '."."' .release-please-manifest.json)
+          cargo_version=$(sed -n 's/^version = "\(.*\)"/\1/p' glue/Cargo.toml | head -n 1)
+          extension_version=$(jq -r '.version' extension/package.json)
+          subject=$(git log -1 --pretty=%s)
+          expected_subject="chore(main): release ${version}"
+
+          if [ "$manifest_version" != "$version" ]; then
+            echo "::error::.release-please-manifest.json is ${manifest_version}, expected ${version}."
+            exit 1
+          fi
+
+          if [ "$cargo_version" != "$version" ]; then
+            echo "::error::glue/Cargo.toml is ${cargo_version}, expected ${version}."
+            exit 1
+          fi
+
+          if [ "$extension_version" != "$version" ]; then
+            echo "::error::extension/package.json is ${extension_version}, expected ${version}."
+            exit 1
+          fi
+
+          if [[ "$subject" != "$expected_subject" && "$subject" != "$expected_subject (#"* ]]; then
+            echo "::error::Release tag ${tag} points at '${subject}', not a Release Please release commit for ${version}."
+            exit 1
+          fi
+
   pr-title:
     name: PR validation
     runs-on: ubuntu-latest
@@ -316,7 +366,7 @@ jobs:
   extension:
     name: VS Code extension | ${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
-    needs: [test, lint, extension-test, coverage, skill]
+    needs: [test, lint, extension-test, coverage, skill, release-gate]
     if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
     strategy:
       fail-fast: false
@@ -411,7 +461,8 @@ jobs:
             exit 0
           fi
 
-          # FIXME: This is hacky...
+          # Marketplace packages are immutable per extension version and platform.
+          # A retry after a partial release should skip only that known idempotency case.
           if grep -q "already exists" <<< "$publish_output"; then
             echo "Extension package for ${{ matrix.platform }} already exists; skipping publish."
             exit 0
@@ -423,7 +474,7 @@ jobs:
   extension-vsix:
     name: VS Code VSIX | ${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
-    needs: [test, lint, extension-test, coverage, skill]
+    needs: [test, lint, extension-test, coverage, skill, release-gate]
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
@@ -525,7 +576,7 @@ jobs:
   build-artifacts:
     name: Build | ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
-    needs: [test, lint, e2e-tests, coverage, skill]
+    needs: [test, lint, e2e-tests, coverage, skill, release-gate]
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
