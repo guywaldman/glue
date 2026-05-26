@@ -1,7 +1,7 @@
 [package]
 name = "config"
-version = "0.0.11"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 
 [dependencies]
 indoc = "2.0.6"

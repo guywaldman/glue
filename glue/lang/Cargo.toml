@@ -1,7 +1,7 @@
 [package]
 name = "lang"
-version = "0.0.11"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 
 [dependencies]
 pest = { version = "2.8.3", features = ["miette-error"] }
