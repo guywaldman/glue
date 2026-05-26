@@ -3,7 +3,7 @@
   "displayName": "Glue",
   "description": "Glue language support",
   "publisher": "guywaldman",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "repository": {
     "type": "git",
     "url": "https://github.com/guywaldman/glue"
