@@ -13,6 +13,8 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_PR_BRANCH: release-please--branches--main
     steps:
       - name: Run release-please
         id: release
@@ -27,13 +29,11 @@ jobs:
         if: ${{ steps.release.outputs.prs_created == 'true' }}
         uses: actions/checkout@v4
         with:
-          ref: ${{ fromJSON(steps.release.outputs.prs)[0].headBranchName }}
+          ref: ${{ env.RELEASE_PR_BRANCH }}
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
 
       - name: Sync Cargo.lock after version bump
         if: ${{ steps.release.outputs.prs_created == 'true' }}
-        env:
-          RELEASE_PR_BRANCH: ${{ fromJSON(steps.release.outputs.prs)[0].headBranchName }}
         run: |
           cargo metadata --manifest-path glue/Cargo.toml --format-version 1 > /dev/null
 
