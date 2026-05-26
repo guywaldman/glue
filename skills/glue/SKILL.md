@@ -5,7 +5,7 @@ description: "Official Glue IDL guide for agents. Use when designing, writing, r
 license: MIT
 metadata:
   author: Guy Waldman
-  version: "1.1.7" # x-release-please-version
+  version: "1.1.8" # x-release-please-version
 ---
 
 # Glue
