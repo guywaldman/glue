@@ -16,14 +16,43 @@ jobs:
     env:
       RELEASE_PR_BRANCH: release-please--branches--main
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
       - name: Run release-please
         id: release
+        continue-on-error: true
         uses: googleapis/release-please-action@v4
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           target-branch: main
           config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      - name: Accept already-created GitHub release
+        if: ${{ steps.release.outcome == 'failure' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+        run: |
+          version=$(jq -r '."."' .release-please-manifest.json)
+          tag="v${version}"
+
+          if gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            git fetch --depth=1 origin "refs/tags/${tag}:refs/tags/${tag}"
+            tag_sha=$(git rev-list -n 1 "$tag")
+            head_sha=$(git rev-parse HEAD)
+
+            if [ "$tag_sha" != "$head_sha" ]; then
+              echo "GitHub release $tag exists, but it points to $tag_sha instead of $head_sha."
+              exit 1
+            fi
+
+            echo "GitHub release $tag already exists; treating release-please run as complete."
+            exit 0
+          fi
+
+          echo "release-please failed, and GitHub release $tag does not exist."
+          exit 1
 
       - name: Check out release PR branch
         if: ${{ steps.release.outputs.prs_created == 'true' }}
