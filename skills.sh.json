@@ -1,0 +1,13 @@
+{
+	"$schema": "https://skills.sh/schemas/skills.sh.schema.json",
+	"notGrouped": "bottom",
+	"groupings": [
+		{
+			"title": "Glue",
+			"description": "Skills for using the Glue toolchain which allows for code generation from a unified data model into 7+ targets.",
+			"skills": [
+				"glue"
+			]
+		}
+	]
+}
