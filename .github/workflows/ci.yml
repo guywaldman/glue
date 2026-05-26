@@ -398,7 +398,26 @@ jobs:
         working-directory: extension
 
       - name: Publish to VS Code Marketplace
-        run: vsce publish --pat ${{ secrets.VS_CODE_EXTENSION_PUBLISH_PAT }} --target ${{ matrix.platform }}
+        shell: bash
+        run: |
+          set +e
+          publish_output=$(vsce publish --pat "${{ secrets.VS_CODE_EXTENSION_PUBLISH_PAT }}" --target "${{ matrix.platform }}" 2>&1)
+          publish_status=$?
+          set -e
+
+          printf '%s\n' "$publish_output"
+
+          if [ "$publish_status" -eq 0 ]; then
+            exit 0
+          fi
+
+          # FIXME: This is hacky...
+          if grep -q "already exists" <<< "$publish_output"; then
+            echo "Extension package for ${{ matrix.platform }} already exists; skipping publish."
+            exit 0
+          fi
+
+          exit "$publish_status"
         working-directory: extension
 
   extension-vsix:
