@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.1.5](https://github.com/guywaldman/glue/compare/v1.1.4...v1.1.5) (2026-05-26)
+
+
+### Bug Fixes
+
+* **ci:** fix version updates by release-please ([6177f11](https://github.com/guywaldman/glue/commit/6177f11d2edb8f28161356c3ee9012c1ae18b17f))
+* **ci:** have release-please update lockfiles ([61e0e9d](https://github.com/guywaldman/glue/commit/61e0e9d16d1fcdacd273d63c0b22c95d13a719dc))
+* **ci:** make release-please update the version in SKILL.md ([2264867](https://github.com/guywaldman/glue/commit/226486779d0178a269c1b6a92d1f8708be35931e))
+* **cli:** fix issue where the CLI did not display the correct version after releases ([e5f22a0](https://github.com/guywaldman/glue/commit/e5f22a03d76cc2eb6c539590ccae6165d90dad96))
+
 ## [1.1.4](https://github.com/guywaldman/glue/compare/v1.1.3...v1.1.4) (2026-05-26)
 
 
