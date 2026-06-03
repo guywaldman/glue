@@ -4,8 +4,8 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-pest = { version = "2.8.3", features = ["miette-error"] }
-pest_derive = { version = "2.8.3", features = ["grammar-extras"] }
+pest = { version = "2.8.6", features = ["miette-error"] }
+pest_derive = { version = "2.8.6", features = ["grammar-extras"] }
 
 colored = { workspace = true }
 indoc = { workspace = true }
