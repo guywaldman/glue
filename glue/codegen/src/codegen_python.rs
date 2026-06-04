@@ -1,11 +1,11 @@
 use config::{GlueConfigSchemaGeneration, GlueConfigSchemaGenerationPython, GlueConfigSchemaGenerationPythonDataModelLibrary};
 use convert_case::Case;
-use lang::{AstNode, Enum, Field, GlueIr, Literal, LiteralExpr, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
+use lang::{AnonModel, AstNode, Enum, Field, GlueIr, Literal, LiteralExpr, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
     codegen::CodeGenResult,
-    context::{CodeGenContext, DocEmitter, EnumVariantExt, FieldExt, NamedExt, TypeMapper, convert_generated_identifier_case, convert_user_identifier_case, indent},
+    context::{AnonymousTypeNamer, CodeGenContext, DocEmitter, EnumVariantExt, FieldExt, NamedExt, TypeMapper, convert_generated_identifier_case, convert_user_identifier_case, indent},
 };
 
 enum PyModelLibrary {
@@ -109,15 +109,28 @@ struct PythonGenerator<'a> {
     fw: PyModelLibrary,
     lint_suppressions: bool,
     output: String,
+    anon_namer: AnonymousTypeNamer,
+    pending_anon_models: Vec<AnonymousModelDef>,
+}
+
+#[derive(Clone)]
+struct AnonymousModelDef {
+    name: String,
+    model: AnonModel,
+    scope: Option<SymId>,
+    path: Vec<String>,
 }
 
 impl<'a> PythonGenerator<'a> {
     fn new(ctx: CodeGenContext<'a>, fw: PyModelLibrary, lint_suppressions: bool) -> Self {
+        let anon_namer = AnonymousTypeNamer::new(&ctx, Case::Pascal);
         Self {
             ctx,
             fw,
             lint_suppressions,
             output: String::new(),
+            anon_namer,
+            pending_anon_models: Vec::new(),
         }
     }
 
@@ -128,6 +141,7 @@ impl<'a> PythonGenerator<'a> {
         for enum_ in self.ctx.top_level_enums().collect::<Vec<_>>() {
             self.emit_enum(&enum_, None)?;
         }
+        self.emit_pending_anon_models()?;
 
         let preludes = self.fw.preludes(self.lint_suppressions).join("\n");
         let body = self.output.trim_start_matches('\n');
@@ -137,6 +151,7 @@ impl<'a> PythonGenerator<'a> {
     fn emit_model(&mut self, model: &Model, parent_scope: Option<SymId>) -> CodeGenResult<()> {
         let scope_id = model.scope_id(&self.ctx, parent_scope)?;
         let name = model.qualified_name(&self.ctx, parent_scope, Case::Pascal)?;
+        let model_path = self.ctx.symbol_path(scope_id);
 
         if !self.output.is_empty() && !self.output.ends_with("\n\n") {
             self.output.push_str("\n\n");
@@ -162,7 +177,7 @@ impl<'a> PythonGenerator<'a> {
             self.output.push_str(&indent("pass\n", 4));
         } else {
             for field in fields {
-                self.emit_field(&field, Some(scope_id))?;
+                self.emit_field(&field, Some(scope_id), &model_path)?;
             }
         }
 
@@ -176,11 +191,13 @@ impl<'a> PythonGenerator<'a> {
         Ok(())
     }
 
-    fn emit_field(&mut self, field: &Field, scope: Option<SymId>) -> CodeGenResult<()> {
+    fn emit_field(&mut self, field: &Field, scope: Option<SymId>, owner_path: &[String]) -> CodeGenResult<()> {
         let field_name = field.name()?;
         let py_name = convert_user_identifier_case(&field_name, Case::Snake, self.ctx.preserve_generated_identifiers());
 
-        let mut type_code = self.emit_type(&field.field_type()?, scope)?;
+        let mut field_path = owner_path.to_vec();
+        field_path.push(field_name.clone());
+        let mut type_code = self.emit_type(&field.field_type()?, scope, &field_path)?;
         if field.is_optional() {
             type_code = format!("Optional[{}]", type_code);
         }
@@ -196,6 +213,44 @@ impl<'a> PythonGenerator<'a> {
 
         if let Some(docs) = field.docs() {
             self.output.push_str(&indent(&DocEmitter::python_docstring(&docs), 4));
+        }
+
+        Ok(())
+    }
+
+    fn emit_pending_anon_models(&mut self) -> CodeGenResult<()> {
+        let mut index = 0;
+        while index < self.pending_anon_models.len() {
+            let def = self.pending_anon_models[index].clone();
+            self.emit_anon_model(&def)?;
+            index += 1;
+        }
+        Ok(())
+    }
+
+    fn emit_anon_model(&mut self, def: &AnonymousModelDef) -> CodeGenResult<()> {
+        if !self.output.is_empty() && !self.output.ends_with("\n\n") {
+            self.output.push_str("\n\n");
+        }
+
+        if let Some(decorator) = self.fw.model_decorator() {
+            self.output.push_str(&format!("{}\n", decorator));
+        }
+
+        let base = self.fw.base_class();
+        if base.is_empty() {
+            self.output.push_str(&format!("class {}:\n", def.name));
+        } else {
+            self.output.push_str(&format!("class {}({}):\n", def.name, base));
+        }
+
+        let fields = def.model.fields();
+        if fields.is_empty() {
+            self.output.push_str(&indent("pass\n", 4));
+        } else {
+            for field in fields {
+                self.emit_field(&field, def.scope, &def.path)?;
+            }
         }
 
         Ok(())
@@ -317,17 +372,17 @@ impl<'a> PythonGenerator<'a> {
 
     // -- Types & literals ---------------------------------------------------
 
-    fn emit_type(&self, ty: &Type, scope: Option<SymId>) -> CodeGenResult<String> {
+    fn emit_type(&mut self, ty: &Type, scope: Option<SymId>, path: &[String]) -> CodeGenResult<String> {
         let atoms = ty.type_atoms();
         if atoms.len() == 1 {
-            self.emit_type_atom(&atoms[0], scope)
+            self.emit_type_atom(&atoms[0], scope, path)
         } else {
-            let codes: Vec<_> = atoms.iter().map(|a| self.emit_type_atom(a, scope)).collect::<Result<Vec<_>, _>>()?;
+            let codes: Vec<_> = atoms.iter().map(|a| self.emit_type_atom(a, scope, path)).collect::<Result<Vec<_>, _>>()?;
             Ok(format!("Union[{}]", codes.join(", ")))
         }
     }
 
-    fn emit_type_atom(&self, atom: &TypeAtom, scope: Option<SymId>) -> CodeGenResult<String> {
+    fn emit_type_atom(&mut self, atom: &TypeAtom, scope: Option<SymId>, path: &[String]) -> CodeGenResult<String> {
         let mut result = if let Some(primitive) = atom.as_primitive_type() {
             TypeMapper::to_python(primitive).to_string()
         } else if let Some(record) = atom.as_record_type() {
@@ -335,11 +390,15 @@ impl<'a> PythonGenerator<'a> {
             let dest = record.dest_type_node().ok_or_else(|| CodeGenContext::internal_error("Record missing dest type"))?;
             let src_type = Type::cast(src).ok_or_else(|| CodeGenContext::internal_error("Expected Type for record src"))?;
             let dest_type = Type::cast(dest).ok_or_else(|| CodeGenContext::internal_error("Expected Type for record dest"))?;
-            format!("dict[{}, {}]", self.emit_type(&src_type, scope)?, self.emit_type(&dest_type, scope)?)
+            let mut key_path = path.to_vec();
+            key_path.push("Key".to_string());
+            let mut value_path = path.to_vec();
+            value_path.push("Value".to_string());
+            format!("dict[{}, {}]", self.emit_type(&src_type, scope, &key_path)?, self.emit_type(&dest_type, scope, &value_path)?)
         } else if let Some(ref_token) = atom.as_ref_token() {
             let type_name = ref_token.text().to_string();
             if let Some(alias_type) = self.ctx.resolve_type_alias(scope, &type_name)? {
-                self.emit_type(&alias_type, scope)?
+                self.emit_type(&alias_type, scope, path)?
             } else {
                 let sym = self
                     .ctx
@@ -348,8 +407,15 @@ impl<'a> PythonGenerator<'a> {
                 let qualified = self.ctx.symbol_name(&sym.name, Case::Pascal);
                 format!("\"{}\"", qualified)
             }
-        } else if atom.as_anon_model().is_some() {
-            return Err(self.ctx.error(atom.syntax(), "Anonymous models not supported"));
+        } else if let Some(anon_model) = atom.anon_model() {
+            let name = self.anon_namer.allocate(&self.ctx, path, Case::Pascal);
+            self.pending_anon_models.push(AnonymousModelDef {
+                name: name.clone(),
+                model: anon_model,
+                scope,
+                path: path.to_vec(),
+            });
+            format!("\"{}\"", name)
         } else {
             return Err(CodeGenContext::internal_error("Unknown type atom kind"));
         };
@@ -452,6 +518,37 @@ mod tests {
     #[test]
     fn test_msgspec() {
         assert_snapshot!(gen_python_with_data_model_lib(SIMPLE_MODEL, GlueConfigSchemaGenerationPythonDataModelLibrary::Msgspec));
+    }
+
+    #[test]
+    fn test_anonymous_struct_pydantic() {
+        let src = indoc! { r#"
+            model User {
+                profile: {
+                    bio: string
+                    age?: int
+                    settings: Record<string, {
+                        enabled: bool
+                    }>
+                }
+            }
+        "# };
+
+        assert_snapshot!(gen_python(src));
+    }
+
+    #[test]
+    fn test_anonymous_struct_dataclasses() {
+        let src = indoc! { r#"
+            model User {
+                profile: {
+                    bio: string
+                    age?: int
+                }
+            }
+        "# };
+
+        assert_snapshot!(gen_python_with_data_model_lib(src, GlueConfigSchemaGenerationPythonDataModelLibrary::Dataclasses));
     }
 
     #[test]

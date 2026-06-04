@@ -1,11 +1,11 @@
 use config::{GlueConfigSchemaGeneration, GlueConfigSchemaGenerationGo};
 use convert_case::Case;
-use lang::{AstNode, Enum, Field, GlueIr, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
+use lang::{AnonModel, AstNode, Enum, Field, GlueIr, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
     codegen::CodeGenResult,
-    context::{CodeGenContext, FieldExt, NamedExt, TypeMapper, convert_generated_identifier_case, convert_user_identifier_case},
+    context::{AnonymousTypeNamer, CodeGenContext, FieldExt, NamedExt, TypeMapper, convert_generated_identifier_case, convert_user_identifier_case},
 };
 
 #[derive(Default)]
@@ -28,15 +28,28 @@ struct GoGenerator<'a> {
     config: GlueConfigSchemaGenerationGo,
     output: String,
     postludes: Vec<String>,
+    anon_namer: AnonymousTypeNamer,
+    pending_anon_models: Vec<AnonymousModelDef>,
+}
+
+#[derive(Clone)]
+struct AnonymousModelDef {
+    name: String,
+    model: AnonModel,
+    scope: Option<SymId>,
+    path: Vec<String>,
 }
 
 impl<'a> GoGenerator<'a> {
     fn new(ctx: CodeGenContext<'a>, config: GlueConfigSchemaGenerationGo) -> Self {
+        let anon_namer = AnonymousTypeNamer::new(&ctx, Case::Pascal);
         Self {
             ctx,
             config,
             output: String::new(),
             postludes: Vec::new(),
+            anon_namer,
+            pending_anon_models: Vec::new(),
         }
     }
 
@@ -57,6 +70,7 @@ impl<'a> GoGenerator<'a> {
         for postlude in &self.postludes {
             self.output.push_str(postlude);
         }
+        self.emit_pending_anon_models()?;
 
         Ok(self.output.clone())
     }
@@ -66,6 +80,7 @@ impl<'a> GoGenerator<'a> {
 
         let scope_id = model.scope_id(&self.ctx, parent_scope)?;
         let qualified_name = model.qualified_name(&self.ctx, parent_scope, Case::Pascal)?;
+        let model_path = self.ctx.symbol_path(scope_id);
 
         if let Some(docs) = model.docs() {
             output.push_str(&Self::emit_go_docs(&docs, &qualified_name));
@@ -83,9 +98,11 @@ impl<'a> GoGenerator<'a> {
             let field_name = field.name()?;
             let field_type = field.field_type()?;
             let go_field_name = convert_user_identifier_case(&field_name, Case::Pascal, self.ctx.preserve_generated_identifiers());
+            let mut field_path = model_path.clone();
+            field_path.push(field_name.clone());
 
             let type_atoms = field_type.type_atoms();
-            let type_strs: Vec<String> = type_atoms.iter().map(|atom| self.emit_type_atom(atom, Some(scope_id))).collect::<Result<Vec<_>, _>>()?;
+            let type_strs: Vec<String> = type_atoms.iter().map(|atom| self.emit_type_atom(atom, Some(scope_id), &field_path)).collect::<Result<Vec<_>, _>>()?;
 
             let mut type_code = if type_strs.len() > 1 {
                 "interface{}".to_string()
@@ -152,6 +169,91 @@ impl<'a> GoGenerator<'a> {
         Ok(output)
     }
 
+    fn emit_pending_anon_models(&mut self) -> CodeGenResult<()> {
+        let mut index = 0;
+        while index < self.pending_anon_models.len() {
+            let def = self.pending_anon_models[index].clone();
+            let code = self.emit_anon_model(&def)?;
+            self.output.push_str(&code);
+            index += 1;
+        }
+        Ok(())
+    }
+
+    fn emit_anon_model(&mut self, def: &AnonymousModelDef) -> CodeGenResult<String> {
+        let mut output = String::new();
+        output.push_str(&format!("type {} struct {{\n", def.name));
+
+        let fields = def.model.fields();
+        let mut emitted_fields = Vec::with_capacity(fields.len());
+        let mut max_field_name_len = 0usize;
+        let mut max_type_len = 0usize;
+        let mut max_tag_len = 0usize;
+
+        for field in fields {
+            let field_name = field.name()?;
+            let field_type = field.field_type()?;
+            let go_field_name = convert_user_identifier_case(&field_name, Case::Pascal, self.ctx.preserve_generated_identifiers());
+            let mut field_path = def.path.clone();
+            field_path.push(field_name.clone());
+
+            let type_atoms = field_type.type_atoms();
+            let type_strs: Vec<String> = type_atoms.iter().map(|atom| self.emit_type_atom(atom, def.scope, &field_path)).collect::<Result<Vec<_>, _>>()?;
+
+            let mut type_code = if type_strs.len() > 1 {
+                "interface{}".to_string()
+            } else {
+                type_strs.first().cloned().unwrap_or_else(|| "interface{}".to_string())
+            };
+
+            if field.is_optional() {
+                type_code = format!("*{}", type_code);
+            }
+
+            let alias = field.alias()?;
+            let json_name = alias.unwrap_or_else(|| field_name.clone());
+            let mut json_tag = json_name.clone();
+            if field.is_optional() {
+                json_tag.push_str(",omitempty");
+            }
+            let tag = format!("`json:\"{}\"`", json_tag);
+            let docs = field.docs().map(|d| d.join(" ").trim().to_string());
+
+            max_field_name_len = max_field_name_len.max(go_field_name.len());
+            max_type_len = max_type_len.max(type_code.len());
+            max_tag_len = max_tag_len.max(tag.len());
+
+            emitted_fields.push((go_field_name, type_code, tag, docs));
+        }
+
+        for (go_field_name, type_code, tag, docs) in emitted_fields {
+            if let Some(doc_text) = docs {
+                output.push_str(&format!(
+                    "\t{:<name_width$} {:<type_width$} {:<tag_width$} // {}\n",
+                    go_field_name,
+                    type_code,
+                    tag,
+                    doc_text,
+                    name_width = max_field_name_len,
+                    type_width = max_type_len,
+                    tag_width = max_tag_len
+                ));
+            } else {
+                output.push_str(&format!(
+                    "\t{:<name_width$} {:<type_width$} {}\n",
+                    go_field_name,
+                    type_code,
+                    tag,
+                    name_width = max_field_name_len,
+                    type_width = max_type_len
+                ));
+            }
+        }
+
+        output.push_str("}\n\n");
+        Ok(output)
+    }
+
     fn emit_enum(&mut self, enum_: &Enum, parent_scope: Option<SymId>) -> CodeGenResult<String> {
         let mut output = String::new();
 
@@ -197,13 +299,13 @@ impl<'a> GoGenerator<'a> {
         Ok(output)
     }
 
-    fn emit_type_atom(&self, atom: &TypeAtom, parent_scope: Option<SymId>) -> CodeGenResult<String> {
+    fn emit_type_atom(&mut self, atom: &TypeAtom, parent_scope: Option<SymId>, path: &[String]) -> CodeGenResult<String> {
         let is_array = atom.is_array();
-        let base_type = self.emit_base_type(atom, parent_scope)?;
+        let base_type = self.emit_base_type(atom, parent_scope, path)?;
         if is_array { Ok(format!("[]{}", base_type)) } else { Ok(base_type) }
     }
 
-    fn emit_base_type(&self, atom: &TypeAtom, parent_scope: Option<SymId>) -> CodeGenResult<String> {
+    fn emit_base_type(&mut self, atom: &TypeAtom, parent_scope: Option<SymId>, path: &[String]) -> CodeGenResult<String> {
         if let Some(primitive) = atom.as_primitive_type() {
             return Ok(TypeMapper::to_go(primitive).to_string());
         }
@@ -215,10 +317,19 @@ impl<'a> GoGenerator<'a> {
             let src_atoms = Type::cast(src_type).map(|t: Type| t.type_atoms()).unwrap_or_default();
             let dest_atoms = Type::cast(dest_type).map(|t: Type| t.type_atoms()).unwrap_or_default();
 
-            let src_str = src_atoms.first().map(|a| self.emit_type_atom(a, parent_scope)).transpose()?.unwrap_or_else(|| "string".to_string());
+            let mut key_path = path.to_vec();
+            key_path.push("Key".to_string());
+            let mut value_path = path.to_vec();
+            value_path.push("Value".to_string());
+
+            let src_str = src_atoms
+                .first()
+                .map(|a| self.emit_type_atom(a, parent_scope, &key_path))
+                .transpose()?
+                .unwrap_or_else(|| "string".to_string());
             let dest_str = dest_atoms
                 .first()
-                .map(|a| self.emit_type_atom(a, parent_scope))
+                .map(|a| self.emit_type_atom(a, parent_scope, &value_path))
                 .transpose()?
                 .unwrap_or_else(|| "interface{}".to_string());
 
@@ -233,7 +344,7 @@ impl<'a> GoGenerator<'a> {
                     return Ok("interface{}".to_string());
                 }
                 if let Some(alias_atom) = alias_atoms.first() {
-                    return self.emit_type_atom(alias_atom, parent_scope);
+                    return self.emit_type_atom(alias_atom, parent_scope, path);
                 }
                 return Err(CodeGenContext::internal_error(format!("Type alias '{}' has no type atoms", ref_name)));
             }
@@ -245,8 +356,15 @@ impl<'a> GoGenerator<'a> {
             return Ok(resolved);
         }
 
-        if atom.as_anon_model().is_some() {
-            return Err(CodeGenContext::internal_error("Anonymous models not yet supported in Go codegen"));
+        if let Some(anon_model) = atom.anon_model() {
+            let name = self.anon_namer.allocate(&self.ctx, path, Case::Pascal);
+            self.pending_anon_models.push(AnonymousModelDef {
+                name: name.clone(),
+                model: anon_model,
+                scope: parent_scope,
+                path: path.to_vec(),
+            });
+            return Ok(name);
         }
 
         Err(CodeGenContext::internal_error("Unknown type atom"))
@@ -371,6 +489,22 @@ mod tests {
                 metadata: Record<string, any>
                 /// A map of string to int
                 counts: Record<string, int>
+            }
+        "#};
+        assert_snapshot!(gen_go(src));
+    }
+
+    #[test]
+    fn test_anonymous_struct() {
+        let src = indoc! {r#"
+            model User {
+                profile: {
+                    bio: string
+                    age?: int
+                    settings: Record<string, {
+                        enabled: bool
+                    }>
+                }
             }
         "#};
         assert_snapshot!(gen_go(src));

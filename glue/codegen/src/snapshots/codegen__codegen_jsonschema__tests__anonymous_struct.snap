@@ -1,0 +1,42 @@
+---
+source: codegen/src/codegen_jsonschema.rs
+expression: "gen_test(&CodeGenJsonSchema, src)"
+---
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "User",
+    "type": "object",
+    "properties": {
+        "profile": {
+            "type": "object",
+            "properties": {
+                "age": {
+                    "type": "integer"
+                },
+                "bio": {
+                    "type": "string",
+                    "description": "Short biography"
+                }
+            }
+        }
+    },
+    "$defs": {
+        "User": {
+            "type": "object",
+            "properties": {
+                "profile": {
+                    "type": "object",
+                    "properties": {
+                        "age": {
+                            "type": "integer"
+                        },
+                        "bio": {
+                            "type": "string",
+                            "description": "Short biography"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

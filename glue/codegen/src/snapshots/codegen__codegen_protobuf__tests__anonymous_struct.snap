@@ -1,0 +1,25 @@
+---
+source: codegen/src/codegen_protobuf.rs
+expression: result_with_source
+---
+// Original source code:
+// model User {
+//     profile: {
+//         bio: string
+//         age: int
+//     }
+// }
+// 
+
+syntax = "proto3";
+
+package glue;
+
+message User {
+    UserProfile profile = 1;
+}
+
+message UserProfile {
+    string bio = 1;
+    int32 age = 2;
+}

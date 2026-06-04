@@ -1,0 +1,18 @@
+---
+source: codegen/src/codegen_python.rs
+expression: "gen_python_with_data_model_lib(src,\nGlueConfigSchemaGenerationPythonDataModelLibrary::Dataclasses)"
+---
+# pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring
+from dataclasses import dataclass
+from enum import StrEnum
+from typing import Any, Optional, Union
+
+@dataclass
+class User:
+    profile: "UserProfile"
+
+
+@dataclass
+class UserProfile:
+    bio: str
+    age: Optional[int] = None

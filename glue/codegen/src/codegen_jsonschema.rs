@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use config::GlueConfigSchemaGeneration;
-use lang::{AstNode, Decorator, DiagnosticContext, Enum, Field, GlueIr, LNode, LSyntaxKind, Model, PrimitiveType, SourceCodeMetadata, SymId, SymTable, Type, TypeAtom};
+use lang::{AnonModel, AstNode, Decorator, DiagnosticContext, Enum, Field, GlueIr, LNode, LSyntaxKind, Model, PrimitiveType, SourceCodeMetadata, SymId, SymTable, Type, TypeAtom};
 
 use crate::{CodeGenError, CodeGenerator, codegen::CodeGenResult};
 
@@ -154,7 +154,7 @@ impl CodeGeneratorImpl {
             let field_type_node = field.type_node().ok_or(CodeGenError::InternalError("Expected field to have type node".into()))?;
             let mut field_type_json = self.visit_type(field_type_node.clone(), Some(current_scope))?;
             if let Some(docs) = field.docs() {
-                field_type_json["description"] = docs.join("\n").into();
+                field_type_json["description"] = docs.join("\n").trim().into();
             }
             properties_obj[&field_name] = field_type_json;
         }
@@ -243,6 +243,15 @@ impl CodeGeneratorImpl {
                 type_obj.insert("type", primitive_type?);
             }
             Ok(type_obj.into())
+        } else if let Some(anon_model) = type_atom.anon_model() {
+            let mut type_obj = self.visit_anon_model(&anon_model, parent_sym)?;
+            if type_atom.is_array() {
+                let mut array_obj = json::object::Object::new();
+                array_obj.insert("type", "array".into());
+                array_obj.insert("items", type_obj.into());
+                type_obj = array_obj;
+            }
+            Ok(type_obj.into())
         } else {
             let ref_name = type_atom
                 .as_ref_token()
@@ -282,6 +291,25 @@ impl CodeGeneratorImpl {
                 }
             }
         }
+    }
+
+    fn visit_anon_model(&mut self, anon_model: &AnonModel, parent_sym: Option<SymId>) -> CodeGenResult<json::object::Object> {
+        let mut model_obj = json::object::Object::new();
+        model_obj["type"] = "object".into();
+        let mut properties_obj = json::object::Object::new();
+
+        for field in anon_model.fields() {
+            let field_name = field.ident().ok_or(CodeGenError::InternalError("Expected field to have ident".into()))?;
+            let field_type_node = field.type_node().ok_or(CodeGenError::InternalError("Expected field to have type node".into()))?;
+            let mut field_type_json = self.visit_type(field_type_node, parent_sym)?;
+            if let Some(docs) = field.docs() {
+                field_type_json["description"] = docs.join("\n").trim().into();
+            }
+            properties_obj[&field_name] = field_type_json;
+        }
+
+        model_obj["properties"] = properties_obj.into();
+        Ok(model_obj)
     }
 
     fn format_ref(&mut self, parent_scope: Option<SymId>, ref_name: &str) -> json::object::Object {
@@ -356,6 +384,22 @@ mod tests {
 					}
 				}
 				"# };
+
+        assert_snapshot!(gen_test(&CodeGenJsonSchema, src));
+    }
+
+    #[test]
+    fn test_anonymous_struct() {
+        let src = indoc! { r#"
+            @root
+            model User {
+                profile: {
+                    /// Short biography
+                    bio: string
+                    age?: int
+                }
+            }
+        "# };
 
         assert_snapshot!(gen_test(&CodeGenJsonSchema, src));
     }

@@ -145,6 +145,37 @@ impl AnonModel {
             .flat_map(|model_body| model_body.children().filter(|n| n.kind() == LSyntaxKind::FIELD))
             .collect()
     }
+
+    pub fn fields(&self) -> Vec<Field> {
+        self.field_nodes().into_iter().filter_map(Field::cast).collect()
+    }
+
+    pub fn nested_model_nodes(&self) -> Vec<LNode> {
+        self.0
+            .children()
+            .find(|n| n.kind() == LSyntaxKind::MODEL_BODY)
+            .into_iter()
+            .flat_map(|model_body| model_body.children().filter(|n| n.kind() == LSyntaxKind::MODEL))
+            .collect()
+    }
+
+    pub fn nested_enum_nodes(&self) -> Vec<LNode> {
+        self.0
+            .children()
+            .find(|n| n.kind() == LSyntaxKind::MODEL_BODY)
+            .into_iter()
+            .flat_map(|model_body| model_body.children().filter(|n| n.kind() == LSyntaxKind::ENUM))
+            .collect()
+    }
+
+    pub fn nested_type_alias_nodes(&self) -> Vec<LNode> {
+        self.0
+            .children()
+            .find(|n| n.kind() == LSyntaxKind::MODEL_BODY)
+            .into_iter()
+            .flat_map(|model_body| model_body.children().filter(|n| n.kind() == LSyntaxKind::TYPE_ALIAS))
+            .collect()
+    }
 }
 
 ast_node!(Model, LSyntaxKind::MODEL);
@@ -796,6 +827,10 @@ impl TypeAtom {
 
     pub fn as_anon_model(&self) -> Option<LNode> {
         self.0.children().find(|n| n.kind() == LSyntaxKind::ANON_MODEL)
+    }
+
+    pub fn anon_model(&self) -> Option<AnonModel> {
+        self.as_anon_model().and_then(AnonModel::cast)
     }
 
     pub fn as_record_type(&self) -> Option<RecordType> {

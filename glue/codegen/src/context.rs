@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use config::GlueConfigSchemaGeneration;
 use convert_case::{Case, Casing, Converter};
 use lang::{
@@ -28,12 +30,29 @@ impl<'a> CodeGenContext<'a> {
         self.symbols.resolve(scope, name)
     }
 
+    pub fn symbol_path(&self, id: SymId) -> Vec<String> {
+        self.symbols
+            .get(id)
+            .map(|entry| lang::symbol_name_to_parts(&entry.name).into_iter().map(str::to_string).collect())
+            .unwrap_or_default()
+    }
+
     pub fn symbol_name(&self, name: &str, case: Case) -> String {
         let parts = lang::symbol_name_to_parts(name);
         if self.preserve_generated_identifiers() {
             parts.join("")
         } else {
             convert_identifier_case(&parts.join("_"), case)
+        }
+    }
+
+    pub fn anonymous_type_base_name(&self, path: &[String], case: Case) -> String {
+        let parts = path.iter().map(|part| anonymous_name_part(part)).filter(|part| !part.is_empty()).collect::<Vec<_>>();
+        let joined = if parts.is_empty() { "Anonymous".to_string() } else { parts.join("_") };
+        if self.preserve_generated_identifiers() {
+            if parts.is_empty() { "Anonymous".to_string() } else { parts.join("") }
+        } else {
+            convert_identifier_case(&joined, case)
         }
     }
 
@@ -149,6 +168,56 @@ pub fn convert_user_identifier_case(name: &str, case: Case, preserve: bool) -> S
 
 pub fn convert_generated_identifier_case(name: &str, case: Case) -> String {
     name.to_case(case)
+}
+
+pub struct AnonymousTypeNamer {
+    used_names: HashSet<String>,
+}
+
+impl AnonymousTypeNamer {
+    pub fn new(ctx: &CodeGenContext, case: Case) -> Self {
+        let used_names = ctx
+            .symbols
+            .all_entries()
+            .into_iter()
+            .filter(|entry| matches!(entry.data.kind(), LSyntaxKind::MODEL | LSyntaxKind::ENUM))
+            .map(|entry| ctx.symbol_name(&entry.name, case))
+            .collect();
+        Self { used_names }
+    }
+
+    pub fn allocate(&mut self, ctx: &CodeGenContext, path: &[String], case: Case) -> String {
+        let base = ctx.anonymous_type_base_name(path, case);
+        if self.used_names.insert(base.clone()) {
+            return base;
+        }
+
+        let anon = format!("{}Anon", base);
+        if self.used_names.insert(anon.clone()) {
+            return anon;
+        }
+
+        let mut suffix = 2;
+        loop {
+            let candidate = format!("{}Anon{}", base, suffix);
+            if self.used_names.insert(candidate.clone()) {
+                return candidate;
+            }
+            suffix += 1;
+        }
+    }
+}
+
+fn anonymous_name_part(part: &str) -> String {
+    let decoded = if part.starts_with('"') && part.ends_with('"') {
+        serde_json::from_str::<String>(part).unwrap_or_else(|_| part.trim_matches('"').to_string())
+    } else {
+        part.to_string()
+    };
+
+    let sanitized = decoded.chars().map(|ch| if ch.is_ascii_alphanumeric() || ch == '_' { ch } else { '_' }).collect::<String>();
+    let trimmed = sanitized.trim_matches('_');
+    if trimmed.is_empty() { "Field".to_string() } else { trimmed.to_string() }
 }
 
 fn pascal_preserve_uppercase(words: &[&str]) -> Vec<String> {

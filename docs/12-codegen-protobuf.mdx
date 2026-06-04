@@ -64,5 +64,6 @@ enum Role {
 ## Current limitations
 
 - Optional fields (`?`) are not supported in Protobuf generation.
-- `Record<..., ...>` and anonymous model types are not supported.
+- `Record<K, V>` is emitted as `map<K, V>` for supported Protobuf key/value types.
+- Anonymous structs are emitted as generated messages named from the owning field path.
 - Endpoint declarations are ignored by the Protobuf generator.

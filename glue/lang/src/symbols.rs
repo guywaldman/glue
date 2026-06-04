@@ -57,6 +57,10 @@ where
         self.0.get(id)
     }
 
+    pub fn all_entries(&self) -> Vec<SymEntry<TData>> {
+        self.0.iter().map(|(_, sym_entry)| sym_entry.clone()).collect()
+    }
+
     pub fn resolve(&self, scope: Option<SymId>, entry_name: &str) -> Option<SymEntry<TData>> {
         let mut symbol_name_candidates = vec![entry_name.to_string()];
         if let Some(scope) = scope

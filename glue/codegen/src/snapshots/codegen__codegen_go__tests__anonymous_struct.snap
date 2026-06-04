@@ -1,0 +1,19 @@
+---
+source: codegen/src/codegen_go.rs
+expression: gen_go(src)
+---
+package glue
+
+type User struct {
+	Profile UserProfile `json:"profile"`
+}
+
+type UserProfile struct {
+	Bio      string                              `json:"bio"`
+	Age      *int64                              `json:"age,omitempty"`
+	Settings map[string]UserProfileSettingsValue `json:"settings"`
+}
+
+type UserProfileSettingsValue struct {
+	Enabled bool `json:"enabled"`
+}

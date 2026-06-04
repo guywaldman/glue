@@ -1,0 +1,10 @@
+---
+source: codegen/src/codegen_typescript.rs
+expression: "gen_typescript_with_zod(src, true)"
+---
+import { z } from "zod";
+
+export const UserSchema = z.object({
+  profile: z.object({ bio: z.string(), age: z.number().optional() }),
+});
+export type User = z.infer<typeof UserSchema>;
