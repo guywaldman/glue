@@ -1,0 +1,7 @@
+---
+source: codegen/src/codegen_typescript.rs
+expression: gen_typescript(src)
+---
+export type User = {
+  profile: { bio: string; age?: number; address: { city: string } };
+};

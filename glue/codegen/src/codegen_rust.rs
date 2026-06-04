@@ -1,11 +1,11 @@
 use config::GlueConfigSchemaGeneration;
 use convert_case::Case;
-use lang::{AstNode, Enum, Field, GlueIr, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
+use lang::{AnonModel, AstNode, Enum, Field, GlueIr, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
     codegen::CodeGenResult,
-    context::{CodeGenContext, DocEmitter, FieldExt, NamedExt, TypeMapper, convert_generated_identifier_case},
+    context::{AnonymousTypeNamer, CodeGenContext, DocEmitter, FieldExt, NamedExt, TypeMapper, convert_generated_identifier_case},
 };
 
 #[derive(Default)]
@@ -26,14 +26,27 @@ struct RustGenerator<'a> {
     ctx: CodeGenContext<'a>,
     output: String,
     postludes: Vec<String>,
+    anon_namer: AnonymousTypeNamer,
+    pending_anon_models: Vec<AnonymousModelDef>,
+}
+
+#[derive(Clone)]
+struct AnonymousModelDef {
+    name: String,
+    model: AnonModel,
+    scope: Option<SymId>,
+    path: Vec<String>,
 }
 
 impl<'a> RustGenerator<'a> {
     fn new(ctx: CodeGenContext<'a>) -> Self {
+        let anon_namer = AnonymousTypeNamer::new(&ctx, Case::Pascal);
         Self {
             ctx,
             output: String::new(),
             postludes: Vec::new(),
+            anon_namer,
+            pending_anon_models: Vec::new(),
         }
     }
 
@@ -62,6 +75,7 @@ impl<'a> RustGenerator<'a> {
         for postlude in &self.postludes {
             self.output.push_str(postlude);
         }
+        self.emit_pending_anon_models()?;
 
         Ok(self.output.clone())
     }
@@ -71,6 +85,7 @@ impl<'a> RustGenerator<'a> {
 
         let scope_id = model.scope_id(&self.ctx, parent_scope)?;
         let qualified_name = model.qualified_name(&self.ctx, parent_scope, Case::Pascal)?;
+        let model_path = self.ctx.symbol_path(scope_id);
 
         if let Some(docs) = model.docs() {
             output.push_str(&DocEmitter::rust_docs(&docs, 0));
@@ -80,7 +95,7 @@ impl<'a> RustGenerator<'a> {
         output.push_str(&format!("pub struct {} {{\n", qualified_name));
 
         for field in model.fields() {
-            let field_code = self.emit_field(&field, Some(scope_id))?;
+            let field_code = self.emit_field(&field, Some(scope_id), &model_path)?;
             output.push_str(&field_code);
         }
 
@@ -96,6 +111,31 @@ impl<'a> RustGenerator<'a> {
             self.postludes.push(nested_code);
         }
 
+        Ok(output)
+    }
+
+    fn emit_pending_anon_models(&mut self) -> CodeGenResult<()> {
+        let mut index = 0;
+        while index < self.pending_anon_models.len() {
+            let def = self.pending_anon_models[index].clone();
+            let code = self.emit_anon_model(&def)?;
+            self.output.push_str(&code);
+            index += 1;
+        }
+        Ok(())
+    }
+
+    fn emit_anon_model(&mut self, def: &AnonymousModelDef) -> CodeGenResult<String> {
+        let mut output = String::new();
+        output.push_str("#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]\n");
+        output.push_str(&format!("pub struct {} {{\n", def.name));
+
+        for field in def.model.fields() {
+            let field_code = self.emit_field(&field, def.scope, &def.path)?;
+            output.push_str(&field_code);
+        }
+
+        output.push_str("}\n\n");
         Ok(output)
     }
 
@@ -128,11 +168,13 @@ impl<'a> RustGenerator<'a> {
         Ok(output)
     }
 
-    fn emit_field(&mut self, field: &Field, parent_scope: Option<SymId>) -> CodeGenResult<String> {
+    fn emit_field(&mut self, field: &Field, parent_scope: Option<SymId>, owner_path: &[String]) -> CodeGenResult<String> {
         let mut output = String::new();
 
         let field_name = field.name()?;
         let field_type = field.field_type()?;
+        let mut field_path = owner_path.to_vec();
+        field_path.push(field_name.clone());
 
         if let Some(docs) = field.docs() {
             output.push_str(&DocEmitter::rust_docs(&docs, 1));
@@ -144,7 +186,7 @@ impl<'a> RustGenerator<'a> {
         }
 
         let type_atoms = field_type.type_atoms();
-        let type_strs: Vec<String> = type_atoms.iter().map(|atom| self.emit_type_atom(atom, parent_scope)).collect::<Result<Vec<_>, _>>()?;
+        let type_strs: Vec<String> = type_atoms.iter().map(|atom| self.emit_type_atom(atom, parent_scope, &field_path)).collect::<Result<Vec<_>, _>>()?;
 
         let mut type_code = type_strs.join(" | ");
 
@@ -176,7 +218,7 @@ impl<'a> RustGenerator<'a> {
         ))
     }
 
-    fn emit_type_atom(&self, atom: &TypeAtom, parent_scope: Option<SymId>) -> CodeGenResult<String> {
+    fn emit_type_atom(&mut self, atom: &TypeAtom, parent_scope: Option<SymId>, path: &[String]) -> CodeGenResult<String> {
         let mut base = if let Some(primitive) = atom.as_primitive_type() {
             TypeMapper::to_rust(primitive).to_string()
         } else if let Some(record_type) = atom.as_record_type() {
@@ -186,10 +228,19 @@ impl<'a> RustGenerator<'a> {
             let src_atoms = Type::cast(src_type).map(|t: Type| t.type_atoms()).unwrap_or_default();
             let dest_atoms = Type::cast(dest_type).map(|t: Type| t.type_atoms()).unwrap_or_default();
 
-            let src_str = src_atoms.first().map(|a| self.emit_type_atom(a, parent_scope)).transpose()?.unwrap_or_else(|| "String".to_string());
+            let mut key_path = path.to_vec();
+            key_path.push("Key".to_string());
+            let mut value_path = path.to_vec();
+            value_path.push("Value".to_string());
+
+            let src_str = src_atoms
+                .first()
+                .map(|a| self.emit_type_atom(a, parent_scope, &key_path))
+                .transpose()?
+                .unwrap_or_else(|| "String".to_string());
             let dest_str = dest_atoms
                 .first()
-                .map(|a| self.emit_type_atom(a, parent_scope))
+                .map(|a| self.emit_type_atom(a, parent_scope, &value_path))
                 .transpose()?
                 .unwrap_or_else(|| "serde_json::Value".to_string());
 
@@ -198,15 +249,22 @@ impl<'a> RustGenerator<'a> {
             let ref_name = ref_token.text().trim();
             if let Some(alias_type) = self.ctx.resolve_type_alias(parent_scope, ref_name)? {
                 let alias_atoms = alias_type.type_atoms();
-                let alias_codes = alias_atoms.iter().map(|a| self.emit_type_atom(a, parent_scope)).collect::<Result<Vec<_>, _>>()?;
+                let alias_codes = alias_atoms.iter().map(|a| self.emit_type_atom(a, parent_scope, path)).collect::<Result<Vec<_>, _>>()?;
                 alias_codes.join(" | ")
             } else {
                 self.ctx
                     .qualified_name(parent_scope, ref_name, Case::Pascal)
                     .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved type: {}", ref_name)))?
             }
-        } else if atom.as_anon_model().is_some() {
-            return Err(CodeGenContext::internal_error("Anonymous models not yet supported in Rust codegen"));
+        } else if let Some(anon_model) = atom.anon_model() {
+            let name = self.anon_namer.allocate(&self.ctx, path, Case::Pascal);
+            self.pending_anon_models.push(AnonymousModelDef {
+                name: name.clone(),
+                model: anon_model,
+                scope: parent_scope,
+                path: path.to_vec(),
+            });
+            name
         } else {
             return Err(CodeGenContext::internal_error("Unknown type atom"));
         };
@@ -348,6 +406,42 @@ mod tests {
         // Record<K,V>[] syntax may need Vec wrapping - check actual output
         assert!(output.contains("HashMap<String, i64>"), "Expected HashMap in output:\n{}", output);
         assert_snapshot!(output);
+    }
+
+    #[test]
+    fn test_anonymous_struct() {
+        let src = indoc! { r#"
+            model User {
+                profile: {
+                    bio: string
+                    age?: int
+                    settings: Record<string, {
+                        enabled: bool
+                    }>
+                }
+            }
+        "# };
+
+        assert_snapshot!(gen_rust(src));
+    }
+
+    #[test]
+    fn test_anonymous_struct_name_collision_gets_suffix() {
+        let src = indoc! { r#"
+            model User {
+                profile: {
+                    bio: string
+                }
+
+                model Profile {
+                    id: string
+                }
+            }
+        "# };
+
+        let output = gen_rust(src);
+        assert!(output.contains("pub profile: UserProfileAnon,"), "Expected anonymous struct collision suffix:\n{}", output);
+        assert!(output.contains("pub struct UserProfileAnon {"), "Expected suffixed anonymous struct declaration:\n{}", output);
     }
 
     #[test]

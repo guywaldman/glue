@@ -1,6 +1,6 @@
 use config::GlueConfigSchemaGeneration;
 use convert_case::Case;
-use lang::{AstNode, Enum, Field, GlueIr, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
+use lang::{AnonModel, AstNode, Enum, Field, GlueIr, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
@@ -172,8 +172,8 @@ impl<'a> TypeScriptGenerator<'a> {
                     .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved type: {}", type_name)))?;
                 self.ctx.symbol_name(&sym.name, Case::Pascal)
             }
-        } else if atom.as_anon_model().is_some() {
-            return Err(self.ctx.error(atom.syntax(), "Anonymous models not supported"));
+        } else if let Some(anon_model) = atom.anon_model() {
+            self.emit_anon_type(&anon_model, scope)?
         } else {
             return Err(CodeGenContext::internal_error("Unknown type atom kind"));
         };
@@ -186,6 +186,18 @@ impl<'a> TypeScriptGenerator<'a> {
         }
 
         Ok(result)
+    }
+
+    fn emit_anon_type(&self, anon_model: &AnonModel, scope: Option<SymId>) -> CodeGenResult<String> {
+        let fields = anon_model
+            .fields()
+            .iter()
+            .map(|field| {
+                let optional = if field.is_optional() { "?" } else { "" };
+                Ok(format!("{}{}: {}", field.name()?, optional, self.emit_type(&field.field_type()?, scope)?))
+            })
+            .collect::<CodeGenResult<Vec<_>>>()?;
+        Ok(format!("{{ {} }}", fields.join("; ")))
     }
 
     fn emit_zod_type(&self, ty: &Type, scope: Option<SymId>) -> CodeGenResult<String> {
@@ -221,8 +233,8 @@ impl<'a> TypeScriptGenerator<'a> {
                 let qualified = self.ctx.symbol_name(&sym.name, Case::Pascal);
                 format!("{}Schema", qualified)
             }
-        } else if atom.as_anon_model().is_some() {
-            return Err(self.ctx.error(atom.syntax(), "Anonymous models not supported"));
+        } else if let Some(anon_model) = atom.anon_model() {
+            self.emit_zod_anon_type(&anon_model, scope)?
         } else {
             return Err(CodeGenContext::internal_error("Unknown type atom kind"));
         };
@@ -235,6 +247,21 @@ impl<'a> TypeScriptGenerator<'a> {
         }
 
         Ok(result)
+    }
+
+    fn emit_zod_anon_type(&self, anon_model: &AnonModel, scope: Option<SymId>) -> CodeGenResult<String> {
+        let fields = anon_model
+            .fields()
+            .iter()
+            .map(|field| {
+                let mut schema = self.emit_zod_type(&field.field_type()?, scope)?;
+                if field.is_optional() {
+                    schema.push_str(".optional()");
+                }
+                Ok(format!("{}: {}", field.name()?, schema))
+            })
+            .collect::<CodeGenResult<Vec<_>>>()?;
+        Ok(format!("z.object({{ {} }})", fields.join(", ")))
     }
 
     fn zod_for_primitive(&self, primitive: lang::PrimitiveType) -> String {
@@ -323,6 +350,37 @@ mod tests {
     #[test]
     fn test_zod() {
         assert_snapshot!(gen_typescript_with_zod(SIMPLE_MODEL, true));
+    }
+
+    #[test]
+    fn test_anonymous_struct_types_only() {
+        let src = indoc! { r#"
+            model User {
+                profile: {
+                    bio: string
+                    age?: int
+                    address: {
+                        city: string
+                    }
+                }
+            }
+        "# };
+
+        assert_snapshot!(gen_typescript(src));
+    }
+
+    #[test]
+    fn test_anonymous_struct_zod() {
+        let src = indoc! { r#"
+            model User {
+                profile: {
+                    bio: string
+                    age?: int
+                }
+            }
+        "# };
+
+        assert_snapshot!(gen_typescript_with_zod(src, true));
     }
 
     #[test]

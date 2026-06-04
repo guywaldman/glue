@@ -71,6 +71,10 @@ impl GlueTestFixture {
         self.run_codegen("python", "py")
     }
 
+    fn generate_typescript(&self) -> Result<PathBuf> {
+        self.run_codegen("typescript", "ts")
+    }
+
     fn generate_openapi(&self) -> Result<PathBuf> {
         self.run_codegen("openapi", "json")
     }
@@ -359,6 +363,65 @@ fn e2e_go_ecommerce_snapshot() -> Result<()> {
     assert_snapshot!("go_ecommerce", generated);
 
     cleanup(&output_path);
+    Ok(())
+}
+
+#[test]
+fn e2e_anonymous_struct_generates_all_targets() -> Result<()> {
+    let fixture = GlueTestFixture::from_source(
+        "anonymous_struct_all_targets",
+        "anonymous.glue",
+        r#"
+            @root
+            model User {
+                id: string
+                profile: {
+                    bio: string
+                    age: int
+                }
+            }
+        "#,
+    )?;
+
+    fixture.run_check()?;
+
+    let python_path = fixture.generate_python()?;
+    validate_python_syntax(&python_path)?;
+    let python = std::fs::read_to_string(&python_path)?;
+    assert!(python.contains("class UserProfile"), "Missing generated Python anonymous class:\n{}", python);
+
+    let typescript_path = fixture.generate_typescript()?;
+    let typescript = std::fs::read_to_string(&typescript_path)?;
+    assert!(
+        typescript.contains("profile: { bio: string; age: number };"),
+        "Missing inline TypeScript anonymous object:\n{}",
+        typescript
+    );
+
+    let rust_path = fixture.generate_rust()?;
+    let rust = std::fs::read_to_string(&rust_path)?;
+    assert!(rust.contains("pub struct UserProfile"), "Missing generated Rust anonymous struct:\n{}", rust);
+
+    let go_path = fixture.generate_go()?;
+    let go = std::fs::read_to_string(&go_path)?;
+    assert!(go.contains("type UserProfile struct"), "Missing generated Go anonymous struct:\n{}", go);
+
+    let protobuf_path = fixture.generate_protobuf()?;
+    let protobuf = std::fs::read_to_string(&protobuf_path)?;
+    assert!(protobuf.contains("message UserProfile"), "Missing generated Protobuf anonymous message:\n{}", protobuf);
+
+    let openapi_path = fixture.generate_openapi()?;
+    let openapi: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&openapi_path)?)?;
+    assert_eq!(openapi["components"]["schemas"]["User"]["properties"]["profile"]["type"], "object");
+
+    let jsonschema_path = fixture.generate_jsonschema()?;
+    let jsonschema: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&jsonschema_path)?)?;
+    assert_eq!(jsonschema["properties"]["profile"]["type"], "object");
+
+    for path in [python_path, typescript_path, rust_path, go_path, protobuf_path, openapi_path, jsonschema_path] {
+        cleanup(&path);
+    }
+
     Ok(())
 }
 

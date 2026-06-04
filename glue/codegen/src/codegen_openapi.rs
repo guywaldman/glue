@@ -165,16 +165,14 @@ impl<'a> OpenAPIGenerator<'a> {
         }
 
         if let Some(anon_model) = atom.as_anon_model().and_then(AnonModel::cast) {
-            let properties: HashMap<_, _> = anon_model
-                .field_nodes()
-                .into_iter()
-                .filter_map(Field::cast)
-                .filter_map(|f| Some((Self::field_name(&f)?, self.type_to_schema(&f.ty()?))))
-                .collect();
+            let fields = anon_model.fields();
+            let properties = self.fields_to_properties(&fields);
+            let required: Vec<_> = fields.iter().filter(|f| !f.is_optional()).filter_map(Self::field_name).collect();
 
             let base = openapi::Schema {
                 schema_type: Some("object".to_string()),
                 properties: if properties.is_empty() { None } else { Some(properties) },
+                required: if required.is_empty() { None } else { Some(required) },
                 nullable,
                 ..Default::default()
             };
@@ -248,7 +246,7 @@ impl<'a> OpenAPIGenerator<'a> {
 
                 // Add description
                 if let (Some(docs), openapi::SchemaOrReference::Item(s)) = (f.docs(), &mut schema) {
-                    s.description = Some(docs.join("\n"));
+                    s.description = Some(docs.join("\n").trim().to_string());
                 }
 
                 // Add example
@@ -444,6 +442,36 @@ mod tests {
         let metadata = &json_value["components"]["schemas"]["Container"]["properties"]["metadata"];
         assert_eq!(metadata["type"], "object");
         assert_eq!(metadata["additionalProperties"]["$ref"], "#/components/schemas/UserData");
+    }
+
+    #[test]
+    fn test_anonymous_struct_schema() {
+        let src = indoc! {r#"
+            model User {
+                profile: {
+                    /// Short biography
+                    bio: string
+                    age?: int
+                }
+            }
+        "#};
+
+        let (program, source) = analyze_test_glue_file(src);
+        let ir = GlueIr::from_analyzed(source.file_name, program);
+        let codegen = CodeGenOpenAPI;
+        let result = codegen
+            .generate(
+                ir,
+                &SourceCodeMetadata {
+                    file_name: source.file_name,
+                    file_contents: source.file_contents,
+                },
+                None,
+            )
+            .unwrap();
+
+        let json_value: Value = serde_json::from_str(&result).unwrap();
+        assert_json_snapshot!(json_value);
     }
 
     #[test]

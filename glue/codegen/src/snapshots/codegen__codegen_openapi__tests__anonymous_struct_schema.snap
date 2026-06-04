@@ -1,0 +1,39 @@
+---
+source: codegen/src/codegen_openapi.rs
+expression: json_value
+---
+{
+  "components": {
+    "schemas": {
+      "User": {
+        "properties": {
+          "profile": {
+            "properties": {
+              "age": {
+                "type": "integer"
+              },
+              "bio": {
+                "description": "Short biography",
+                "type": "string"
+              }
+            },
+            "required": [
+              "bio"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "profile"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Generated API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.0.0",
+  "paths": {}
+}

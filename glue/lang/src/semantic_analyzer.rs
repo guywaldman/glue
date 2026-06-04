@@ -346,29 +346,8 @@ impl SemanticAnalyzer {
         let endpoint_name = endpoint.path_string_literal_node().unwrap().value().unwrap();
         let endpoint_scope = symbols.resolve_id(scope, &endpoint_name);
 
-        // Check regular (non-responses) fields
         for field_node in endpoint.field_nodes() {
-            let field = Field::cast(field_node.clone()).unwrap();
-            if field.ident().as_deref() == Some("responses") {
-                // Walk the anon model inside `responses` (e.g., `{ 2XX: Foo, 4XX: Bar }` and check each response type reference.
-                if let Some(type_node) = field.type_node() {
-                    let type_expr = Type::cast(type_node).unwrap();
-                    for atom_node in type_expr.type_atom_nodes() {
-                        let atom = TypeAtom::cast(atom_node).unwrap();
-                        if let Some(anon_model_node) = atom.as_anon_model() {
-                            let anon_model = AnonModel::cast(anon_model_node).unwrap();
-                            for response_field_node in anon_model.field_nodes() {
-                                let response_field = Field::cast(response_field_node).unwrap();
-                                if let Some(response_type_node) = response_field.type_node() {
-                                    Self::check_type(response_type_node, symbols, endpoint_scope, errors, diag.clone());
-                                }
-                            }
-                        }
-                    }
-                }
-            } else {
-                Self::check_field(field_node, symbols, endpoint_scope, errors, diag.clone());
-            }
+            Self::check_field(field_node, symbols, endpoint_scope, errors, diag.clone());
         }
 
         // Check nested models declared inside the endpoint
@@ -503,13 +482,7 @@ impl SemanticAnalyzer {
             if let Some(anon_model_node) = type_atom.as_anon_model()
                 && let Some(anon_model) = AnonModel::cast(anon_model_node)
             {
-                for field_node in anon_model.field_nodes() {
-                    if let Some(field) = Field::cast(field_node)
-                        && let Some(field_type_node) = field.type_node()
-                    {
-                        Self::check_type(field_type_node, symbols, scope, errors, diag.clone());
-                    }
-                }
+                Self::check_anon_model(anon_model, symbols, scope, errors, diag.clone());
             }
 
             if let Some(record) = type_atom.as_record_type() {
@@ -520,6 +493,40 @@ impl SemanticAnalyzer {
                     Self::check_type(dest, symbols, scope, errors, diag.clone());
                 }
             }
+        }
+    }
+
+    fn check_anon_model(anon_model: AnonModel, symbols: &SymTable<LNode>, scope: Option<SymId>, errors: &mut Vec<SemanticAnalyzerError>, diag: DiagnosticContext) {
+        for node in anon_model
+            .nested_model_nodes()
+            .into_iter()
+            .chain(anon_model.nested_enum_nodes())
+            .chain(anon_model.nested_type_alias_nodes())
+        {
+            let report = diag.error_with_help(
+                node.text_range(),
+                "Anonymous structs cannot contain nested declarations",
+                "Move nested models, enums, or type aliases to the surrounding model scope.",
+            );
+            errors.push(SemanticAnalyzerError::DuplicateField(report));
+        }
+
+        let mut seen_fields = HashMap::new();
+        for field_node in anon_model.field_nodes() {
+            let Some(field) = Field::cast(field_node.clone()) else {
+                continue;
+            };
+            let Some(field_name) = field.ident() else {
+                continue;
+            };
+            if let Some(first_range) = seen_fields.insert(field_name.clone(), field_node.text_range()) {
+                let first_label = diag.labeled_span(first_range, "First field defined here");
+                let report = diag.error_with_labels(field_node.text_range(), &format!("Duplicate field name '{}'", field_name), None, None, vec![first_label]);
+                errors.push(SemanticAnalyzerError::DuplicateField(report));
+                continue;
+            }
+
+            Self::check_field(field_node, symbols, scope, errors, diag.clone());
         }
     }
 
@@ -799,6 +806,89 @@ mod tests {
         let parsed = Parser::new().parse(&metadata).unwrap();
         let analyzed = SemanticAnalyzer::new().analyze(&parsed, &metadata);
         assert!(analyzed.is_ok());
+    }
+
+    #[test]
+    fn test_valid_anonymous_struct_fields_pass() {
+        let src = indoc! { r#"
+        model User {
+            profile: {
+                bio: string
+                age?: int
+                friend: Friend
+            }
+
+            model Friend {
+                id: string
+            }
+        }
+        "# };
+        let metadata = SourceCodeMetadata {
+            file_name: "test.glue",
+            file_contents: src,
+        };
+        let parsed = Parser::new().parse(&metadata).unwrap();
+        let analyzed = SemanticAnalyzer::new().analyze(&parsed, &metadata);
+        assert!(analyzed.is_ok());
+    }
+
+    #[test]
+    fn test_anonymous_struct_duplicate_field_fails() {
+        let src = indoc! { r#"
+        model User {
+            profile: {
+                bio: string
+                bio: int
+            }
+        }
+        "# };
+        let metadata = SourceCodeMetadata {
+            file_name: "test.glue",
+            file_contents: src,
+        };
+        let parsed = Parser::new().parse(&metadata).unwrap();
+        let analyzed = SemanticAnalyzer::new().analyze(&parsed, &metadata);
+        assert!(analyzed.is_err());
+    }
+
+    #[test]
+    fn test_anonymous_struct_field_validation_fails() {
+        let src = indoc! { r#"
+        model User {
+            profile: {
+                age: int = "not an int"
+                friend: MissingFriend
+                @unknown
+                name: string
+            }
+        }
+        "# };
+        let metadata = SourceCodeMetadata {
+            file_name: "test.glue",
+            file_contents: src,
+        };
+        let parsed = Parser::new().parse(&metadata).unwrap();
+        let analyzed = SemanticAnalyzer::new().analyze(&parsed, &metadata);
+        assert!(analyzed.is_err());
+    }
+
+    #[test]
+    fn test_anonymous_struct_nested_declaration_is_rejected() {
+        let src = indoc! { r#"
+        model User {
+            profile: {
+                model Inner {
+                    id: string
+                }
+            }
+        }
+        "# };
+        let metadata = SourceCodeMetadata {
+            file_name: "test.glue",
+            file_contents: src,
+        };
+        let parsed = Parser::new().parse(&metadata);
+        assert!(parsed.is_err());
     }
 
     #[test]
