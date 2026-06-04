@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/guywaldman/glue/compare/v1.1.8...v1.2.0) (2026-06-04)
+
+
+### Features
+
+* add support for anonymous structs ([#62](https://github.com/guywaldman/glue/issues/62)) ([ea11147](https://github.com/guywaldman/glue/commit/ea1114703a81920509e182d99c080a78764eea16))
+
 ## [1.1.8](https://github.com/guywaldman/glue/compare/v1.1.7...v1.1.8) (2026-05-26)
 
 
