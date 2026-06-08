@@ -55,8 +55,9 @@ Prefer current public docs over memorized syntax when exact behavior matters:
   - `import * from "common.glue"`
   - `import * as common from "common.glue"`
   - `import { User, Address as PostalAddress } from "domain.glue"`
-- Field metadata can use `@field(alias="external_name", example="value")`.
+- Field metadata can use `@field(alias="external_name", example="value", proto_tag=1)`.
 - Endpoints use `endpoint "METHOD /path/{param}" Name { ... }` with optional `body`, `headers`, and `responses`.
+- Protobuf services use `service Name { rpc Method { body: Request returns: Response } }`.
 
 Supported generation targets are `typescript`, `python`, `rust`, `go`, `openapi`, `jsonschema`, and `protobuf`.
 
@@ -73,6 +74,41 @@ Supported generation targets are `typescript`, `python`, `rust`, `go`, `openapi`
 - Document public models and important fields with `///`. Good doc comments improve generated schemas and help downstream agents. Internal comments are supported with `//` and are stripped from generated output, so they are ideal for implementation notes and reminders that should not be exposed downstream.
 - Treat Glue as the source of truth. When editing generated code, consider whether the change belongs in the `.glue` model instead.
 - Validate early. A small `glue check` pass is cheaper than debugging generated TypeScript, Python, or OpenAPI later.
+
+## Protobuf Guidance
+
+Glue Protobuf generation emits `proto3` files from models, enums, and services.
+
+- Plain model fields do not need annotations; Protobuf field tags default to source order starting at `1`.
+- Use `@field(proto_tag=<number>)` when the schema needs stable wire compatibility across field reordering. If one field in a model has `proto_tag`, every field in that model must have one.
+- Optional scalar and message fields generate `optional` Protobuf fields. Optional repeated and map fields are accepted, but Protobuf has no presence for those shapes, so they emit as regular `repeated` and `map` fields.
+- `Record<K, V>` emits `map<K, V>` for supported Protobuf key/value types. Anonymous structs emit generated messages named from the owning field path.
+- Services use `service` and `rpc` declarations with `body` and `returns`; both should be message types. HTTP `endpoint` declarations are ignored by the Protobuf generator.
+
+```glue
+model GetUserRequest {
+  @field(proto_tag=1)
+  user_id: int
+}
+
+model User {
+  @field(proto_tag=1)
+  user_id: int
+
+  @field(proto_tag=2)
+  display_name?: string
+
+  @field(proto_tag=3)
+  tags?: string[]
+}
+
+service UserService {
+  rpc GetUser {
+    body: GetUserRequest
+    returns: User
+  }
+}
+```
 
 ## Current Limitations
 
