@@ -3,8 +3,8 @@ mod ast_traversal;
 mod parser;
 
 pub use ast::{
-    AnonModel, AstNode, ConstExprType, Decorator, DecoratorArg, Endpoint, Enum, EnumVariant, Field, ImportNamedItem, ImportStmt, Literal, LiteralExpr, Model, PrimitiveType, RootNode, Type, TypeAlias,
-    TypeAtom,
+    AnonModel, AstNode, ConstExprType, Decorator, DecoratorArg, Endpoint, Enum, EnumVariant, Field, ImportNamedItem, ImportStmt, Literal, LiteralExpr, Model, PrimitiveType, RootNode, Rpc, Service,
+    Type, TypeAlias, TypeAtom,
 };
 pub use ast_traversal::AstVisitor;
 pub use parser::{LNode, LNodeOrToken, LSyntaxKind, LToken, ParsedProgram, Parser, ParserError};

@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result, anyhow};
+use indoc::indoc;
 use insta::assert_snapshot;
 
 const SHARED_SIMPLE_GLUE_SOURCE: &str = include_str!("e2e/fixtures/glue/simple.glue");
@@ -193,6 +194,28 @@ fn glue_bin_command() -> Command {
 
 fn cleanup(path: &PathBuf) {
     let _ = std::fs::remove_file(path);
+}
+
+fn compile_proto_with_protoc(output_path: &Path) -> Result<()> {
+    let output = Command::new("protoc")
+        .args([
+            "--proto_path",
+            output_path.parent().unwrap().to_str().unwrap(),
+            "--python_out",
+            output_path.parent().unwrap().to_str().unwrap(),
+            output_path.to_str().unwrap(),
+        ])
+        .output()?;
+
+    let proto_py = output_path.with_file_name(format!("{}_pb2.py", output_path.file_stem().unwrap().to_string_lossy()));
+    std::fs::remove_file(&proto_py).ok();
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow!("protoc compilation failed:\n{}", stderr));
+    }
+
+    Ok(())
 }
 
 fn count_ir_error_nodes(value: &serde_json::Value) -> usize {
@@ -767,28 +790,78 @@ fn e2e_protobuf_compile_with_protoc() -> Result<()> {
     let fixture = GlueTestFixture::from_source("protobuf_compile", "nested.glue", SHARED_NESTED_GLUE_SOURCE)?;
     let output_path = fixture.generate_protobuf()?;
 
-    let output = Command::new("protoc")
-        .args([
-            "--proto_path",
-            output_path.parent().unwrap().to_str().unwrap(),
-            "--python_out",
-            output_path.parent().unwrap().to_str().unwrap(),
-            output_path.to_str().unwrap(),
-        ])
-        .output()?;
-
-    // Clean up generated Python files from protoc
-    let proto_py = output_path.with_file_name(format!("{}_pb2.py", output_path.file_stem().unwrap().to_string_lossy()));
-    std::fs::remove_file(&proto_py).ok();
-
+    let result = compile_proto_with_protoc(&output_path);
     cleanup(&output_path);
+    result
+}
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(anyhow!("protoc compilation failed:\n{}", stderr));
-    }
+#[test]
+fn e2e_protobuf_service_with_models() -> Result<()> {
+    let src = indoc! {r#"
+        model GetUserRequest {
+            @field(proto_tag=1)
+            user_id: int
+        }
 
-    Ok(())
+        model User {
+            @field(proto_tag=1)
+            user_id: int
+
+            @field(proto_tag=2)
+            name: string
+
+            @field(proto_tag=3)
+            display_name?: string
+
+            @field(proto_tag=4)
+            tags?: string[]
+
+            @field(proto_tag=5)
+            metadata?: Record<string, string>
+        }
+
+        model ListUsersRequest {
+            @field(proto_tag=1)
+            page: int
+        }
+
+        model ListUsersResponse {
+            @field(proto_tag=1)
+            users: User[]
+        }
+
+        service UserService {
+            rpc GetUser {
+                body: GetUserRequest
+                returns: User
+            }
+
+            rpc ListUsers {
+                body: ListUsersRequest
+                returns: ListUsersResponse
+            }
+        }
+    "#};
+
+    let fixture = GlueTestFixture::from_source("protobuf_service", "service.glue", src)?;
+    let output_path = fixture.generate_protobuf()?;
+    let content = std::fs::read_to_string(&output_path)?;
+    assert!(content.contains("message GetUserRequest"), "Missing request message:\n{}", content);
+    assert!(content.contains("int32 user_id = 1;"), "Missing explicit proto tag:\n{}", content);
+    assert!(content.contains("service UserService"), "Missing service definition:\n{}", content);
+    assert!(content.contains("optional string display_name = 3;"), "Missing optional field:\n{}", content);
+    assert!(content.contains("repeated string tags = 4;"), "Missing optional repeated field:\n{}", content);
+    assert!(content.contains("map<string, string> metadata = 5;"), "Missing optional map field:\n{}", content);
+    assert!(content.contains("rpc GetUser (GetUserRequest) returns (User);"), "Missing GetUser rpc definition:\n{}", content);
+    assert!(
+        content.contains("rpc ListUsers (ListUsersRequest) returns (ListUsersResponse);"),
+        "Missing ListUsers rpc definition:\n{}",
+        content
+    );
+
+    let result = compile_proto_with_protoc(&output_path);
+    cleanup(&output_path);
+    result
 }
 
 #[test]

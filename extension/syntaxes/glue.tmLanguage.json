@@ -135,10 +135,10 @@
 				},
 				{
 					"name": "keyword.control.glue",
-					"match": "^\\s*(endpoint|model|response|enum|type)\\b"
+					"match": "^\\s*(endpoint|model|response|enum|type|service|rpc)\\b"
 				},
 				{
-					"match": "^\\s*(body|mime|status):",
+					"match": "^\\s*(body|returns|mime|status):",
 					"captures": {
 						"1": {
 							"name": "markup.underline"

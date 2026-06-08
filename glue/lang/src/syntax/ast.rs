@@ -42,6 +42,10 @@ impl RootNode {
         self.0.children().filter(|n| n.kind() == LSyntaxKind::ENDPOINT).filter_map(Endpoint::cast).collect()
     }
 
+    pub fn top_level_services(&self) -> Vec<Service> {
+        self.0.children().filter(|n| n.kind() == LSyntaxKind::SERVICE).filter_map(Service::cast).collect()
+    }
+
     pub fn top_level_enums(&self) -> Vec<Enum> {
         self.0.children().filter(|n| n.kind() == LSyntaxKind::ENUM).filter_map(Enum::cast).collect()
     }
@@ -49,6 +53,13 @@ impl RootNode {
     pub fn top_level_type_aliases(&self) -> Vec<TypeAlias> {
         self.0.children().filter(|n| n.kind() == LSyntaxKind::TYPE_ALIAS).filter_map(TypeAlias::cast).collect()
     }
+}
+
+fn field_node_named(nodes: impl IntoIterator<Item = LNode>, name: &str) -> Option<LNode> {
+    nodes
+        .into_iter()
+        .filter(|n| n.kind() == LSyntaxKind::FIELD)
+        .find(|field| Field::cast(field.clone()).map(|f| f.ident().as_deref() == Some(name)).unwrap_or(false))
 }
 
 ast_node!(ImportStmt, LSyntaxKind::IMPORT_STMT);
@@ -339,26 +350,80 @@ impl Endpoint {
     }
 
     pub fn responses_field_node(&self) -> Option<LNode> {
-        self.model_body().and_then(|model_body| {
-            model_body
-                .children()
-                .filter(|n| n.kind() == LSyntaxKind::FIELD)
-                .find(|field| Field::cast(field.clone()).map(|f| f.ident().as_deref() == Some("responses")).unwrap_or(false))
-        })
+        self.model_body().and_then(|model_body| field_node_named(model_body.children(), "responses"))
     }
 
     pub fn body_field_node(&self) -> Option<LNode> {
-        self.model_body().and_then(|model_body| {
-            model_body
-                .children()
-                .filter(|n| n.kind() == LSyntaxKind::FIELD)
-                .find(|field| Field::cast(field.clone()).map(|f| f.ident().as_deref() == Some("body")).unwrap_or(false))
-        })
+        self.model_body().and_then(|model_body| field_node_named(model_body.children(), "body"))
     }
 
     // We reuse the model body production for endpoints - thus it makes sense to have such a convenience method
     fn model_body(&self) -> Option<LNode> {
         self.0.children().find(|n| n.kind() == LSyntaxKind::MODEL_BODY)
+    }
+}
+
+ast_node!(Rpc, LSyntaxKind::RPC);
+
+impl Rpc {
+    pub fn ident_token(&self) -> Option<LToken> {
+        self.0.children_with_tokens().filter_map(|e| e.into_token()).find(|t| t.kind() == LSyntaxKind::IDENT)
+    }
+
+    pub fn ident(&self) -> Option<String> {
+        self.ident_token().map(|t| t.text().to_string())
+    }
+
+    pub fn docs(&self) -> Option<Vec<String>> {
+        self.0
+            .children_with_tokens()
+            .find(|t| t.kind() == LSyntaxKind::DOC_BLOCK)
+            .and_then(|doc_block_node| doc_block_node.into_token().map(|n| n.text().to_string()))
+            .map(|text| text.lines().map(|line| line.trim().trim_start_matches("///").trim().to_string()).collect())
+    }
+
+    pub fn field_nodes(&self) -> Vec<LNode> {
+        self.0.children().filter(|n| n.kind() == LSyntaxKind::FIELD).collect()
+    }
+
+    pub fn fields(&self) -> Vec<Field> {
+        self.field_nodes().into_iter().filter_map(Field::cast).collect()
+    }
+
+    pub fn body_field_node(&self) -> Option<LNode> {
+        field_node_named(self.field_nodes(), "body")
+    }
+
+    pub fn returns_field_node(&self) -> Option<LNode> {
+        field_node_named(self.field_nodes(), "returns")
+    }
+}
+
+ast_node!(Service, LSyntaxKind::SERVICE);
+
+impl Service {
+    pub fn ident_token(&self) -> Option<LToken> {
+        self.0.children_with_tokens().filter_map(|e| e.into_token()).find(|t| t.kind() == LSyntaxKind::IDENT)
+    }
+
+    pub fn ident(&self) -> Option<String> {
+        self.ident_token().map(|t| t.text().to_string())
+    }
+
+    pub fn docs(&self) -> Option<Vec<String>> {
+        self.0
+            .children_with_tokens()
+            .find(|t| t.kind() == LSyntaxKind::DOC_BLOCK)
+            .and_then(|doc_block_node| doc_block_node.into_token().map(|n| n.text().to_string()))
+            .map(|text| text.lines().map(|line| line.trim().trim_start_matches("///").trim().to_string()).collect())
+    }
+
+    pub fn rpc_nodes(&self) -> Vec<LNode> {
+        self.0.children().filter(|n| n.kind() == LSyntaxKind::RPC).collect()
+    }
+
+    pub fn rpcs(&self) -> Vec<Rpc> {
+        self.rpc_nodes().into_iter().filter_map(Rpc::cast).collect()
     }
 }
 

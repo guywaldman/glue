@@ -1,10 +1,12 @@
 #![allow(unused_variables)]
 
-use crate::{AstNode, Endpoint, Enum, Field, LNode, Model, RootNode};
+use crate::{AstNode, Endpoint, Enum, Field, LNode, Model, RootNode, Rpc, Service};
 
 /// A trait for visiting AST nodes.
 pub trait AstVisitor {
     fn visit_endpoint(&mut self, endpoint: &Endpoint, parent: &impl AstNode) {}
+    fn visit_service(&mut self, service: &Service, parent: &impl AstNode) {}
+    fn visit_rpc(&mut self, rpc: &Rpc, parent: &impl AstNode) {}
     fn visit_model(&mut self, node: &Model, parent: &impl AstNode) {}
     fn visit_enum(&mut self, node: &Enum, parent: &impl AstNode) {}
     fn visit_field(&mut self, node: &Field, parent: &impl AstNode) {}
@@ -23,6 +25,16 @@ pub trait AstVisitor {
                 self.visit_field(&field, &endpoint);
             }
             self.visit_endpoint(&endpoint, &root);
+        }
+
+        for service in root.top_level_services() {
+            for rpc in service.rpcs() {
+                for field in rpc.fields() {
+                    self.visit_field(&field, &rpc);
+                }
+                self.visit_rpc(&rpc, &service);
+            }
+            self.visit_service(&service, &root);
         }
 
         for model in root.top_level_models() {

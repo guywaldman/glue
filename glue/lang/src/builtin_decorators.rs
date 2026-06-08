@@ -76,7 +76,7 @@ pub const MODEL_FIELD_DECORATOR: &DecoratorDef = {
         id: "field",
         doc: "Decorator applied to model fields to provide additional metadata.",
         positional_args: &[MODEL_FIELD_DECORATOR_ALIAS_ARG],
-        named_args: &[MODEL_FIELD_DECORATOR_ALIAS_ARG, MODEL_FIELD_DECORATOR_EXAMPLE_ARG],
+        named_args: &[MODEL_FIELD_DECORATOR_ALIAS_ARG, MODEL_FIELD_DECORATOR_EXAMPLE_ARG, MODEL_FIELD_DECORATOR_PROTO_TAG_ARG],
     }
 };
 pub const MODEL_FIELD_DECORATOR_ALIAS_ARG: DecoratorArgDef = DecoratorArgDef {
@@ -90,6 +90,13 @@ pub const MODEL_FIELD_DECORATOR_EXAMPLE_ARG: DecoratorArgDef = DecoratorArgDef {
     id: "example",
     doc: "Provides an example value for the field",
     ty: ConstExprType::String,
+    required: false,
+    expected_position: None,
+};
+pub const MODEL_FIELD_DECORATOR_PROTO_TAG_ARG: DecoratorArgDef = DecoratorArgDef {
+    id: "proto_tag",
+    doc: "Provides an explicit Protobuf field tag",
+    ty: ConstExprType::Int,
     required: false,
     expected_position: None,
 };

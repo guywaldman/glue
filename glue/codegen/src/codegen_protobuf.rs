@@ -1,6 +1,8 @@
+use std::collections::HashSet;
+
 use config::GlueConfigSchemaGeneration;
 use convert_case::Case;
-use lang::{AnonModel, AstNode, Field, GlueIr, SourceCodeMetadata, SymId, Type, TypeAtom};
+use lang::{AnonModel, AstNode, Field, GlueIr, LSyntaxKind, Literal, Rpc, Service, SourceCodeMetadata, SymId, Type, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
@@ -29,6 +31,7 @@ struct ProtobufGenerator<'a> {
     output: String,
     anon_namer: AnonymousTypeNamer,
     pending_anon_models: Vec<AnonymousModelDef>,
+    emitted_anon_model_count: usize,
 }
 
 #[derive(Clone)]
@@ -47,6 +50,7 @@ impl<'a> ProtobufGenerator<'a> {
             output: format!("syntax = \"proto3\";\n\npackage {};\n\n", package_name),
             anon_namer,
             pending_anon_models: Vec::new(),
+            emitted_anon_model_count: 0,
         }
     }
 
@@ -71,42 +75,192 @@ impl<'a> ProtobufGenerator<'a> {
 
         self.emit_pending_anon_models()?;
 
+        let mut service_blocks = Vec::new();
+        for service in self.ctx.top_level_services().collect::<Vec<_>>() {
+            service_blocks.push(self.emit_service(&service)?);
+        }
+
+        self.emit_pending_anon_models()?;
+
+        for service_block in service_blocks {
+            self.output.push_str(&service_block);
+        }
+
         Ok(self.output.clone())
     }
 
     fn emit_message(&mut self, name: &str, fields: &[Field], scope: Option<SymId>, path: &[String]) -> CodeGenResult<String> {
         let mut output = format!("message {} {{\n", name);
-        for (i, field) in fields.iter().enumerate() {
+        let field_tags = self.field_tags(name, fields)?;
+        for (field, tag) in fields.iter().zip(field_tags) {
             let field_name = field.name()?;
             let field_ty = field.field_type()?;
             let mut field_path = path.to_vec();
             field_path.push(field_name.clone());
-            let proto_type = self.emit_type(&field_ty, scope, &field_path)?;
-            output.push_str(&format!("    {} {} = {};\n", proto_type, field_name, i + 1));
+            let (proto_type, optional) = self.emit_field_type(field, &field_ty, scope, &field_path)?;
+            let label = if optional { "optional " } else { "" };
+            output.push_str(&format!("    {}{} {} = {};\n", label, proto_type, field_name, tag));
         }
         output.push_str("}\n\n");
         Ok(output)
     }
 
+    fn field_tags(&self, message_name: &str, fields: &[Field]) -> CodeGenResult<Vec<i64>> {
+        let explicit_tags = fields.iter().map(|field| self.field_proto_tag(field)).collect::<CodeGenResult<Vec<_>>>()?;
+        let tagged_count = explicit_tags.iter().filter(|tag| tag.is_some()).count();
+        if tagged_count == 0 {
+            return Ok((1..=fields.len() as i64).collect());
+        }
+        if tagged_count != fields.len() {
+            let field = fields.iter().zip(explicit_tags.iter()).find_map(|(field, tag)| tag.is_none().then_some(field)).unwrap();
+            return Err(self.ctx.error(
+                field.syntax(),
+                &format!(
+                    "Protobuf message '{}' mixes tagged and untagged fields; add @field(proto_tag=...) to every field or none of them",
+                    message_name
+                ),
+            ));
+        }
+
+        let mut seen = HashSet::new();
+        let mut tags = Vec::new();
+        for (field, tag) in fields.iter().zip(explicit_tags.into_iter().flatten()) {
+            Self::validate_proto_tag(field, tag, &self.ctx)?;
+            if !seen.insert(tag) {
+                return Err(self.ctx.error(field.syntax(), &format!("Duplicate Protobuf field tag {} in message '{}'", tag, message_name)));
+            }
+            tags.push(tag);
+        }
+        Ok(tags)
+    }
+
+    fn field_proto_tag(&self, field: &Field) -> CodeGenResult<Option<i64>> {
+        let Some(arg) = field.extract_decorator_arg(lang::MODEL_FIELD_DECORATOR, &lang::MODEL_FIELD_DECORATOR_PROTO_TAG_ARG) else {
+            return Ok(None);
+        };
+        match arg.literal() {
+            Some(Literal::IntLiteral { value, .. }) => Ok(Some(value)),
+            _ => Err(self.ctx.error(arg.syntax(), "Protobuf field tag must be an integer")),
+        }
+    }
+
+    fn validate_proto_tag(field: &Field, tag: i64, ctx: &CodeGenContext) -> CodeGenResult<()> {
+        if !(1..=536_870_911).contains(&tag) {
+            return Err(ctx.error(field.syntax(), "Protobuf field tag must be between 1 and 536870911"));
+        }
+        if (19_000..=19_999).contains(&tag) {
+            return Err(ctx.error(field.syntax(), "Protobuf field tags 19000 through 19999 are reserved"));
+        }
+        Ok(())
+    }
+
+    fn emit_field_type(&mut self, field: &Field, ty: &Type, scope: Option<SymId>, path: &[String]) -> CodeGenResult<(String, bool)> {
+        let (proto_type, atom_optional) = self.emit_type_inner(ty, scope, path, true)?;
+        let optional = (field.is_optional() || atom_optional) && !proto_type.starts_with("repeated ") && !proto_type.starts_with("map<");
+        Ok((proto_type, optional))
+    }
+
     fn emit_pending_anon_models(&mut self) -> CodeGenResult<()> {
-        let mut index = 0;
+        let mut index = self.emitted_anon_model_count;
         while index < self.pending_anon_models.len() {
             let def = self.pending_anon_models[index].clone();
             let code = self.emit_message(&def.name, &def.model.fields(), def.scope, &def.path)?;
             self.output.push_str(&code);
             index += 1;
+            self.emitted_anon_model_count = index;
         }
         Ok(())
     }
 
+    fn emit_service(&mut self, service: &Service) -> CodeGenResult<String> {
+        let service_name = service.ident().ok_or_else(|| CodeGenContext::internal_error("Service missing identifier"))?;
+        let service_scope = self
+            .ctx
+            .resolve_id(None, &service_name)
+            .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved service: {}", service_name)))?;
+        let mut output = format!("service {} {{\n", service_name);
+        for rpc in service.rpcs() {
+            output.push_str(&self.emit_rpc(&rpc, Some(service_scope))?);
+        }
+        output.push_str("}\n\n");
+        Ok(output)
+    }
+
+    fn emit_rpc(&mut self, rpc: &Rpc, service_scope: Option<SymId>) -> CodeGenResult<String> {
+        let rpc_name = rpc.ident().ok_or_else(|| CodeGenContext::internal_error("RPC missing identifier"))?;
+        let rpc_scope = self
+            .ctx
+            .resolve_id(service_scope, &rpc_name)
+            .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved rpc: {}", rpc_name)))?;
+        let body_ty = rpc
+            .body_field_node()
+            .and_then(Field::cast)
+            .and_then(|field| field.ty())
+            .ok_or_else(|| self.ctx.error(rpc.syntax(), &format!("RPC '{}' is missing required field 'body'", rpc_name)))?;
+        let returns_ty = rpc
+            .returns_field_node()
+            .and_then(Field::cast)
+            .and_then(|field| field.ty())
+            .ok_or_else(|| self.ctx.error(rpc.syntax(), &format!("RPC '{}' is missing required field 'returns'", rpc_name)))?;
+        let body_path = vec![rpc_name.clone(), "body".to_string()];
+        let returns_path = vec![rpc_name.clone(), "returns".to_string()];
+        let body_type = self.emit_rpc_type(&body_ty, Some(rpc_scope), &body_path)?;
+        let returns_type = self.emit_rpc_type(&returns_ty, Some(rpc_scope), &returns_path)?;
+        Ok(format!("    rpc {} ({}) returns ({});\n", rpc_name, body_type, returns_type))
+    }
+
+    fn emit_rpc_type(&mut self, ty: &Type, scope: Option<SymId>, path: &[String]) -> CodeGenResult<String> {
+        let atoms = ty.type_atoms();
+        if atoms.len() != 1 {
+            return Err(self.ctx.error(ty.syntax(), "Protobuf RPC body and returns must be a single message type"));
+        }
+        let atom = &atoms[0];
+        if atom.is_optional() || atom.is_array() {
+            return Err(self.ctx.error(atom.syntax(), "Protobuf RPC body and returns must be non-optional, non-repeated message types"));
+        }
+        if atom.as_primitive_type().is_some() || atom.as_record_type().is_some() {
+            return Err(self.ctx.error(atom.syntax(), "Protobuf RPC body and returns must be message types"));
+        }
+        if let Some(ref_token) = atom.as_ref_token() {
+            let ref_name = ref_token.text().to_string();
+            if let Some(alias_type) = self.ctx.resolve_type_alias(scope, &ref_name)? {
+                return self.emit_rpc_type(&alias_type, scope, path);
+            }
+            let Some(entry) = self.ctx.resolve(scope, &ref_name) else {
+                return Err(self.ctx.error(atom.syntax(), &format!("Unresolved Protobuf RPC message type '{}'", ref_name)));
+            };
+            if entry.data.kind() != LSyntaxKind::MODEL {
+                return Err(self.ctx.error(atom.syntax(), "Protobuf RPC body and returns must refer to model types"));
+            }
+            return Ok(ref_name);
+        }
+        if let Some(anon_model) = atom.anon_model() {
+            let name = self.anon_namer.allocate(&self.ctx, path, Case::Pascal);
+            self.pending_anon_models.push(AnonymousModelDef {
+                name: name.clone(),
+                model: anon_model,
+                scope,
+                path: path.to_vec(),
+            });
+            return Ok(name);
+        }
+        Err(self.ctx.error(atom.syntax(), "Protobuf RPC body and returns must be message types"))
+    }
+
     fn emit_type(&mut self, ty: &Type, scope: Option<SymId>, path: &[String]) -> CodeGenResult<String> {
+        let (proto_type, _) = self.emit_type_inner(ty, scope, path, false)?;
+        Ok(proto_type)
+    }
+
+    fn emit_type_inner(&mut self, ty: &Type, scope: Option<SymId>, path: &[String], allow_optional: bool) -> CodeGenResult<(String, bool)> {
         let atoms = ty.type_atoms();
         let atom = atoms.first().ok_or_else(|| CodeGenContext::internal_error("Type should have at least one type atom"))?;
 
-        if atom.is_optional() {
-            return Err(self.ctx.error(atom.syntax(), "Protobuf does not support optional types directly"));
+        if atom.is_optional() && !allow_optional {
+            return Err(self.ctx.error(atom.syntax(), "Protobuf optional types are only supported for message fields"));
         }
 
+        let mut optional = atom.is_optional();
         let base = if let Some(primitive) = atom.as_primitive_type() {
             TypeMapper::to_protobuf(primitive).to_string()
         } else if let Some(record) = atom.as_record_type() {
@@ -122,7 +276,9 @@ impl<'a> ProtobufGenerator<'a> {
         } else if let Some(ref_token) = atom.as_ref_token() {
             let ref_name = ref_token.text().to_string();
             if let Some(alias_type) = self.ctx.resolve_type_alias(scope, &ref_name)? {
-                self.emit_type(&alias_type, scope, path)?
+                let (alias_type, alias_optional) = self.emit_type_inner(&alias_type, scope, path, allow_optional)?;
+                optional |= alias_optional;
+                alias_type
             } else {
                 ref_token.to_string()
             }
@@ -139,7 +295,8 @@ impl<'a> ProtobufGenerator<'a> {
             return Err(self.ctx.error(atom.syntax(), "Unsupported type atom for protobuf"));
         };
 
-        if atom.is_array() { Ok(format!("repeated {}", base)) } else { Ok(base) }
+        let proto_type = if atom.is_array() { format!("repeated {}", base) } else { base };
+        Ok((proto_type, optional))
     }
 }
 
@@ -151,6 +308,26 @@ mod tests {
     use lang::{GlueIr, SourceCodeMetadata};
 
     use crate::{CodeGenerator, test_utils::analyze_test_glue_file};
+
+    fn generate(src: &str) -> Result<String, CodeGenError> {
+        let (program, source) = analyze_test_glue_file(src);
+        let ir = GlueIr::from_analyzed(source.file_name, program);
+        CodeGenProtobuf::default().generate(
+            ir,
+            &SourceCodeMetadata {
+                file_name: source.file_name,
+                file_contents: source.file_contents,
+            },
+            None,
+        )
+    }
+
+    fn commented_source(src: &str) -> String {
+        src.lines()
+            .map(|line| if line.is_empty() { "//".to_string() } else { format!("// {}", line) })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
 
     #[test]
     fn test_basic_endpoint() {
@@ -206,5 +383,149 @@ mod tests {
         let result_with_source = format!("// Original source code:\n// {}\n\n{}", src.replace("\n", "\n// "), result);
 
         assert_snapshot!(result_with_source);
+    }
+
+    #[test]
+    fn test_service_and_explicit_tags() {
+        let src = indoc! {r#"
+            model GetUserRequest {
+                @field(proto_tag=1)
+                user_id: int
+            }
+
+            model User {
+                @field(proto_tag=1)
+                user_id: int
+
+                @field(proto_tag=2)
+                name: string
+            }
+
+            service UserService {
+                rpc GetUser {
+                    body: GetUserRequest
+                    returns: User
+                }
+            }
+        "#};
+        let result = generate(src).unwrap();
+        let result_with_source = format!("// Original source code:\n{}\n\n{}", commented_source(src), result);
+
+        assert_snapshot!(result_with_source);
+    }
+
+    #[test]
+    fn test_proto_tag_all_or_none() {
+        let src = indoc! {r#"
+            model User {
+                @field(proto_tag=1)
+                id: int
+                name: string
+            }
+        "#};
+        let err = generate(src).unwrap_err();
+        match err {
+            CodeGenError::GenerationError(report) => {
+                assert!(report.to_string().contains("mixes tagged and untagged fields"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_proto_tag_duplicate_fails() {
+        let src = indoc! {r#"
+            model User {
+                @field(proto_tag=1)
+                id: int
+                @field(proto_tag=1)
+                name: string
+            }
+        "#};
+        let err = generate(src).unwrap_err();
+        match err {
+            CodeGenError::GenerationError(report) => {
+                assert!(report.to_string().contains("Duplicate Protobuf field tag 1"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_proto_tag_invalid_fails() {
+        let src = indoc! {r#"
+            model User {
+                @field(proto_tag=19000)
+                id: int
+            }
+        "#};
+        let err = generate(src).unwrap_err();
+        match err {
+            CodeGenError::GenerationError(report) => {
+                assert!(report.to_string().contains("reserved"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_proto_tag_untagged_legacy_source_order() {
+        let src = indoc! {r#"
+            model User {
+                id: int
+                name: string
+            }
+        "#};
+        let result = generate(src).unwrap();
+        assert!(result.contains("int32 id = 1;"));
+        assert!(result.contains("string name = 2;"));
+    }
+
+    #[test]
+    fn test_optional_fields() {
+        let src = indoc! {r#"
+            model Profile {
+                nickname?: string
+            }
+
+            model User {
+                @field(proto_tag=1)
+                id: int
+
+                @field(proto_tag=2)
+                display_name?: string
+
+                @field(proto_tag=3)
+                profile: Profile?
+            }
+        "#};
+        let result = generate(src).unwrap();
+        assert!(result.contains("optional string nickname = 1;"));
+        assert!(result.contains("optional string display_name = 2;"));
+        assert!(result.contains("optional Profile profile = 3;"));
+    }
+
+    #[test]
+    fn test_optional_repeated_field_emits_repeated() {
+        let src = indoc! {r#"
+            model User {
+                tags?: string[]
+            }
+        "#};
+        let result = generate(src).unwrap();
+        assert!(result.contains("repeated string tags = 1;"));
+        assert!(!result.contains("optional repeated"));
+    }
+
+    #[test]
+    fn test_optional_map_field_emits_map() {
+        let src = indoc! {r#"
+            model User {
+                metadata?: Record<string, string>
+            }
+        "#};
+        let result = generate(src).unwrap();
+        assert!(result.contains("map<string, string> metadata = 1;"));
+        assert!(!result.contains("optional map"));
     }
 }

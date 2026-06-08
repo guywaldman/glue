@@ -3,8 +3,8 @@ use std::collections::HashSet;
 use config::GlueConfigSchemaGeneration;
 use convert_case::{Case, Casing, Converter};
 use lang::{
-    AstNode, DiagnosticContext, Enum, EnumVariant, Field, LNode, LSyntaxKind, Literal, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG, Model, PrimitiveType, SourceCodeMetadata, SymId,
-    SymTable, Type, TypeAlias, TypeAtom,
+    AstNode, DiagnosticContext, Enum, EnumVariant, Field, LNode, LSyntaxKind, Literal, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG, MODEL_FIELD_DECORATOR_PROTO_TAG_ARG, Model,
+    PrimitiveType, Service, SourceCodeMetadata, SymId, SymTable, Type, TypeAlias, TypeAtom,
 };
 
 use crate::CodeGenError;
@@ -74,6 +74,10 @@ impl<'a> CodeGenContext<'a> {
 
     pub fn top_level_endpoints(&self) -> impl Iterator<Item = lang::Endpoint> + '_ {
         self.ast.children().filter(|n| n.kind() == LSyntaxKind::ENDPOINT).filter_map(lang::Endpoint::cast)
+    }
+
+    pub fn top_level_services(&self) -> impl Iterator<Item = Service> + '_ {
+        self.ast.children().filter(|n| n.kind() == LSyntaxKind::SERVICE).filter_map(Service::cast)
     }
 
     /// Find the root model (@root-decorated, or the sole model)
@@ -275,6 +279,7 @@ pub trait FieldExt {
     fn name(&self) -> Result<String, CodeGenError>;
     fn field_type(&self) -> Result<Type, CodeGenError>;
     fn alias(&self) -> Result<Option<String>, CodeGenError>;
+    fn proto_tag(&self) -> Result<Option<i64>, CodeGenError>;
 }
 
 impl FieldExt for Field {
@@ -294,6 +299,20 @@ impl FieldExt for Field {
             && let Some(Literal::StringLiteral(s)) = alias_arg.literal()
         {
             return Ok(s.value());
+        }
+        Ok(None)
+    }
+
+    fn proto_tag(&self) -> Result<Option<i64>, CodeGenError> {
+        let decorators = self.decorators();
+        let field_dec = decorators.iter().find(|d| d.ident().as_deref() == Some(MODEL_FIELD_DECORATOR.id));
+        if let Some(dec) = field_dec
+            && let Some(proto_tag_arg) = dec.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_PROTO_TAG_ARG)
+        {
+            return match proto_tag_arg.literal() {
+                Some(Literal::IntLiteral { value, .. }) => Ok(Some(value)),
+                _ => Err(CodeGenContext::internal_error("Field proto_tag must be an integer")),
+            };
         }
         Ok(None)
     }
