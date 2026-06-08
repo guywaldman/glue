@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/guywaldman/glue/compare/v1.2.0...v1.3.0) (2026-06-08)
+
+
+### Features
+
+* add support for Protobuf services ([#64](https://github.com/guywaldman/glue/issues/64)) ([9e033f1](https://github.com/guywaldman/glue/commit/9e033f1824d932e9a506e13fcc0a9ab7346b6680))
+
 ## [1.2.0](https://github.com/guywaldman/glue/compare/v1.1.8...v1.2.0) (2026-06-04)
 
 
