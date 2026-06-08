@@ -23,6 +23,7 @@ Glue supports the following primitive types:
 - `T[]` (an array/list of type `T`)
 - `Record<T, U>` (a map/dictionary type with keys of type `T` and values of type `U`)
 - `endpoint` (an API endpoint definition with method, path, parameters, and responses)
+- `service` (a Protobuf service definition with RPC methods)
 
 # Type aliases
 
@@ -96,6 +97,8 @@ model User {
 }
 ```
 
+For Protobuf generation, fields can use `@field(proto_tag=<number>)` to set stable field tags. If one field in a model has `proto_tag`, every field in that model must have one.
+
 # Enums
 
 **Enums** are defined using the `enum` keyword, followed by the enum name and pipe-separated primitive string values.
@@ -123,7 +126,7 @@ model Product {
 
 # Imports
 
-Glue supports explicit imports, which must appear at the top of the file (before any `type`, `model`, `endpoint`, or `enum` declarations).
+Glue supports explicit imports, which must appear at the top of the file (before any `type`, `model`, `endpoint`, `service`, or `enum` declarations).
 
 ```glue
 // Import all exported symbols
@@ -184,11 +187,46 @@ endpoint "GET /users/{user_id}/posts" ListUserPosts {
 }
 ```
 
+# Services
+
+**Services** are defined using the `service` keyword. They are currently used by Protobuf generation.
+
+```glue
+service <service_name> {
+  rpc <rpc_name> {
+    body: <request_model>
+    returns: <response_model>
+  }
+}
+```
+
+For example:
+
+```glue
+model GetUserRequest {
+  @field(proto_tag=1)
+  user_id: int
+}
+
+model User {
+  @field(proto_tag=1)
+  user_id: int
+}
+
+service UserService {
+  rpc GetUser {
+    body: GetUserRequest
+    returns: User
+  }
+}
+```
+
 # Current limitations
 
 Below is a non-exhaustive list of features that are commonly requested or expected in an IDL like Glue, but are not currently supported.
 If Glue gains some traction, these will be managed as issues and prioritized accordingly, however for now this acts as a reference for common features you may expect to see in Glue but are not yet implemented:
 * Endpoints - proper typing of query/path parameters, authentication/authorization schemes, and some other common API features are not yet supported
+* Services - RPC `body` and `returns` currently support message types only
 * Intersections of types (e.g., `type A = B & C`)
 * Generics (e.g., `model Response<T> { data: T }`)
 

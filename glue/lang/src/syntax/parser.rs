@@ -59,6 +59,8 @@ pub enum LSyntaxKind {
     MODEL,
     ANON_MODEL,
     ENDPOINT,
+    RPC,
+    SERVICE,
     PROGRAM,
 
     // Whitespace/comments
@@ -172,6 +174,8 @@ impl Parser {
             Rule::import_named => IMPORT_NAMED,
             Rule::import_named_item => IMPORT_NAMED_ITEM,
             Rule::endpoint => ENDPOINT,
+            Rule::rpc => RPC,
+            Rule::service => SERVICE,
             Rule::ident => IDENT,
             Rule::builtin_type => BUILTIN_TYPE,
             Rule::record => RECORD,

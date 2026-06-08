@@ -1,0 +1,41 @@
+---
+source: codegen/src/codegen_protobuf.rs
+expression: result_with_source
+---
+// Original source code:
+// model GetUserRequest {
+//     @field(proto_tag=1)
+//     user_id: int
+// }
+//
+// model User {
+//     @field(proto_tag=1)
+//     user_id: int
+//
+//     @field(proto_tag=2)
+//     name: string
+// }
+//
+// service UserService {
+//     rpc GetUser {
+//         body: GetUserRequest
+//         returns: User
+//     }
+// }
+
+syntax = "proto3";
+
+package glue;
+
+message GetUserRequest {
+    int32 user_id = 1;
+}
+
+message User {
+    int32 user_id = 1;
+    string name = 2;
+}
+
+service UserService {
+    rpc GetUser (GetUserRequest) returns (User);
+}

@@ -8,7 +8,7 @@ use log::debug;
 use miette::Report;
 
 use crate::{
-    Decorator, DecoratorArg, Endpoint, EnumVariant, Literal, LiteralExpr, PrimitiveType, SourceCodeMetadata,
+    Decorator, DecoratorArg, Endpoint, EnumVariant, Literal, LiteralExpr, PrimitiveType, Rpc, Service, SourceCodeMetadata,
     builtin_decorators::{BUILTIN_DECORATORS, DecoratorDef},
     diagnostics::DiagnosticContext,
     symbols::{SymId, SymTable},
@@ -19,6 +19,7 @@ use crate::{
 #[derive(Debug)]
 pub enum SemanticAnalyzerError {
     DuplicateField(Report),
+    MissingRequiredField(Report),
     UndefinedTypeReference(Report),
     ImportNotAtTop(Report),
     CircularTypeAlias(Report),
@@ -28,6 +29,7 @@ impl SemanticAnalyzerError {
     pub fn report(&self) -> &miette::Report {
         match self {
             SemanticAnalyzerError::DuplicateField(report)
+            | SemanticAnalyzerError::MissingRequiredField(report)
             | SemanticAnalyzerError::UndefinedTypeReference(report)
             | SemanticAnalyzerError::ImportNotAtTop(report)
             | SemanticAnalyzerError::CircularTypeAlias(report) => report,
@@ -56,7 +58,7 @@ impl SemanticAnalyzer {
         Self::check_imports_are_top_level(&root, &mut errors, diagnostic_ctx.clone());
         let targets: Vec<_> = root
             .children()
-            .filter(|n| matches!(n.kind(), LSyntaxKind::MODEL | LSyntaxKind::ENDPOINT))
+            .filter(|n| matches!(n.kind(), LSyntaxKind::MODEL | LSyntaxKind::ENDPOINT | LSyntaxKind::SERVICE))
             .map(|n| (n.kind(), n.text_range()))
             .collect();
         let green_node = root.green();
@@ -80,6 +82,9 @@ impl SemanticAnalyzer {
                 }
                 LSyntaxKind::ENDPOINT => {
                     Self::check_endpoint(node, &symbols, None, &mut errors, diagnostic_ctx.clone());
+                }
+                LSyntaxKind::SERVICE => {
+                    Self::check_service(node, &symbols, None, &mut errors, diagnostic_ctx.clone());
                 }
                 _ => {}
             }
@@ -110,12 +115,12 @@ impl SemanticAnalyzer {
                     let report = diag.error_with_help(
                         child.text_range(),
                         "Import statements must appear at the top of the file",
-                        "Move this import above all type, model, endpoint, and enum declarations.",
+                        "Move this import above all type, model, endpoint, service, and enum declarations.",
                     );
                     errors.push(SemanticAnalyzerError::ImportNotAtTop(report));
                 }
                 LSyntaxKind::IMPORT_STMT => {}
-                LSyntaxKind::MODEL | LSyntaxKind::ENDPOINT | LSyntaxKind::ENUM | LSyntaxKind::TYPE_ALIAS => {
+                LSyntaxKind::MODEL | LSyntaxKind::ENDPOINT | LSyntaxKind::SERVICE | LSyntaxKind::ENUM | LSyntaxKind::TYPE_ALIAS => {
                     seen_non_import_declaration = true;
                 }
                 _ => {}
@@ -353,6 +358,54 @@ impl SemanticAnalyzer {
         // Check nested models declared inside the endpoint
         for nested_model_node in endpoint.nested_model_nodes() {
             Self::check_model(nested_model_node, symbols, endpoint_scope, errors, diag.clone());
+        }
+    }
+
+    fn check_service(node: LNode, symbols: &SymTable<LNode>, scope: Option<SymId>, errors: &mut Vec<SemanticAnalyzerError>, diag: DiagnosticContext) {
+        let service = Service::cast(node).unwrap();
+        let service_name = service.ident().unwrap();
+        let service_scope = symbols.resolve_id(scope, &service_name);
+
+        for rpc_node in service.rpc_nodes() {
+            Self::check_rpc(rpc_node, symbols, service_scope, errors, diag.clone());
+        }
+    }
+
+    fn check_rpc(node: LNode, symbols: &SymTable<LNode>, scope: Option<SymId>, errors: &mut Vec<SemanticAnalyzerError>, diag: DiagnosticContext) {
+        let rpc = Rpc::cast(node.clone()).unwrap();
+        let rpc_name = rpc.ident().unwrap();
+        let rpc_scope = symbols.resolve_id(scope, &rpc_name);
+
+        let mut has_body = false;
+        let mut has_returns = false;
+        for field_node in rpc.field_nodes() {
+            let Some(field) = Field::cast(field_node.clone()) else {
+                continue;
+            };
+            let Some(field_name) = field.ident() else {
+                continue;
+            };
+
+            match field_name.as_str() {
+                "body" => has_body = true,
+                "returns" => has_returns = true,
+                _ => {
+                    let span = field.ident_node().map(|node| node.text_range()).unwrap_or_else(|| field.syntax().text_range());
+                    let report = diag.error(span, &format!("Unknown rpc field '{}'. Expected 'body' or 'returns'.", field_name));
+                    errors.push(SemanticAnalyzerError::DuplicateField(report));
+                }
+            }
+
+            Self::check_field(field_node, symbols, rpc_scope, errors, diag.clone());
+        }
+
+        if !has_body {
+            let report = diag.error(rpc.syntax().text_range(), &format!("RPC '{}' is missing required field 'body'", rpc_name));
+            errors.push(SemanticAnalyzerError::MissingRequiredField(report));
+        }
+        if !has_returns {
+            let report = diag.error(rpc.syntax().text_range(), &format!("RPC '{}' is missing required field 'returns'", rpc_name));
+            errors.push(SemanticAnalyzerError::MissingRequiredField(report));
         }
     }
 
@@ -710,6 +763,34 @@ impl SemanticAnalyzer {
                     let _ = Self::generate_symbol_table_walk(nested_enum_node, syms, Some(endpoint_scope_id), errors, diag);
                 }
             }
+            LSyntaxKind::SERVICE => {
+                let service = Service::cast(node.clone()).unwrap();
+                let ident_token = service.ident_token().unwrap();
+                let service_name = ident_token.text().to_string();
+                if syms.resolve(parent_scope, &service_name).is_some() {
+                    let report = diag.error(ident_token.text_range(), &format!("Duplicate service name '{}'", service_name));
+                    errors.push(SemanticAnalyzerError::DuplicateField(report));
+                    return Err(());
+                }
+                let service_scope_id = syms.add_to_scope(parent_scope, &service_name, node);
+                for rpc_node in service.rpc_nodes() {
+                    let _ = Self::generate_symbol_table_walk(rpc_node, syms, Some(service_scope_id), errors, diag);
+                }
+            }
+            LSyntaxKind::RPC => {
+                let rpc = Rpc::cast(node.clone()).unwrap();
+                let ident_token = rpc.ident_token().unwrap();
+                let rpc_name = ident_token.text().to_string();
+                if syms.resolve(parent_scope, &rpc_name).is_some() {
+                    let report = diag.error(ident_token.text_range(), &format!("Duplicate rpc name '{}'", rpc_name));
+                    errors.push(SemanticAnalyzerError::DuplicateField(report));
+                    return Err(());
+                }
+                let rpc_scope_id = syms.add_to_scope(parent_scope, &rpc_name, node);
+                for field_node in rpc.field_nodes() {
+                    let _ = Self::generate_symbol_table_walk(field_node, syms, Some(rpc_scope_id), errors, diag);
+                }
+            }
             LSyntaxKind::ENUM => {
                 let enum_model = Enum::cast(node.clone()).unwrap();
                 let ident_token = enum_model.ident_token().unwrap();
@@ -767,7 +848,20 @@ impl SemanticAnalyzer {
 mod tests {
     use indoc::indoc;
 
-    use crate::{metadata::SourceCodeMetadata, semantic_analyzer::SemanticAnalyzer, syntax::Parser};
+    use crate::{
+        metadata::SourceCodeMetadata,
+        semantic_analyzer::{AnalyzedProgram, SemanticAnalyzer, SemanticAnalyzerError},
+        syntax::Parser,
+    };
+
+    fn analyze_source(src: &'static str) -> Result<AnalyzedProgram, Vec<SemanticAnalyzerError>> {
+        let metadata = SourceCodeMetadata {
+            file_name: "test.glue",
+            file_contents: src,
+        };
+        let parsed = Parser::new().parse(&metadata).unwrap();
+        SemanticAnalyzer::new().analyze(&parsed, &metadata)
+    }
 
     #[test]
     fn test_record_unknown_type_fails() {
@@ -981,6 +1075,146 @@ mod tests {
         let parsed = Parser::new().parse(&metadata).unwrap();
         let result = SemanticAnalyzer::new().analyze(&parsed, &metadata);
         assert!(result.is_ok(), "Expected analysis to pass for valid endpoint response types");
+    }
+
+    #[test]
+    fn test_service_rpc_valid_type_passes() {
+        let src = indoc! { r#"
+            model GetUserRequest {
+                user_id: int
+            }
+
+            model User {
+                user_id: int
+            }
+
+            service UserService {
+                rpc GetUser {
+                    body: GetUserRequest
+                    returns: User
+                }
+            }
+        "# };
+
+        let result = analyze_source(src);
+        assert!(result.is_ok(), "Expected analysis to pass for valid service rpc");
+    }
+
+    #[test]
+    fn test_service_rpc_missing_body_fails() {
+        let src = indoc! { r#"
+            model User {
+                user_id: int
+            }
+
+            service UserService {
+                rpc GetUser {
+                    returns: User
+                }
+            }
+        "# };
+
+        let result = analyze_source(src);
+        assert!(result.is_err(), "Expected analysis to fail for missing rpc body");
+        let errors = result.err().unwrap();
+        assert!(matches!(errors[0], SemanticAnalyzerError::MissingRequiredField(_)));
+    }
+
+    #[test]
+    fn test_service_rpc_missing_returns_fails() {
+        let src = indoc! { r#"
+            model GetUserRequest {
+                user_id: int
+            }
+
+            service UserService {
+                rpc GetUser {
+                    body: GetUserRequest
+                }
+            }
+        "# };
+
+        let result = analyze_source(src);
+        assert!(result.is_err(), "Expected analysis to fail for missing rpc returns");
+        let errors = result.err().unwrap();
+        assert!(matches!(errors[0], SemanticAnalyzerError::MissingRequiredField(_)));
+    }
+
+    #[test]
+    fn test_service_duplicate_rpc_name_fails() {
+        let src = indoc! { r#"
+            model Request {
+                id: int
+            }
+
+            model Response {
+                id: int
+            }
+
+            service UserService {
+                rpc GetUser {
+                    body: Request
+                    returns: Response
+                }
+
+                rpc GetUser {
+                    body: Request
+                    returns: Response
+                }
+            }
+        "# };
+
+        let result = analyze_source(src);
+        assert!(result.is_err(), "Expected analysis to fail for duplicate rpc name");
+        let errors = result.err().unwrap();
+        assert!(errors.iter().any(|e| e.report().to_string().contains("Duplicate rpc name 'GetUser'")));
+    }
+
+    #[test]
+    fn test_service_rpc_unknown_field_fails() {
+        let src = indoc! { r#"
+            model Request {
+                id: int
+            }
+
+            model Response {
+                id: int
+            }
+
+            service UserService {
+                rpc GetUser {
+                    body: Request
+                    returns: Response
+                    timeout: int
+                }
+            }
+        "# };
+
+        let result = analyze_source(src);
+        assert!(result.is_err(), "Expected analysis to fail for unknown rpc field");
+        let errors = result.err().unwrap();
+        assert!(errors.iter().any(|e| e.report().to_string().contains("Unknown rpc field 'timeout'")));
+    }
+
+    #[test]
+    fn test_service_rpc_undefined_type_fails() {
+        let src = indoc! { r#"
+            model Response {
+                id: int
+            }
+
+            service UserService {
+                rpc GetUser {
+                    body: MissingRequest
+                    returns: Response
+                }
+            }
+        "# };
+
+        let result = analyze_source(src);
+        assert!(result.is_err(), "Expected analysis to fail for undefined rpc type");
+        let errors = result.err().unwrap();
+        assert!(errors.iter().any(|e| e.report().to_string().contains("MissingRequest")));
     }
 
     #[test]

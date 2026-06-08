@@ -3,7 +3,7 @@ title: Protobuf
 section: Code generation
 ---
 
-Glue supports `protobuf` as a code generation target, allowing you to generate `.proto` schemas from Glue models and enums.
+Glue supports `protobuf` as a code generation target, allowing you to generate `.proto` schemas from Glue models, enums, and services.
 
 Simply run:
 
@@ -29,6 +29,7 @@ For this Glue spec:
 ```glue
 model User {
 	id: int
+	nickname?: string
 	name: string
 	tags: string[]
 }
@@ -51,8 +52,9 @@ package glue;
 
 message User {
 		int32 id = 1;
-		string name = 2;
-		repeated string tags = 3;
+		optional string nickname = 2;
+		string name = 3;
+		repeated string tags = 4;
 }
 
 enum Role {
@@ -61,9 +63,83 @@ enum Role {
 }
 ```
 
+## Field tags
+
+By default, Glue assigns Protobuf field tags from field declaration order, starting at `1`. You do not need to annotate fields for simple or early schemas.
+
+Use `@field(proto_tag=<number>)` when you need stable Protobuf wire compatibility across field reordering:
+
+```glue
+model User {
+	@field(proto_tag=1)
+	id: int
+
+	@field(proto_tag=2)
+	name: string
+}
+```
+
+If one field in a message has `proto_tag`, every field in that message must have one. Untagged messages keep source-order numbering.
+
+## Optional fields
+
+Optional Glue fields generate `optional` Protobuf fields:
+
+```glue
+model User {
+	nickname?: string
+	display_name: string?
+	tags?: string[]
+	metadata?: Record<string, string>
+}
+```
+
+```proto
+message User {
+		optional string nickname = 1;
+		optional string display_name = 2;
+		repeated string tags = 3;
+		map<string, string> metadata = 4;
+}
+```
+
+Protobuf does not track field presence for repeated or map fields, so optional repeated/map Glue fields are emitted as regular `repeated` and `map` fields.
+
+## Services
+
+Glue services generate Protobuf service definitions:
+
+```glue
+model GetUserRequest {
+	@field(proto_tag=1)
+	user_id: int
+}
+
+model User {
+	@field(proto_tag=1)
+	user_id: int
+}
+
+service UserService {
+	rpc GetUser {
+		body: GetUserRequest
+		returns: User
+	}
+}
+```
+
+```proto
+service UserService {
+		rpc GetUser (GetUserRequest) returns (User);
+}
+```
+
+## Notes
+
+- Endpoint declarations are ignored by the Protobuf generator.
+
 ## Current limitations
 
-- Optional fields (`?`) are not supported in Protobuf generation.
 - `Record<K, V>` is emitted as `map<K, V>` for supported Protobuf key/value types.
 - Anonymous structs are emitted as generated messages named from the owning field path.
-- Endpoint declarations are ignored by the Protobuf generator.
+- RPC `body` and `returns` must be message types.
