@@ -80,6 +80,7 @@ Supported generation targets are `typescript`, `python`, `rust`, `go`, `openapi`
 Glue Protobuf generation emits `proto3` files from models, enums, and services.
 
 - Plain model fields do not need annotations; Protobuf field tags default to source order starting at `1`.
+- Enum constants are generated in `CONSTANT_CASE` from Glue string values.
 - Use `@field(proto_tag=<number>)` when the schema needs stable wire compatibility across field reordering. If one field in a model has `proto_tag`, every field in that model must have one.
 - Optional scalar and message fields generate `optional` Protobuf fields. Optional repeated and map fields are accepted, but Protobuf has no presence for those shapes, so they emit as regular `repeated` and `map` fields.
 - `Record<K, V>` emits `map<K, V>` for supported Protobuf key/value types. Anonymous structs emit generated messages named from the owning field path.

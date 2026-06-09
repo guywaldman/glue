@@ -2,12 +2,12 @@ use std::collections::HashSet;
 
 use config::GlueConfigSchemaGeneration;
 use convert_case::Case;
-use lang::{AnonModel, AstNode, Field, GlueIr, LSyntaxKind, Literal, Rpc, Service, SourceCodeMetadata, SymId, Type, TypeAtom};
+use lang::{AnonModel, AstNode, Enum, Field, GlueIr, LSyntaxKind, Literal, Rpc, Service, SourceCodeMetadata, SymId, Type, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
     codegen::CodeGenResult,
-    context::{AnonymousTypeNamer, CodeGenContext, EnumVariantExt, FieldExt, NamedExt, TypeMapper},
+    context::{AnonymousTypeNamer, CodeGenContext, EnumVariantExt, FieldExt, NamedExt, TypeMapper, convert_generated_identifier_case},
 };
 
 #[derive(Default)]
@@ -63,14 +63,10 @@ impl<'a> ProtobufGenerator<'a> {
             self.output.push_str(&code);
         }
 
+        let mut enum_constant_names = HashSet::new();
         for enum_ in self.ctx.top_level_enums().collect::<Vec<_>>() {
-            let name = enum_.name()?;
-            self.output.push_str(&format!("enum {} {{\n", name));
-            for (i, variant) in enum_.variants().iter().enumerate() {
-                let value = variant.variant_value()?;
-                self.output.push_str(&format!("    {} = {};\n", value, i));
-            }
-            self.output.push_str("}\n\n");
+            let code = self.emit_enum(&enum_, &mut enum_constant_names)?;
+            self.output.push_str(&code);
         }
 
         self.emit_pending_anon_models()?;
@@ -87,6 +83,41 @@ impl<'a> ProtobufGenerator<'a> {
         }
 
         Ok(self.output.clone())
+    }
+
+    fn emit_enum(&self, enum_: &Enum, enum_constant_names: &mut HashSet<String>) -> CodeGenResult<String> {
+        let name = enum_.name()?;
+        let mut output = format!("enum {} {{\n", name);
+        for (i, variant) in enum_.variants().iter().enumerate() {
+            let value = variant.variant_value()?;
+            let constant_name = Self::enum_constant_name(&value);
+            if !Self::is_proto_identifier(&constant_name) {
+                return Err(self
+                    .ctx
+                    .error(variant.syntax(), &format!("Protobuf enum value '{}' normalizes to invalid enum constant '{}'", value, constant_name)));
+            }
+            if !enum_constant_names.insert(constant_name.clone()) {
+                return Err(self.ctx.error(
+                    variant.syntax(),
+                    &format!("Duplicate Protobuf enum constant '{}' in package scope after CONSTANT_CASE normalization", constant_name),
+                ));
+            }
+            output.push_str(&format!("    {} = {};\n", constant_name, i));
+        }
+        output.push_str("}\n\n");
+        Ok(output)
+    }
+
+    fn enum_constant_name(value: &str) -> String {
+        convert_generated_identifier_case(value, Case::UpperSnake)
+    }
+
+    fn is_proto_identifier(value: &str) -> bool {
+        let mut chars = value.chars();
+        let Some(first) = chars.next() else {
+            return false;
+        };
+        (first == '_' || first.is_ascii_alphabetic()) && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
     }
 
     fn emit_message(&mut self, name: &str, fields: &[Field], scope: Option<SymId>, path: &[String]) -> CodeGenResult<String> {
@@ -383,6 +414,32 @@ mod tests {
         let result_with_source = format!("// Original source code:\n// {}\n\n{}", src.replace("\n", "\n// "), result);
 
         assert_snapshot!(result_with_source);
+    }
+
+    #[test]
+    fn test_enum_constants_are_constant_case() {
+        let src = indoc! {r#"
+            enum Status: "active" | "HTML-mode" | "INVALID_REQUEST"
+        "#};
+        let result = generate(src).unwrap();
+        assert!(result.contains("enum Status {"));
+        assert!(result.contains("    ACTIVE = 0;"));
+        assert!(result.contains("    HTML_MODE = 1;"));
+        assert!(result.contains("    INVALID_REQUEST = 2;"));
+    }
+
+    #[test]
+    fn test_enum_constant_collision_after_normalization_fails() {
+        let src = indoc! {r#"
+            enum Status: "foo-bar" | "foo_bar"
+        "#};
+        let err = generate(src).unwrap_err();
+        match err {
+            CodeGenError::GenerationError(report) => {
+                assert!(report.to_string().contains("Duplicate Protobuf enum constant 'FOO_BAR'"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
     }
 
     #[test]

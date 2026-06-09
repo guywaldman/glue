@@ -58,10 +58,13 @@ message User {
 }
 
 enum Role {
-		admin = 0;
-		user = 1;
+		ADMIN = 0;
+		USER = 1;
 }
 ```
+
+Enum constants are generated in `CONSTANT_CASE` from the Glue string values.
+Values that normalize to the same Protobuf identifier are rejected because Protobuf enum value names share the package scope.
 
 ## Field tags
 
