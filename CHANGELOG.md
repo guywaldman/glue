@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/guywaldman/glue/compare/v1.3.0...v1.4.0) (2026-06-09)
+
+
+### Features
+
+* generate Protobuf enums in CONSTANT_CASE ([8972aed](https://github.com/guywaldman/glue/commit/8972aed857975eecb49eda1bc1127dfa299753ab))
+
 ## [1.3.0](https://github.com/guywaldman/glue/compare/v1.2.0...v1.3.0) (2026-06-08)
 
 
