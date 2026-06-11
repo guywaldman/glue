@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/guywaldman/glue/compare/v1.4.0...v1.5.0) (2026-06-11)
+
+
+### Features
+
+* add support for constants ([#67](https://github.com/guywaldman/glue/issues/67)) ([b4c6efb](https://github.com/guywaldman/glue/commit/b4c6efb3e6d1434985961996077c9a0d91425d8d))
+
 ## [1.4.0](https://github.com/guywaldman/glue/compare/v1.3.0...v1.4.0) (2026-06-09)
 
 
