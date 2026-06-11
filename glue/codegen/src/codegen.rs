@@ -33,6 +33,7 @@ pub trait CodeGenerator {
 }
 
 pub type CodeGenResult<T> = Result<T, CodeGenError>;
+type AnalyzedCodeGen = (Box<dyn CodeGenerator>, GlueIr, Vec<SemanticWarning>);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum CodeGenMode {
@@ -110,7 +111,7 @@ impl TryFrom<&str> for CodeGenMode {
 pub struct CodeGen;
 
 impl CodeGen {
-    fn analyze(mode: CodeGenMode, source: &SourceCodeMetadata, analyzer_options: SemanticAnalyzerOptions) -> Result<(Box<dyn CodeGenerator>, GlueIr, Vec<SemanticWarning>), CodeGenError> {
+    fn analyze(mode: CodeGenMode, source: &SourceCodeMetadata, analyzer_options: SemanticAnalyzerOptions) -> Result<AnalyzedCodeGen, CodeGenError> {
         debug!("Parsing source code");
         let parsed_program = Parser::new().parse(source).map_err(CodeGenError::ParserError)?;
         debug!("Starting semantic analysis");

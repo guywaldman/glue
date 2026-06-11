@@ -252,13 +252,9 @@ impl SemanticAnalyzer {
     }
 
     fn const_decl_type(type_node: LNode, diag: &DiagnosticContext, errors: &mut Vec<SemanticAnalyzerError>) -> Option<ConstExprType> {
-        let Some(type_expr) = Type::cast(type_node.clone()) else {
-            return None;
-        };
+        let type_expr = Type::cast(type_node.clone())?;
         let atoms = type_expr.type_atoms();
-        let Some(atom) = atoms.first() else {
-            return None;
-        };
+        let atom = atoms.first()?;
         if atoms.len() != 1 || atom.is_array() || atom.is_optional() {
             let report = diag.error(type_node.text_range(), "Constants must be declared as int, string, or bool");
             errors.push(SemanticAnalyzerError::ConstantError(report));
@@ -734,9 +730,7 @@ impl SemanticAnalyzer {
 
     fn decorator_arg_value(arg: &DecoratorArg, symbols: &SymTable<LNode>, scope: Option<SymId>, errors: &mut Vec<SemanticAnalyzerError>, diag: DiagnosticContext) -> Option<ConstValue> {
         let evaluator = ConstEvaluator::new(symbols, diag);
-        let Some(expr) = arg.const_expr() else {
-            return None;
-        };
+        let expr = arg.const_expr()?;
         match evaluator.eval_expr(&expr, scope) {
             Ok(value) => Some(value),
             Err(report) => {
