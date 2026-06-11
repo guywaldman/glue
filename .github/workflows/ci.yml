@@ -727,16 +727,13 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v7
 
-      - name: Install just
-        uses: taiki-e/install-action@just
-
       - name: Update Glue formula
         shell: bash
         run: |
           set -euo pipefail
 
           for attempt in {1..12}; do
-            if just update-glue "$RELEASE_TAG"; then
+            if uv run scripts/update_formula.py glue --tag "$RELEASE_TAG"; then
               exit 0
             fi
 
@@ -744,7 +741,7 @@ jobs:
             sleep 10
           done
 
-          just update-glue "$RELEASE_TAG"
+          uv run scripts/update_formula.py glue --tag "$RELEASE_TAG"
         working-directory: homebrew-tap
 
       - name: Commit and push formula update
