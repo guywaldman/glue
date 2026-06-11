@@ -1,6 +1,6 @@
 use config::GlueConfigSchemaGeneration;
 use convert_case::Case;
-use lang::{AnonModel, AstNode, Enum, Field, GlueIr, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
+use lang::{AnonModel, AstNode, ConstDef, ConstValue, Enum, Field, GlueIr, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
@@ -44,6 +44,9 @@ impl<'a> TypeScriptGenerator<'a> {
             self.output.push_str("import { z } from \"zod\";\n\n");
         }
 
+        for const_def in self.ctx.top_level_consts().collect::<Vec<_>>() {
+            self.emit_const(&const_def)?;
+        }
         for model in self.ctx.top_level_models().collect::<Vec<_>>() {
             self.emit_model(&model, None)?;
         }
@@ -52,6 +55,20 @@ impl<'a> TypeScriptGenerator<'a> {
         }
 
         Ok(self.output.clone())
+    }
+
+    fn emit_const(&mut self, const_def: &ConstDef) -> CodeGenResult<()> {
+        let name = const_def.name()?;
+        let export = if const_def.is_private() { "" } else { "export " };
+        let value = self.ctx.eval_const_def(const_def)?;
+        let (ty, literal) = match value {
+            ConstValue::String(value) => ("string", serde_json::to_string(&value).map_err(|e| CodeGenContext::internal_error(e.to_string()))?),
+            ConstValue::Int(value) => ("number", value.to_string()),
+            ConstValue::Bool(value) => ("boolean", value.to_string()),
+            ConstValue::List(_) => return Err(self.ctx.error(const_def.syntax(), "Top-level constants can only be int, string, or bool")),
+        };
+        self.output.push_str(&format!("{}const {}: {} = {};\n\n", export, name, ty, literal));
+        Ok(())
     }
 
     fn emit_model(&mut self, model: &Model, parent_scope: Option<SymId>) -> CodeGenResult<()> {
@@ -350,6 +367,25 @@ mod tests {
     #[test]
     fn test_zod() {
         assert_snapshot!(gen_typescript_with_zod(SIMPLE_MODEL, true));
+    }
+
+    #[test]
+    fn test_constants_emit_before_types() {
+        let src = indoc! { r#"
+            const USER_ALIAS = "user_" + "id"
+            const MAX_PAGE_SIZE: int = 100
+            const _RETRY_MS = (100 + 50) * 2
+
+            model Request {
+                user_id: string
+            }
+        "# };
+
+        let output = gen_typescript(src);
+        assert!(output.contains("export const USER_ALIAS: string = \"user_id\";"), "Expected string constant to be folded:\n{}", output);
+        assert!(output.contains("export const MAX_PAGE_SIZE: number = 100;"), "Expected int constant:\n{}", output);
+        assert!(output.contains("const _RETRY_MS: number = 300;"), "Expected private constant without export:\n{}", output);
+        assert!(output.find("USER_ALIAS").unwrap() < output.find("export type Request").unwrap());
     }
 
     #[test]

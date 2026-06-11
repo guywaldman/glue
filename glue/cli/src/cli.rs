@@ -12,7 +12,10 @@ use thiserror::Error;
 use url::Url;
 
 use clap::Parser as ClapParser;
-use lang::{AnalyzedProgram, AstNode, GlueIr, Parser, RootNode, SemanticAnalyzer, SourceCodeMetadata, diagnostic_to_ir_error, parser_error_to_ir_error, print_report, semantic_error_to_ir_error};
+use lang::{
+    AnalyzedProgram, AstNode, GlueIr, Parser, RootNode, SemanticAnalyzer, SemanticAnalyzerOptions, SourceCodeMetadata, diagnostic_to_ir_error, parser_error_to_ir_error, print_report,
+    semantic_error_to_ir_error,
+};
 use log::debug;
 
 use crate::args::{Cli, CliGenArgs, CliSubcommand};
@@ -40,8 +43,11 @@ impl GlueCli {
         let args = Cli::parse_from(cli_args);
 
         match &args.command {
-            CliSubcommand::Check { input } => {
-                let _analyzed_program = Self::analyze(input.clone())?;
+            CliSubcommand::Check { input, config } => {
+                let effective_config_path: Option<PathBuf> = config.clone().or_else(|| Self::find_gluerc(input.as_deref()));
+                let config = Self::load_config(effective_config_path.as_ref())?;
+                let diagnostic_options = Self::diagnostic_options(config.as_ref());
+                let _analyzed_program = Self::analyze(input.clone(), diagnostic_options)?;
             }
             CliSubcommand::Ast { input, input_positional } => {
                 let input = input.clone().or(input_positional.clone());
@@ -81,7 +87,8 @@ impl GlueCli {
                         }
 
                         let source = Self::handle_file(input.clone())?;
-                        Self::generate_to_output(*mode, &effective_config_path, resolved_config, source, output)?;
+                        let diagnostic_options = Self::diagnostic_options(config.as_ref());
+                        Self::generate_to_output(*mode, &effective_config_path, resolved_config, diagnostic_options, source, output)?;
                     }
                     None => {
                         if input.is_some() {
@@ -132,11 +139,17 @@ impl GlueCli {
         mode: CodeGenMode,
         config_path: &Option<PathBuf>,
         resolved_config: Option<GlueConfigSchemaGeneration>,
+        analyzer_options: SemanticAnalyzerOptions,
         source: SourceCodeMetadata,
         output: Option<PathBuf>,
     ) -> Result<(), CliError> {
-        let mut generated_code = match CodeGen::generate(mode, &source, resolved_config.clone()) {
-            Ok(code) => code,
+        let mut generated_code = match CodeGen::generate_with_options(mode, &source, resolved_config.clone(), analyzer_options) {
+            Ok(result) => {
+                for warning in &result.warnings {
+                    print_report(warning.report()).expect("Rendering report failed");
+                }
+                result.code
+            }
             Err(CodeGenError::GenerationErrors(diags)) => {
                 for diag in diags {
                     print_report(&diag).expect("Rendering report failed");
@@ -153,6 +166,17 @@ impl GlueCli {
         }
 
         Self::write_to_file_or_stdout(&output, generated_code)
+    }
+
+    fn diagnostic_options(config: Option<&GlueConfig>) -> SemanticAnalyzerOptions {
+        let suppress_warnings = config
+            .and_then(|config| config.global.as_ref())
+            .and_then(|global| global.diagnostics.as_ref())
+            .and_then(|diagnostics| diagnostics.suppress_warnings.clone())
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+        SemanticAnalyzerOptions { suppress_warnings }
     }
 
     fn generate_from_config(config: &GlueConfig, config_path: &Path, cli_overrides: Option<GlueConfigSchemaGeneration>) -> Result<(), CliError> {
@@ -184,7 +208,8 @@ impl GlueCli {
                 let resolved_config = Self::merge_generation_config(resolved_config, cli_overrides.clone());
                 let output = Self::resolve_output_path(Some(output_template), output_base_dir.as_deref(), Some(&input_path), config_dir, Some(mode));
                 let source = Self::handle_file(Some(input_path))?;
-                Self::generate_to_output(mode, &effective_config_path, resolved_config, source, output)?;
+                let diagnostic_options = Self::diagnostic_options(Some(config));
+                Self::generate_to_output(mode, &effective_config_path, resolved_config, diagnostic_options, source, output)?;
             }
         }
 
@@ -266,7 +291,7 @@ impl GlueCli {
         path.to_string_lossy().replace('\\', "/")
     }
 
-    pub fn analyze<'a>(input: Option<PathBuf>) -> Result<(AnalyzedProgram, SourceCodeMetadata<'a>), CliError> {
+    pub fn analyze<'a>(input: Option<PathBuf>, analyzer_options: SemanticAnalyzerOptions) -> Result<(AnalyzedProgram, SourceCodeMetadata<'a>), CliError> {
         let source = Self::handle_file(input.clone())?;
         debug!("Parsing file '{}'", source.file_name);
         let parsed_program = match Parser::new().parse(&source) {
@@ -277,8 +302,13 @@ impl GlueCli {
             }
         };
 
-        match SemanticAnalyzer::new().analyze(&parsed_program, &source) {
-            Ok(analyzed_program) => Ok((analyzed_program, source)),
+        match SemanticAnalyzer::with_options(analyzer_options).analyze(&parsed_program, &source) {
+            Ok(analyzed_program) => {
+                for warning in &analyzed_program.warnings {
+                    print_report(warning.report()).expect("Rendering report failed");
+                }
+                Ok((analyzed_program, source))
+            }
             Err(errs) => {
                 for e in errs.iter() {
                     print_report(e.report()).expect("Rendering report failed");
@@ -776,7 +806,7 @@ mod tests {
     use config::{
         GlueConfig, GlueConfigSchemaGenConfig, GlueConfigSchemaGenConfigMode, GlueConfigSchemaGeneration, GlueConfigSchemaGenerationPythonDataModelLibrary, GlueConfigSchemaGenerationWatermark,
     };
-    use lang::SourceCodeMetadata;
+    use lang::{SemanticAnalyzerOptions, SourceCodeMetadata};
     use std::path::{Path, PathBuf};
 
     fn unique_temp_dir(test_name: &str) -> PathBuf {
@@ -924,7 +954,7 @@ mod tests {
         )
         .expect("stale output should be written");
 
-        GlueCli::generate_to_output(CodeGenMode::TypeScript, &None, None, source, Some(output_path.clone())).expect("generation should overwrite output");
+        GlueCli::generate_to_output(CodeGenMode::TypeScript, &None, None, SemanticAnalyzerOptions::default(), source, Some(output_path.clone())).expect("generation should overwrite output");
 
         let output = std::fs::read_to_string(&output_path).expect("output should be readable");
         assert!(output.starts_with("// ------------------------------------\n"));
@@ -1008,5 +1038,21 @@ mod tests {
         let (_, output) = GlueCli::resolve_generation_config(&config, Path::new("/tmp/glue-config-test/.gluerc.yaml"), Some(&input), Some(CodeGenMode::Python)).expect("config should resolve");
 
         assert_eq!(output, Some(PathBuf::from("/tmp/glue-config-test/py/user.py")));
+    }
+
+    #[test]
+    fn diagnostic_options_reads_global_warning_suppressions() {
+        let config = GlueConfig::from_yaml(
+            r#"
+global:
+  diagnostics:
+    suppress_warnings:
+      - constant_case
+"#,
+        )
+        .expect("config should parse");
+
+        let options = GlueCli::diagnostic_options(Some(&config));
+        assert!(options.suppress_warnings.contains("constant_case"));
     }
 }

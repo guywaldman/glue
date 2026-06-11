@@ -72,6 +72,10 @@ impl DiagnosticContext {
         self.build(span, message, help, Severity::Error, primary_label, extra_labels)
     }
 
+    pub fn warning_with_help(&self, span: TextRange, message: &str, help: &str) -> Report {
+        self.build(span, message, Some(help), Severity::Warning, None, Vec::new())
+    }
+
     pub fn labeled_span(&self, span: TextRange, label: &str) -> LabeledSpan {
         LabeledSpan::at(span.start().into()..span.end().into(), label)
     }

@@ -49,6 +49,8 @@ Prefer current public docs over memorized syntax when exact behavior matters:
 - Optional fields: `field?: Type`.
 - Defaults: `field: Type = value`.
 - Type aliases: `type UserId = string`.
+- Top-level constants: `const MAX_PAGE_SIZE = 100`; optional annotations use `const MAX_PAGE_SIZE: int = 100`; use `CONSTANT_CASE`, and a leading `_` makes the generated constant private.
+- Constant expressions support int `+`/`*`, string `+`, parentheses, bool literals, and references to other constants.
 - Models: `model User { id: UserId }`.
 - Enums: `enum Status: "pending" | "paid" | "cancelled"`.
 - Imports must appear before declarations:
@@ -153,6 +155,9 @@ Prefer `.gluerc.yaml` when a project generates multiple targets:
 
 global:
   output_base_dir: generated
+  diagnostics:
+    suppress_warnings:
+      - constant_case
   config:
     watermark: short
     lint_suppressions: true

@@ -53,6 +53,10 @@ impl RootNode {
     pub fn top_level_type_aliases(&self) -> Vec<TypeAlias> {
         self.0.children().filter(|n| n.kind() == LSyntaxKind::TYPE_ALIAS).filter_map(TypeAlias::cast).collect()
     }
+
+    pub fn top_level_consts(&self) -> Vec<ConstDef> {
+        self.0.children().filter(|n| n.kind() == LSyntaxKind::CONST_DEF).filter_map(ConstDef::cast).collect()
+    }
 }
 
 fn field_node_named(nodes: impl IntoIterator<Item = LNode>, name: &str) -> Option<LNode> {
@@ -192,6 +196,57 @@ impl AnonModel {
 ast_node!(Model, LSyntaxKind::MODEL);
 
 ast_node!(TypeAlias, LSyntaxKind::TYPE_ALIAS);
+
+ast_node!(ConstDef, LSyntaxKind::CONST_DEF);
+ast_node!(ConstExpr, LSyntaxKind::CONST_EXPR);
+ast_node!(ConstAdd, LSyntaxKind::CONST_ADD);
+ast_node!(ConstMul, LSyntaxKind::CONST_MUL);
+ast_node!(ConstPrimary, LSyntaxKind::CONST_PRIMARY);
+ast_node!(ConstRef, LSyntaxKind::CONST_REF);
+
+impl ConstDef {
+    pub fn ident_token(&self) -> Option<LToken> {
+        self.0.children_with_tokens().filter_map(|e| e.into_token()).find(|t| t.kind() == LSyntaxKind::CONST_IDENT)
+    }
+
+    pub fn ident(&self) -> Option<String> {
+        self.ident_token().map(|t| t.text().to_string())
+    }
+
+    pub fn is_private(&self) -> bool {
+        self.ident().is_some_and(|name| name.starts_with('_'))
+    }
+
+    pub fn type_node(&self) -> Option<LNode> {
+        self.0.children().find(|n| n.kind() == LSyntaxKind::TYPE)
+    }
+
+    pub fn expr_node(&self) -> Option<LNode> {
+        self.0.children().find(|n| n.kind() == LSyntaxKind::CONST_EXPR)
+    }
+
+    pub fn expr(&self) -> Option<ConstExpr> {
+        self.expr_node().and_then(ConstExpr::cast)
+    }
+
+    pub fn docs(&self) -> Option<Vec<String>> {
+        self.0
+            .children_with_tokens()
+            .find(|t| t.kind() == LSyntaxKind::DOC_BLOCK)
+            .and_then(|doc_block_node| doc_block_node.into_token().map(|n| n.text().to_string()))
+            .map(|text| text.lines().map(|line| line.trim().trim_start_matches("///").trim().to_string()).collect())
+    }
+}
+
+impl ConstRef {
+    pub fn ident_token(&self) -> Option<LToken> {
+        self.0.children_with_tokens().filter_map(|e| e.into_token()).find(|t| t.kind() == LSyntaxKind::CONST_IDENT)
+    }
+
+    pub fn ident(&self) -> Option<String> {
+        self.ident_token().map(|t| t.text().to_string())
+    }
+}
 
 impl TypeAlias {
     pub fn ident_token(&self) -> Option<LToken> {
@@ -508,6 +563,14 @@ impl DecoratorArg {
     pub fn literal(&self) -> Option<Literal> {
         self.literal_expr().and_then(|le| le.value())
     }
+
+    pub fn const_expr_node(&self) -> Option<LNode> {
+        self.0.children().find(|n| n.kind() == LSyntaxKind::CONST_EXPR)
+    }
+
+    pub fn const_expr(&self) -> Option<ConstExpr> {
+        self.const_expr_node().and_then(ConstExpr::cast)
+    }
 }
 
 impl Decorator {
@@ -761,7 +824,18 @@ impl Field {
         self.0
             .children()
             .find(|n| n.kind() == LSyntaxKind::FIELD_DEFAULT_VALUE)
-            .and_then(|node| node.children().find(|n| n.kind() == LSyntaxKind::LITERAL))
+            .and_then(|node| node.descendants().find(|n| n.kind() == LSyntaxKind::LITERAL))
+    }
+
+    pub fn default_const_expr_node(&self) -> Option<LNode> {
+        self.0
+            .children()
+            .find(|n| n.kind() == LSyntaxKind::FIELD_DEFAULT_VALUE)
+            .and_then(|node| node.children().find(|n| n.kind() == LSyntaxKind::CONST_EXPR))
+    }
+
+    pub fn default_const_expr(&self) -> Option<ConstExpr> {
+        self.default_const_expr_node().and_then(ConstExpr::cast)
     }
 
     pub fn ty(&self) -> Option<Type> {
@@ -1035,6 +1109,34 @@ mod tests {
         assert_eq!(aliases.len(), 1);
         assert_eq!(aliases[0].ident().as_deref(), Some("UserId"));
         assert!(aliases[0].type_node().is_some());
+    }
+
+    #[test]
+    fn test_const_declarations() {
+        let src = indoc! { r#"
+            const MAX_PAGE_SIZE: int = 100
+            const _RETRY_MS = (100 + 50) * 2
+            const USER_ALIAS = "user_" + "id"
+
+            model Request {
+                limit: int = MAX_PAGE_SIZE
+            }
+        "# };
+
+        let metadata = SourceCodeMetadata {
+            file_name: "test.glue",
+            file_contents: src,
+        };
+
+        let parsed = Parser::new().parse(&metadata).expect("expected parser to accept const declarations");
+        let root = RootNode::cast(parsed.ast_root).expect("expected RootNode");
+        let consts = root.top_level_consts();
+        assert_eq!(consts.len(), 3);
+        assert_eq!(consts[0].ident().as_deref(), Some("MAX_PAGE_SIZE"));
+        assert_eq!(consts[1].ident().as_deref(), Some("_RETRY_MS"));
+        assert!(consts[1].is_private());
+        assert!(consts[1].type_node().is_none());
+        assert!(consts[2].expr().is_some());
     }
 
     #[test]

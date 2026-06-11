@@ -1,6 +1,6 @@
 use config::{GlueConfigSchemaGeneration, GlueConfigSchemaGenerationPython, GlueConfigSchemaGenerationPythonDataModelLibrary};
 use convert_case::Case;
-use lang::{AnonModel, AstNode, Enum, Field, GlueIr, Literal, LiteralExpr, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
+use lang::{AnonModel, AstNode, ConstDef, ConstValue, Enum, Field, GlueIr, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
@@ -135,6 +135,9 @@ impl<'a> PythonGenerator<'a> {
     }
 
     fn generate(&mut self) -> CodeGenResult<String> {
+        for const_def in self.ctx.top_level_consts().collect::<Vec<_>>() {
+            self.emit_const(&const_def)?;
+        }
         for model in self.ctx.top_level_models().collect::<Vec<_>>() {
             self.emit_model(&model, None)?;
         }
@@ -146,6 +149,22 @@ impl<'a> PythonGenerator<'a> {
         let preludes = self.fw.preludes(self.lint_suppressions).join("\n");
         let body = self.output.trim_start_matches('\n');
         if body.is_empty() { Ok(preludes) } else { Ok(format!("{}\n\n{}", preludes, body)) }
+    }
+
+    fn emit_const(&mut self, const_def: &ConstDef) -> CodeGenResult<()> {
+        if !self.output.is_empty() && !self.output.ends_with("\n\n") {
+            self.output.push_str("\n\n");
+        }
+        let name = const_def.name()?;
+        let value = self.ctx.eval_const_def(const_def)?;
+        let (ty, literal) = match value {
+            ConstValue::String(value) => ("str", serde_json::to_string(&value).map_err(|e| CodeGenContext::internal_error(e.to_string()))?),
+            ConstValue::Int(value) => ("int", value.to_string()),
+            ConstValue::Bool(value) => ("bool", if value { "True" } else { "False" }.to_string()),
+            ConstValue::List(_) => return Err(self.ctx.error(const_def.syntax(), "Top-level constants can only be int, string, or bool")),
+        };
+        self.output.push_str(&format!("{}: {} = {}\n", name, ty, literal));
+        Ok(())
     }
 
     fn emit_model(&mut self, model: &Model, parent_scope: Option<SymId>) -> CodeGenResult<()> {
@@ -203,10 +222,10 @@ impl<'a> PythonGenerator<'a> {
         }
 
         let line = match &self.fw {
-            PyModelLibrary::Pydantic { .. } => self.emit_field_pydantic(field, &py_name, &field_name, &type_code)?,
-            PyModelLibrary::Dataclasses => self.emit_field_dataclasses(field, &py_name, &type_code)?,
-            PyModelLibrary::Attrs => self.emit_field_attrs(field, &py_name, &field_name, &type_code)?,
-            PyModelLibrary::Msgspec => self.emit_field_msgspec(field, &py_name, &field_name, &type_code)?,
+            PyModelLibrary::Pydantic { .. } => self.emit_field_pydantic(field, scope, &py_name, &field_name, &type_code)?,
+            PyModelLibrary::Dataclasses => self.emit_field_dataclasses(field, scope, &py_name, &type_code)?,
+            PyModelLibrary::Attrs => self.emit_field_attrs(field, scope, &py_name, &field_name, &type_code)?,
+            PyModelLibrary::Msgspec => self.emit_field_msgspec(field, scope, &py_name, &field_name, &type_code)?,
         };
 
         self.output.push_str(&indent(&line, 4));
@@ -257,16 +276,16 @@ impl<'a> PythonGenerator<'a> {
     }
 
     /// Pydantic: `name: Annotated[Type, Field(default=..., alias="...")]`
-    fn emit_field_pydantic(&self, field: &Field, py_name: &str, orig_name: &str, type_code: &str) -> CodeGenResult<String> {
+    fn emit_field_pydantic(&self, field: &Field, scope: Option<SymId>, py_name: &str, orig_name: &str, type_code: &str) -> CodeGenResult<String> {
         let mut args = vec![];
 
         if field.is_optional() {
             args.push("default=None".to_string());
-        } else if let Some(default) = self.field_default_code(field) {
+        } else if let Some(default) = self.field_default_code(field, scope)? {
             args.push(format!("default={}", default));
         }
 
-        let alias = field.alias()?;
+        let alias = self.ctx.field_alias(field, scope)?;
         if let Some(v) = &alias {
             args.push(format!("alias=\"{}\"", v));
         } else if py_name != orig_name {
@@ -277,26 +296,27 @@ impl<'a> PythonGenerator<'a> {
     }
 
     /// Dataclasses: `name: Type = default`
-    fn emit_field_dataclasses(&self, field: &Field, py_name: &str, type_code: &str) -> CodeGenResult<String> {
+    fn emit_field_dataclasses(&self, field: &Field, scope: Option<SymId>, py_name: &str, type_code: &str) -> CodeGenResult<String> {
         if field.is_optional() {
             Ok(format!("{}: {} = None\n", py_name, type_code))
-        } else if let Some(default) = self.field_default_code(field) {
+        } else if let Some(default) = self.field_default_code(field, scope)? {
             Ok(format!("{}: {} = {}\n", py_name, type_code, default))
         } else {
             Ok(format!("{}: {}\n", py_name, type_code))
         }
     }
 
-    fn emit_field_attrs(&self, field: &Field, py_name: &str, orig_name: &str, type_code: &str) -> CodeGenResult<String> {
-        let alias = self.field_alias(field, py_name, orig_name)?;
-        if alias.is_some() || field.is_optional() || self.field_default_code(field).is_some() {
+    fn emit_field_attrs(&self, field: &Field, scope: Option<SymId>, py_name: &str, orig_name: &str, type_code: &str) -> CodeGenResult<String> {
+        let alias = self.field_alias(field, scope, py_name, orig_name)?;
+        let default = self.field_default_code(field, scope)?;
+        if alias.is_some() || field.is_optional() || default.is_some() {
             let mut args = Vec::new();
             if let Some(alias) = alias {
                 args.push(format!("alias=\"{}\"", alias));
             }
             if field.is_optional() {
                 args.push("default=None".to_string());
-            } else if let Some(default) = self.field_default_code(field) {
+            } else if let Some(default) = default {
                 args.push(format!("default={}", default));
             }
             Ok(format!("{}: {} = field({})\n", py_name, type_code, args.join(", ")))
@@ -305,16 +325,17 @@ impl<'a> PythonGenerator<'a> {
         }
     }
 
-    fn emit_field_msgspec(&self, field: &Field, py_name: &str, orig_name: &str, type_code: &str) -> CodeGenResult<String> {
-        let alias = self.field_alias(field, py_name, orig_name)?;
-        if alias.is_some() || field.is_optional() || self.field_default_code(field).is_some() {
+    fn emit_field_msgspec(&self, field: &Field, scope: Option<SymId>, py_name: &str, orig_name: &str, type_code: &str) -> CodeGenResult<String> {
+        let alias = self.field_alias(field, scope, py_name, orig_name)?;
+        let default = self.field_default_code(field, scope)?;
+        if alias.is_some() || field.is_optional() || default.is_some() {
             let mut args = Vec::new();
             if let Some(alias) = alias {
                 args.push(format!("name=\"{}\"", alias));
             }
             if field.is_optional() {
                 args.push("default=None".to_string());
-            } else if let Some(default) = self.field_default_code(field) {
+            } else if let Some(default) = default {
                 args.push(format!("default={}", default));
             }
             Ok(format!("{}: {} = msgspec.field({})\n", py_name, type_code, args.join(", ")))
@@ -323,8 +344,8 @@ impl<'a> PythonGenerator<'a> {
         }
     }
 
-    fn field_alias(&self, field: &Field, py_name: &str, orig_name: &str) -> CodeGenResult<Option<String>> {
-        let alias = field.alias()?;
+    fn field_alias(&self, field: &Field, scope: Option<SymId>, py_name: &str, orig_name: &str) -> CodeGenResult<Option<String>> {
+        let alias = self.ctx.field_alias(field, scope)?;
         if let Some(v) = alias {
             Ok(Some(v))
         } else if py_name != orig_name {
@@ -334,12 +355,8 @@ impl<'a> PythonGenerator<'a> {
         }
     }
 
-    fn field_default_code(&self, field: &Field) -> Option<String> {
-        field
-            .default_literal_expr_node()
-            .and_then(LiteralExpr::cast)
-            .and_then(|expr| expr.value())
-            .map(|lit| self.emit_literal(&lit))
+    fn field_default_code(&self, field: &Field, scope: Option<SymId>) -> CodeGenResult<Option<String>> {
+        Ok(self.ctx.field_default_value(field, scope)?.map(|value| self.emit_const_value(&value)))
     }
 
     // -- Enums --------------------------------------------------------------
@@ -430,12 +447,12 @@ impl<'a> PythonGenerator<'a> {
         Ok(result)
     }
 
-    fn emit_literal(&self, lit: &Literal) -> String {
-        match lit {
-            Literal::BoolLiteral { value, .. } => if *value { "True" } else { "False" }.to_string(),
-            Literal::IntLiteral { value, .. } => value.to_string(),
-            Literal::StringLiteral(node) => format!("\"{}\"", node.value().unwrap_or_default()),
-            _ => "None".to_string(),
+    fn emit_const_value(&self, value: &ConstValue) -> String {
+        match value {
+            ConstValue::Bool(value) => if *value { "True" } else { "False" }.to_string(),
+            ConstValue::Int(value) => value.to_string(),
+            ConstValue::String(value) => serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string()),
+            ConstValue::List(_) => "None".to_string(),
         }
     }
 }
@@ -486,6 +503,28 @@ mod tests {
     #[test]
     fn test_pydantic() {
         assert_snapshot!(gen_python(SIMPLE_MODEL));
+    }
+
+    #[test]
+    fn test_constants_emit_and_defaults_fold() {
+        let src = indoc! { r#"
+            const USER_ALIAS = "user_" + "id"
+            const DEFAULT_LIMIT = 100 * 2
+            const _PRIVATE_FLAG = true
+
+            model Request {
+                limit: int = DEFAULT_LIMIT
+                @field(alias=USER_ALIAS)
+                user_id: string
+            }
+        "# };
+
+        let output = gen_python(src);
+        assert!(output.contains("USER_ALIAS: str = \"user_id\""), "Expected folded string constant:\n{}", output);
+        assert!(output.contains("DEFAULT_LIMIT: int = 200"), "Expected folded int constant:\n{}", output);
+        assert!(output.contains("_PRIVATE_FLAG: bool = True"), "Expected private bool constant:\n{}", output);
+        assert!(output.contains("limit: Annotated[int, Field(default=200)]"), "Expected folded default:\n{}", output);
+        assert!(output.contains("user_id: Annotated[str, Field(alias=\"user_id\")]"), "Expected folded alias:\n{}", output);
     }
 
     #[test]

@@ -37,6 +37,9 @@ Glue ships a JSON schema for config files at [`glue/assets/config_schema.json`](
 
 global:
   output_base_dir: ./generated
+  diagnostics:
+    suppress_warnings:
+      - constant_case
   config:
     lint_suppressions: true
     preserve_generated_identifiers: false
@@ -82,5 +85,6 @@ gen:
 - Run `glue gen` to use an auto-discovered config file, or `glue gen --config path/to/.gluerc.yaml` to use one explicitly.
 - `output` supports `{file_name}` and `{file_ext}` placeholders.
 - `watermark` supports `full`, `short`, or `none`.
+- `global.diagnostics.suppress_warnings` suppresses source diagnostics for both `glue check` and `glue gen`. Currently supported warning codes: `constant_case`.
 - `preserve_generated_identifiers` keeps user-provided identifiers exactly as written, such as model names and fields. Glue may still normalize identifiers it synthesizes from values, such as enum variant constants.
 - `python.data_model_library` supports `pydantic`, `dataclasses`, `attrs`, or `msgspec`.

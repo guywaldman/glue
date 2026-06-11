@@ -4,10 +4,7 @@
     "type": "object",
     "properties": {
         "gen": {
-            "type": "array",
-            "items": {
-                "$ref": "#/$defs/GlueConfigSchema::GenConfig"
-            },
+            "$ref": "#/$defs/GlueConfigSchema::GenConfig",
             "description": "Per-generation configuration entries"
         },
         "global": {
@@ -20,10 +17,7 @@
             "type": "object",
             "properties": {
                 "gen": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/$defs/GlueConfigSchema::GenConfig"
-                    },
+                    "$ref": "#/$defs/GlueConfigSchema::GenConfig",
                     "description": "Per-generation configuration entries"
                 },
                 "global": {
@@ -178,9 +172,25 @@
                     "$ref": "#/$defs/GlueConfigSchema::Generation",
                     "description": "Default code generation configuration"
                 },
+                "diagnostics": {
+                    "$ref": "#/$defs/GlueConfigSchema::Global::Diagnostics",
+                    "description": "Source diagnostics configuration"
+                },
                 "output_base_dir": {
                     "type": "string",
                     "description": "Base directory for generated output (relative to the config file if not absolute)"
+                }
+            }
+        },
+        "GlueConfigSchema::Global::Diagnostics": {
+            "type": "object",
+            "properties": {
+                "suppress_warnings": {
+                    "type": "array",
+                    "description": "Warning codes to suppress.",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         }

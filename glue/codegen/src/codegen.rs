@@ -1,5 +1,5 @@
 use config::GlueConfigSchemaGeneration;
-use lang::{GlueIr, Parser, ParserError, SemanticAnalyzer, SemanticAnalyzerError, SourceCodeMetadata};
+use lang::{GlueIr, Parser, ParserError, SemanticAnalyzer, SemanticAnalyzerError, SemanticAnalyzerOptions, SemanticWarning, SourceCodeMetadata};
 
 use log::debug;
 use thiserror::Error;
@@ -23,11 +23,17 @@ pub enum CodeGenError {
     GenerationErrors(Vec<miette::Report>),
 }
 
+pub struct CodeGenOutput {
+    pub code: String,
+    pub warnings: Vec<SemanticWarning>,
+}
+
 pub trait CodeGenerator {
     fn generate(&self, ir: GlueIr, source: &SourceCodeMetadata, config: Option<GlueConfigSchemaGeneration>) -> Result<String, CodeGenError>;
 }
 
 pub type CodeGenResult<T> = Result<T, CodeGenError>;
+type AnalyzedCodeGen = (Box<dyn CodeGenerator>, GlueIr, Vec<SemanticWarning>);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum CodeGenMode {
@@ -105,11 +111,14 @@ impl TryFrom<&str> for CodeGenMode {
 pub struct CodeGen;
 
 impl CodeGen {
-    fn analyze(mode: CodeGenMode, source: &SourceCodeMetadata) -> Result<(Box<dyn CodeGenerator>, GlueIr), CodeGenError> {
+    fn analyze(mode: CodeGenMode, source: &SourceCodeMetadata, analyzer_options: SemanticAnalyzerOptions) -> Result<AnalyzedCodeGen, CodeGenError> {
         debug!("Parsing source code");
         let parsed_program = Parser::new().parse(source).map_err(CodeGenError::ParserError)?;
         debug!("Starting semantic analysis");
-        let analyzed_program = SemanticAnalyzer::new().analyze(&parsed_program, source).map_err(CodeGenError::SemanticAnalysisError)?;
+        let mut analyzed_program = SemanticAnalyzer::with_options(analyzer_options)
+            .analyze(&parsed_program, source)
+            .map_err(CodeGenError::SemanticAnalysisError)?;
+        let warnings = std::mem::take(&mut analyzed_program.warnings);
         let ir = GlueIr::from_analyzed_program(source.file_name, analyzed_program);
         let codegen: Box<dyn CodeGenerator> = match mode {
             CodeGenMode::JsonSchema => Box::<CodeGenJsonSchema>::default(),
@@ -120,11 +129,21 @@ impl CodeGen {
             CodeGenMode::Protobuf => Box::<CodeGenProtobuf>::default(),
             CodeGenMode::Go => Box::<CodeGenGo>::default(),
         };
-        Ok((codegen, ir))
+        Ok((codegen, ir, warnings))
     }
 
     pub fn generate(mode: CodeGenMode, source: &SourceCodeMetadata, config: Option<GlueConfigSchemaGeneration>) -> Result<String, CodeGenError> {
-        let (codegen, ir) = Self::analyze(mode, source)?;
-        codegen.generate(ir, source, config)
+        Ok(Self::generate_with_options(mode, source, config, SemanticAnalyzerOptions::default())?.code)
+    }
+
+    pub fn generate_with_options(
+        mode: CodeGenMode,
+        source: &SourceCodeMetadata,
+        config: Option<GlueConfigSchemaGeneration>,
+        analyzer_options: SemanticAnalyzerOptions,
+    ) -> Result<CodeGenOutput, CodeGenError> {
+        let (codegen, ir, warnings) = Self::analyze(mode, source, analyzer_options)?;
+        let code = codegen.generate(ir, source, config)?;
+        Ok(CodeGenOutput { code, warnings })
     }
 }

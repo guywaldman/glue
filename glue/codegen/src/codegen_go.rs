@@ -1,6 +1,6 @@
 use config::{GlueConfigSchemaGeneration, GlueConfigSchemaGenerationGo};
 use convert_case::Case;
-use lang::{AnonModel, AstNode, Enum, Field, GlueIr, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
+use lang::{AnonModel, AstNode, ConstDef, ConstValue, Enum, Field, GlueIr, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
@@ -57,6 +57,11 @@ impl<'a> GoGenerator<'a> {
         let package_name = self.config.package_name.as_deref().unwrap_or("glue");
         self.output.push_str(&format!("package {}\n\n", package_name));
 
+        for const_def in self.ctx.top_level_consts().collect::<Vec<_>>() {
+            let code = self.emit_const(&const_def)?;
+            self.output.push_str(&code);
+        }
+
         for model in self.ctx.top_level_models().collect::<Vec<_>>() {
             let code = self.emit_model(&model, None)?;
             self.output.push_str(&code);
@@ -73,6 +78,18 @@ impl<'a> GoGenerator<'a> {
         self.emit_pending_anon_models()?;
 
         Ok(self.output.clone())
+    }
+
+    fn emit_const(&self, const_def: &ConstDef) -> CodeGenResult<String> {
+        let name = const_def.name()?;
+        let value = self.ctx.eval_const_def(const_def)?;
+        let (ty, literal) = match value {
+            ConstValue::String(value) => ("string", serde_json::to_string(&value).map_err(|e| CodeGenContext::internal_error(e.to_string()))?),
+            ConstValue::Int(value) => ("int", value.to_string()),
+            ConstValue::Bool(value) => ("bool", value.to_string()),
+            ConstValue::List(_) => return Err(self.ctx.error(const_def.syntax(), "Top-level constants can only be int, string, or bool")),
+        };
+        Ok(format!("const {} {} = {}\n\n", name, ty, literal))
     }
 
     fn emit_model(&mut self, model: &Model, parent_scope: Option<SymId>) -> CodeGenResult<String> {
@@ -114,7 +131,7 @@ impl<'a> GoGenerator<'a> {
                 type_code = format!("*{}", type_code);
             }
 
-            let alias = field.alias()?;
+            let alias = self.ctx.field_alias(&field, Some(scope_id))?;
             let json_name = alias.unwrap_or_else(|| field_name.clone());
             let mut json_tag = json_name.clone();
             if field.is_optional() {
@@ -210,7 +227,7 @@ impl<'a> GoGenerator<'a> {
                 type_code = format!("*{}", type_code);
             }
 
-            let alias = field.alias()?;
+            let alias = self.ctx.field_alias(&field, def.scope)?;
             let json_name = alias.unwrap_or_else(|| field_name.clone());
             let mut json_tag = json_name.clone();
             if field.is_optional() {
@@ -414,6 +431,26 @@ mod tests {
             }
         "#};
         assert_snapshot!(gen_go(src));
+    }
+
+    #[test]
+    fn test_constants_emit() {
+        let src = indoc! {r#"
+            const USER_ALIAS = "user_" + "id"
+            const DEFAULT_LIMIT = 100 * 2
+            const _PRIVATE_FLAG = true
+
+            model Request {
+                @field(alias=USER_ALIAS)
+                user_id: string
+            }
+        "#};
+
+        let output = gen_go(src);
+        assert!(output.contains("const USER_ALIAS string = \"user_id\""), "Expected folded string constant:\n{}", output);
+        assert!(output.contains("const DEFAULT_LIMIT int = 200"), "Expected folded int constant:\n{}", output);
+        assert!(output.contains("const _PRIVATE_FLAG bool = true"), "Expected private constant:\n{}", output);
+        assert!(output.contains("UserId string `json:\"user_id\"`"), "Expected folded alias:\n{}", output);
     }
 
     #[test]

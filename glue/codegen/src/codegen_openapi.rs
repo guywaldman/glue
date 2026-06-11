@@ -2,10 +2,7 @@ use std::collections::HashMap;
 
 use config::GlueConfigSchemaGeneration;
 use convert_case::Case;
-use lang::{
-    AnonModel, AstNode, Endpoint, Field, GlueIr, Literal, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG, MODEL_FIELD_DECORATOR_EXAMPLE_ARG, Model, SourceCodeMetadata, Type, TypeAtom,
-};
-use serde_json::Number;
+use lang::{AnonModel, AstNode, ConstValue, Endpoint, Field, GlueIr, Model, SourceCodeMetadata, Type, TypeAtom};
 
 use crate::CodeGenerator;
 use crate::codegen::CodeGenResult;
@@ -73,7 +70,7 @@ impl<'a> OpenAPIGenerator<'a> {
         let schema_name = model.qualified_name(&self.ctx, None, Case::Pascal).unwrap_or(name);
 
         let fields = model.fields();
-        let properties = self.fields_to_properties(&fields);
+        let properties = self.fields_to_properties(&fields, None);
         let required: Vec<_> = fields.iter().filter(|f| !f.is_optional()).filter_map(Self::field_name).collect();
 
         let mut schema = openapi::Schema {
@@ -166,7 +163,7 @@ impl<'a> OpenAPIGenerator<'a> {
 
         if let Some(anon_model) = atom.as_anon_model().and_then(AnonModel::cast) {
             let fields = anon_model.fields();
-            let properties = self.fields_to_properties(&fields);
+            let properties = self.fields_to_properties(&fields, None);
             let required: Vec<_> = fields.iter().filter(|f| !f.is_optional()).filter_map(Self::field_name).collect();
 
             let base = openapi::Schema {
@@ -224,23 +221,15 @@ impl<'a> OpenAPIGenerator<'a> {
         }
     }
 
-    fn fields_to_properties(&self, fields: &[Field]) -> HashMap<String, openapi::SchemaOrReference<openapi::Schema>> {
+    fn fields_to_properties(&self, fields: &[Field], scope: Option<lang::SymId>) -> HashMap<String, openapi::SchemaOrReference<openapi::Schema>> {
         fields
             .iter()
             .filter_map(|f| {
                 let mut name = Self::field_name(f)?;
-                let mut example: Option<Literal> = None;
-
-                if let Some(dec) = f.decorators().iter().find(|d| d.ident().as_deref() == Some(MODEL_FIELD_DECORATOR.id)) {
-                    if let Some(alias_arg) = dec.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_ALIAS_ARG)
-                        && let Some(Literal::StringLiteral(alias)) = alias_arg.literal()
-                    {
-                        name = alias.value()?;
-                    }
-                    if let Some(example_arg) = dec.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_EXAMPLE_ARG) {
-                        example = example_arg.literal();
-                    }
+                if let Ok(Some(alias)) = self.ctx.field_alias(f, scope) {
+                    name = alias;
                 }
+                let example = self.ctx.field_example(f, scope).ok().flatten();
 
                 let mut schema = self.type_to_schema(&f.ty()?);
 
@@ -250,8 +239,8 @@ impl<'a> OpenAPIGenerator<'a> {
                 }
 
                 // Add example
-                if let (Some(lit), openapi::SchemaOrReference::Item(s)) = (example, &mut schema) {
-                    s.example = Self::literal_to_json(&lit);
+                if let (Some(value), openapi::SchemaOrReference::Item(s)) = (example, &mut schema) {
+                    s.example = Self::const_value_to_json(&value);
                 }
 
                 Some((name, schema))
@@ -272,13 +261,12 @@ impl<'a> OpenAPIGenerator<'a> {
         }
     }
 
-    fn literal_to_json(lit: &Literal) -> Option<serde_json::Value> {
-        match lit {
-            Literal::StringLiteral(sl) => Some(serde_json::Value::String(sl.value()?.to_string())),
-            Literal::IntLiteral { value, .. } => Some(serde_json::Value::Number(Number::from(*value))),
-            Literal::FloatLiteral { value, .. } => serde_json::Number::from_f64(*value).map(serde_json::Value::Number),
-            Literal::BoolLiteral { value, .. } => Some(serde_json::Value::Bool(*value)),
-            _ => None,
+    fn const_value_to_json(value: &ConstValue) -> Option<serde_json::Value> {
+        match value {
+            ConstValue::String(value) => Some(serde_json::Value::String(value.clone())),
+            ConstValue::Int(value) => Some(serde_json::Value::Number(serde_json::Number::from(*value))),
+            ConstValue::Bool(value) => Some(serde_json::Value::Bool(*value)),
+            ConstValue::List(_) => None,
         }
     }
 

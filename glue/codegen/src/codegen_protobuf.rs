@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use config::GlueConfigSchemaGeneration;
 use convert_case::Case;
-use lang::{AnonModel, AstNode, Enum, Field, GlueIr, LSyntaxKind, Literal, Rpc, Service, SourceCodeMetadata, SymId, Type, TypeAtom};
+use lang::{AnonModel, AstNode, Enum, Field, GlueIr, LSyntaxKind, Rpc, Service, SourceCodeMetadata, SymId, Type, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
@@ -122,7 +122,7 @@ impl<'a> ProtobufGenerator<'a> {
 
     fn emit_message(&mut self, name: &str, fields: &[Field], scope: Option<SymId>, path: &[String]) -> CodeGenResult<String> {
         let mut output = format!("message {} {{\n", name);
-        let field_tags = self.field_tags(name, fields)?;
+        let field_tags = self.field_tags(name, fields, scope)?;
         for (field, tag) in fields.iter().zip(field_tags) {
             let field_name = field.name()?;
             let field_ty = field.field_type()?;
@@ -136,8 +136,8 @@ impl<'a> ProtobufGenerator<'a> {
         Ok(output)
     }
 
-    fn field_tags(&self, message_name: &str, fields: &[Field]) -> CodeGenResult<Vec<i64>> {
-        let explicit_tags = fields.iter().map(|field| self.field_proto_tag(field)).collect::<CodeGenResult<Vec<_>>>()?;
+    fn field_tags(&self, message_name: &str, fields: &[Field], scope: Option<SymId>) -> CodeGenResult<Vec<i64>> {
+        let explicit_tags = fields.iter().map(|field| self.ctx.field_proto_tag(field, scope)).collect::<CodeGenResult<Vec<_>>>()?;
         let tagged_count = explicit_tags.iter().filter(|tag| tag.is_some()).count();
         if tagged_count == 0 {
             return Ok((1..=fields.len() as i64).collect());
@@ -163,16 +163,6 @@ impl<'a> ProtobufGenerator<'a> {
             tags.push(tag);
         }
         Ok(tags)
-    }
-
-    fn field_proto_tag(&self, field: &Field) -> CodeGenResult<Option<i64>> {
-        let Some(arg) = field.extract_decorator_arg(lang::MODEL_FIELD_DECORATOR, &lang::MODEL_FIELD_DECORATOR_PROTO_TAG_ARG) else {
-            return Ok(None);
-        };
-        match arg.literal() {
-            Some(Literal::IntLiteral { value, .. }) => Ok(Some(value)),
-            _ => Err(self.ctx.error(arg.syntax(), "Protobuf field tag must be an integer")),
-        }
     }
 
     fn validate_proto_tag(field: &Field, tag: i64, ctx: &CodeGenContext) -> CodeGenResult<()> {
@@ -506,6 +496,24 @@ mod tests {
             }
             other => panic!("unexpected error: {other:?}"),
         }
+    }
+
+    #[test]
+    fn test_proto_tag_constant_expression() {
+        let src = indoc! {r#"
+            const BASE_TAG = 10
+
+            model User {
+                @field(proto_tag=BASE_TAG + 1)
+                id: int
+                @field(proto_tag=BASE_TAG + 2)
+                name: string
+            }
+        "#};
+        let result = generate(src).unwrap();
+        assert!(result.contains("int32 id = 11;"), "Expected folded proto tag for id:\n{}", result);
+        assert!(result.contains("string name = 12;"), "Expected folded proto tag for name:\n{}", result);
+        assert!(!result.contains("BASE_TAG"), "Expected Protobuf output not to emit constants:\n{}", result);
     }
 
     #[test]

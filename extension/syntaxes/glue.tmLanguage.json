@@ -134,8 +134,20 @@
 					}
 				},
 				{
+					"name": "meta.constant.glue",
+					"match": "^\\s*(const)\\s+(_?[A-Za-z][A-Za-z0-9_]*)\\b",
+					"captures": {
+						"1": {
+							"name": "keyword.control.glue"
+						},
+						"2": {
+							"name": "constant.other.glue"
+						}
+					}
+				},
+				{
 					"name": "keyword.control.glue",
-					"match": "^\\s*(endpoint|model|response|enum|type|service|rpc)\\b"
+					"match": "^\\s*(endpoint|model|response|enum|type|const|service|rpc)\\b"
 				},
 				{
 					"match": "^\\s*(body|returns|mime|status):",

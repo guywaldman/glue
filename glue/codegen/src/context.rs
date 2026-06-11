@@ -3,8 +3,8 @@ use std::collections::HashSet;
 use config::GlueConfigSchemaGeneration;
 use convert_case::{Case, Casing, Converter};
 use lang::{
-    AstNode, DiagnosticContext, Enum, EnumVariant, Field, LNode, LSyntaxKind, Literal, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG, MODEL_FIELD_DECORATOR_PROTO_TAG_ARG, Model,
-    PrimitiveType, Service, SourceCodeMetadata, SymId, SymTable, Type, TypeAlias, TypeAtom,
+    AstNode, ConstDef, ConstEvaluator, ConstValue, DecoratorArg, DiagnosticContext, Enum, EnumVariant, Field, LNode, LSyntaxKind, Literal, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG,
+    MODEL_FIELD_DECORATOR_EXAMPLE_ARG, MODEL_FIELD_DECORATOR_PROTO_TAG_ARG, Model, PrimitiveType, Service, SourceCodeMetadata, SymId, SymTable, Type, TypeAlias, TypeAtom,
 };
 
 use crate::CodeGenError;
@@ -78,6 +78,10 @@ impl<'a> CodeGenContext<'a> {
 
     pub fn top_level_services(&self) -> impl Iterator<Item = Service> + '_ {
         self.ast.children().filter(|n| n.kind() == LSyntaxKind::SERVICE).filter_map(Service::cast)
+    }
+
+    pub fn top_level_consts(&self) -> impl Iterator<Item = ConstDef> + '_ {
+        self.ast.children().filter(|n| n.kind() == LSyntaxKind::CONST_DEF).filter_map(ConstDef::cast)
     }
 
     /// Find the root model (@root-decorated, or the sole model)
@@ -155,6 +159,71 @@ impl<'a> CodeGenContext<'a> {
 
     pub fn internal_error(message: impl Into<String>) -> CodeGenError {
         CodeGenError::InternalError(message.into())
+    }
+
+    pub fn eval_const_def(&self, const_def: &ConstDef) -> Result<ConstValue, CodeGenError> {
+        ConstEvaluator::new(&self.symbols, self.diag.clone()).eval_const_def(const_def).map_err(CodeGenError::GenerationError)
+    }
+
+    pub fn eval_decorator_arg(&self, arg: &DecoratorArg, scope: Option<SymId>) -> Result<Option<ConstValue>, CodeGenError> {
+        let Some(expr) = arg.const_expr() else {
+            return Ok(None);
+        };
+        ConstEvaluator::new(&self.symbols, self.diag.clone())
+            .eval_expr(&expr, scope)
+            .map(Some)
+            .map_err(CodeGenError::GenerationError)
+    }
+
+    pub fn field_default_value(&self, field: &Field, scope: Option<SymId>) -> Result<Option<ConstValue>, CodeGenError> {
+        let Some(expr) = field.default_const_expr() else {
+            return Ok(None);
+        };
+        ConstEvaluator::new(&self.symbols, self.diag.clone())
+            .eval_expr(&expr, scope)
+            .map(Some)
+            .map_err(CodeGenError::GenerationError)
+    }
+
+    pub fn field_alias(&self, field: &Field, scope: Option<SymId>) -> Result<Option<String>, CodeGenError> {
+        let decorators = field.decorators();
+        let field_dec = decorators.iter().find(|d| d.ident().as_deref() == Some(MODEL_FIELD_DECORATOR.id));
+        if let Some(dec) = field_dec
+            && let Some(alias_arg) = dec.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_ALIAS_ARG)
+        {
+            return match self.eval_decorator_arg(&alias_arg, scope)? {
+                Some(ConstValue::String(value)) => Ok(Some(value)),
+                Some(value) => Err(self.error(alias_arg.syntax(), &format!("Field alias must be a string, got {}", value.ty()))),
+                None => Ok(None),
+            };
+        }
+        Ok(None)
+    }
+
+    pub fn field_example(&self, field: &Field, scope: Option<SymId>) -> Result<Option<ConstValue>, CodeGenError> {
+        let decorators = field.decorators();
+        let field_dec = decorators.iter().find(|d| d.ident().as_deref() == Some(MODEL_FIELD_DECORATOR.id));
+        if let Some(dec) = field_dec
+            && let Some(example_arg) = dec.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_EXAMPLE_ARG)
+        {
+            return self.eval_decorator_arg(&example_arg, scope);
+        }
+        Ok(None)
+    }
+
+    pub fn field_proto_tag(&self, field: &Field, scope: Option<SymId>) -> Result<Option<i64>, CodeGenError> {
+        let decorators = field.decorators();
+        let field_dec = decorators.iter().find(|d| d.ident().as_deref() == Some(MODEL_FIELD_DECORATOR.id));
+        if let Some(dec) = field_dec
+            && let Some(proto_tag_arg) = dec.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_PROTO_TAG_ARG)
+        {
+            return match self.eval_decorator_arg(&proto_tag_arg, scope)? {
+                Some(ConstValue::Int(value)) => Ok(Some(value)),
+                Some(value) => Err(self.error(proto_tag_arg.syntax(), &format!("Field proto_tag must be an integer, got {}", value.ty()))),
+                None => Ok(None),
+            };
+        }
+        Ok(None)
     }
 }
 
@@ -272,6 +341,15 @@ impl NamedExt for Enum {
     }
     fn label() -> &'static str {
         "Enum"
+    }
+}
+
+impl NamedExt for ConstDef {
+    fn ident(&self) -> Option<String> {
+        ConstDef::ident(self)
+    }
+    fn label() -> &'static str {
+        "Constant"
     }
 }
 
