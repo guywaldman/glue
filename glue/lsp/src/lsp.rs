@@ -5,8 +5,8 @@ use std::sync::{Arc, RwLock};
 use anyhow::Result;
 use lang::BUILTIN_DECORATORS;
 use lang::{
-    AstNode, Decorator, DecoratorArgDef, DecoratorDef, Endpoint, Enum, Field, LNode, LSyntaxKind, Model, Parser, RootNode, SemanticAnalyzer, SemanticAnalyzerError, SourceCodeMetadata, SymTable,
-    TextSize, TokenAtOffset, Type,
+    AstNode, ConstDef, ConstEvaluator, Decorator, DecoratorArgDef, DecoratorDef, DiagnosticContext, Endpoint, Enum, Field, LNode, LSyntaxKind, Model, Parser, RootNode, SemanticAnalyzer,
+    SemanticAnalyzerError, SourceCodeMetadata, SymTable, TextSize, TokenAtOffset, Type,
 };
 use log::{error, info};
 use miette::LabeledSpan;
@@ -122,7 +122,11 @@ impl Lsp {
         };
 
         match SemanticAnalyzer::new().analyze(&parsed, &metadata) {
-            Ok(_) => extra_diags,
+            Ok(analyzed) => {
+                let mut warning_diags: Vec<lsp::Diagnostic> = analyzed.warnings.iter().flat_map(|warning| self.diagnostics_from_report(uri, warning.report())).collect();
+                warning_diags.append(&mut extra_diags);
+                warning_diags
+            }
             Err(errors) => {
                 let mut semantic_diags: Vec<lsp::Diagnostic> = errors
                     .iter()
@@ -424,6 +428,11 @@ impl Lsp {
                 root.top_level_type_aliases()
                     .into_iter()
                     .find_map(|type_alias| (type_alias.ident().as_deref() == Some(symbol_name)).then(|| type_alias.syntax().clone()))
+            })
+            .or_else(|| {
+                root.top_level_consts()
+                    .into_iter()
+                    .find_map(|const_def| (const_def.ident().as_deref() == Some(symbol_name)).then(|| const_def.syntax().clone()))
             });
 
         let node = maybe_node?;
@@ -444,7 +453,7 @@ impl Lsp {
         let location = self.resolve_imported_location(from_uri, reference_name)?;
         let target_uri = location.uri.to_string();
         let source = self.load_document_or_file(&target_uri)?;
-        let (ast, _) = Self::parse_source_lenient(&target_uri, &source).ok()?;
+        let (ast, symbols) = Self::parse_source_lenient(&target_uri, &source).ok()?;
         let root = RootNode::cast(ast)?;
 
         let symbol_name = reference_name.split('.').next_back()?;
@@ -462,9 +471,15 @@ impl Lsp {
                 root.top_level_type_aliases()
                     .into_iter()
                     .find_map(|type_alias| (type_alias.ident().as_deref() == Some(symbol_name)).then(|| type_alias.syntax().clone()))
+            })
+            .or_else(|| {
+                root.top_level_consts()
+                    .into_iter()
+                    .find_map(|const_def| (const_def.ident().as_deref() == Some(symbol_name)).then(|| const_def.syntax().clone()))
             })?;
 
-        self.extract_symbol_info(&node)
+        let diag = DiagnosticContext::new(target_uri, source);
+        self.extract_symbol_info(&node, Some(&symbols), Some(diag))
     }
 
     fn import_alias_location(&self, uri: &str, alias: &str) -> Option<lsp::Location> {
@@ -526,6 +541,11 @@ impl Lsp {
         for type_alias in root.top_level_type_aliases() {
             if let Some(name) = type_alias.ident() {
                 out.push((name, lsp::CompletionItemKind::TYPE_PARAMETER));
+            }
+        }
+        for const_def in root.top_level_consts() {
+            if let Some(name) = const_def.ident() {
+                out.push((name, lsp::CompletionItemKind::CONSTANT));
             }
         }
         out
@@ -597,7 +617,7 @@ impl Lsp {
             TokenAtOffset::None => return None,
         };
 
-        if token.kind() != LSyntaxKind::IDENT {
+        if !matches!(token.kind(), LSyntaxKind::IDENT | LSyntaxKind::CONST_IDENT) {
             return None;
         }
 
@@ -722,7 +742,7 @@ impl Lsp {
             TokenAtOffset::None => return None,
         };
 
-        if token.kind() != LSyntaxKind::IDENT {
+        if !matches!(token.kind(), LSyntaxKind::IDENT | LSyntaxKind::CONST_IDENT) {
             return None;
         }
 
@@ -825,7 +845,7 @@ impl Lsp {
     }
 
     /// Extract symbol information from a node
-    fn extract_symbol_info(&self, node: &LNode) -> Option<SymbolInfo> {
+    fn extract_symbol_info(&self, node: &LNode, symbols: Option<&SymTable<LNode>>, diag: Option<DiagnosticContext>) -> Option<SymbolInfo> {
         match node.kind() {
             LSyntaxKind::MODEL => {
                 let model = Model::cast(node.clone())?;
@@ -857,6 +877,23 @@ impl Lsp {
                 let type_info = type_alias.type_node().and_then(Type::cast).map(|t| format!("alias for {}", self.format_type(&t)));
                 Some(SymbolInfo {
                     kind: "type alias",
+                    name,
+                    docs,
+                    type_info,
+                })
+            }
+            LSyntaxKind::CONST_DEF => {
+                let const_def = ConstDef::cast(node.clone())?;
+                let name = const_def.ident()?;
+                let docs = const_def.docs().map(|d| d.join("\n"));
+                let type_info = const_def.type_node().and_then(Type::cast).map(|t| format!("constant {}", self.format_type(&t))).or_else(|| {
+                    let symbols = symbols?;
+                    let diag = diag?;
+                    let expr = const_def.expr()?;
+                    ConstEvaluator::new(symbols, diag).eval_expr(&expr, None).ok().map(|value| format!("constant {}", value.ty()))
+                });
+                Some(SymbolInfo {
+                    kind: "constant",
                     name,
                     docs,
                     type_info,
@@ -1068,7 +1105,7 @@ impl LanguageServer for Lsp {
         };
 
         // Only handle identifiers
-        if token.kind() != LSyntaxKind::IDENT {
+        if !matches!(token.kind(), LSyntaxKind::IDENT | LSyntaxKind::CONST_IDENT) {
             return Ok(None);
         }
 
@@ -1142,7 +1179,8 @@ impl LanguageServer for Lsp {
         // Try to resolve the symbol with scope awareness
         let scope = self.find_scope_at_offset(&ast, offset, &symbols);
         let info = if let Some(sym_entry) = symbols.resolve(scope, &ref_name) {
-            self.extract_symbol_info(&sym_entry.data)
+            let diag = self.load_document_or_file(&uri).map(|source| DiagnosticContext::new(uri.clone(), source));
+            self.extract_symbol_info(&sym_entry.data, Some(&symbols), diag)
         } else {
             self.imported_symbol_info(&uri, &ref_name_for_import_resolution)
         };
@@ -1404,6 +1442,12 @@ impl LanguageServer for Lsp {
         for type_alias in root.top_level_type_aliases() {
             if let Some(name) = type_alias.ident() {
                 items.push(make_completion(name, lsp::CompletionItemKind::TYPE_PARAMETER, false));
+            }
+        }
+
+        for const_def in root.top_level_consts() {
+            if let Some(name) = const_def.ident() {
+                items.push(make_completion(name, lsp::CompletionItemKind::CONSTANT, false));
             }
         }
 
@@ -2509,6 +2553,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_collect_diagnostics_for_constant_case_warning() {
+        let src = "const badName: int = 1";
+        let (lsp, uri) = setup_lsp(src).await;
+        let diagnostics = lsp.collect_document_diagnostics(&uri);
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|d| d.severity == Some(lsp::DiagnosticSeverity::WARNING) && d.message.contains("Constant 'badName' should use CONSTANT_CASE")),
+            "expected constant case warning diagnostic, got: {diagnostics:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn test_collect_diagnostics_resolves_imported_types() {
         let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
         let temp_dir = std::env::temp_dir().join(format!("glue_lsp_import_diags_{unique}"));
@@ -3007,6 +3065,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_goto_definition_constant_reference() {
+        let src = indoc! {r#"
+            const DEFAULT_LIMIT: int = 10
+
+            model User {
+                limit: int = DEFAULT_LIMIT
+            }
+        "#}
+        .trim();
+
+        let (lsp, uri) = setup_lsp(src).await;
+
+        let params = lsp::GotoDefinitionParams {
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            text_document_position_params: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri: uri.parse().unwrap() },
+                position: position_of_last(src, "DEFAULT_LIMIT"),
+            },
+        };
+        let resp = lsp.goto_definition(params).await;
+        let Ok(Some(lsp::GotoDefinitionResponse::Scalar(loc))) = &resp else {
+            panic!("unexpected response: {resp:?}");
+        };
+
+        assert_eq!(loc.uri, uri.parse().unwrap());
+        assert_eq!(loc.range.start.line, 0);
+    }
+
+    #[tokio::test]
     async fn test_hover_on_type_alias_reference() {
         let src = indoc! {r#"
             type UserId = string
@@ -3040,6 +3128,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_hover_on_constant_reference() {
+        let src = indoc! {r#"
+            /// Default page size.
+            const DEFAULT_LIMIT = 10
+
+            model User {
+                limit: int = DEFAULT_LIMIT
+            }
+        "#}
+        .trim();
+
+        let (lsp, uri) = setup_lsp(src).await;
+
+        let params = lsp::HoverParams {
+            text_document_position_params: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri: uri.parse().unwrap() },
+                position: position_of_last(src, "DEFAULT_LIMIT"),
+            },
+            work_done_progress_params: Default::default(),
+        };
+        let resp = lsp.hover(params).await;
+        let Ok(Some(hover)) = &resp else {
+            panic!("expected hover response, got: {resp:?}");
+        };
+
+        let lsp::HoverContents::Markup(markup) = &hover.contents else {
+            panic!("expected markup content");
+        };
+        assert!(markup.value.contains("constant DEFAULT_LIMIT"), "hover should identify constant");
+        assert!(markup.value.contains("constant int"), "hover should include constant type");
+        assert!(markup.value.contains("Default page size."), "hover should include docs");
+    }
+
+    #[tokio::test]
     async fn test_completion_includes_type_alias() {
         let src = indoc! {r#"
             type UserId = string
@@ -3068,5 +3190,36 @@ mod tests {
 
         let user_id = items.iter().find(|i| i.label == "UserId").expect("expected UserId completion");
         assert_eq!(user_id.kind, Some(lsp::CompletionItemKind::TYPE_PARAMETER));
+    }
+
+    #[tokio::test]
+    async fn test_completion_includes_constant() {
+        let src = indoc! {r#"
+            const DEFAULT_LIMIT: int = 10
+
+            model User {
+                limit: int = DEF
+            }
+        "#}
+        .trim();
+
+        let (lsp, uri) = setup_lsp(src).await;
+
+        let params = lsp::CompletionParams {
+            text_document_position: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri: uri.parse().unwrap() },
+                position: position_after_last(src, "DEF"),
+            },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            context: None,
+        };
+        let resp = lsp.completion(params).await;
+        let Ok(Some(lsp::CompletionResponse::Array(items))) = &resp else {
+            panic!("expected completion items, got: {resp:?}");
+        };
+
+        let default_limit = items.iter().find(|i| i.label == "DEFAULT_LIMIT").expect("expected DEFAULT_LIMIT completion");
+        assert_eq!(default_limit.kind, Some(lsp::CompletionItemKind::CONSTANT));
     }
 }

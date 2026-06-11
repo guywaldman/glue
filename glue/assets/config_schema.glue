@@ -8,6 +8,12 @@ model GlueConfigSchema {
 	model Global {
 		/// Base directory for generated output (relative to the config file if not absolute)
 		output_base_dir?: string
+		/// Source diagnostics configuration
+		diagnostics?: Diagnostics
+		model Diagnostics {
+			/// Warning codes to suppress.
+			suppress_warnings?: string[]
+		}
 		/// Default code generation configuration
 		config?: Generation
 	}

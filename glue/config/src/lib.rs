@@ -8,5 +8,5 @@ pub use config::GlueConfig;
 pub use schema::{
     GlueConfigSchema, GlueConfigSchemaGenConfig, GlueConfigSchemaGenConfigMode, GlueConfigSchemaGeneration, GlueConfigSchemaGenerationGo, GlueConfigSchemaGenerationProtobuf,
     GlueConfigSchemaGenerationPython, GlueConfigSchemaGenerationPythonDataModelLibrary, GlueConfigSchemaGenerationRust, GlueConfigSchemaGenerationTypeScript, GlueConfigSchemaGenerationWatermark,
-    GlueConfigSchemaGlobal,
+    GlueConfigSchemaGlobal, GlueConfigSchemaGlobalDiagnostics,
 };

@@ -378,6 +378,50 @@ fn e2e_check_with_circular_type_alias_reports_error() -> Result<()> {
 }
 
 #[test]
+fn e2e_check_constant_case_warning_and_suppression() -> Result<()> {
+    let fixture = GlueTestFixture::from_source(
+        "constant_case_warning",
+        "constants.glue",
+        r#"
+            const badName = 1
+
+            model User {
+                limit: int = badName
+            }
+        "#,
+    )?;
+
+    let output = glue_bin_command().args(["check", fixture.source_path.to_str().unwrap()]).output()?;
+    let combined = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert!(output.status.success(), "glue check should not fail on warnings:\n{}", combined);
+    assert!(combined.contains("Constant 'badName' should use CONSTANT_CASE"), "Expected constant case warning:\n{}", combined);
+    assert!(combined.contains("constant_case"), "Expected stable warning code in help:\n{}", combined);
+
+    fixture.write_config(
+        r#"
+global:
+  diagnostics:
+    suppress_warnings:
+      - constant_case
+"#,
+    )?;
+    let config_path = fixture.source_path.parent().unwrap().join(".gluerc.yaml");
+    let suppressed = glue_bin_command()
+        .args(["check", "--config", config_path.to_str().unwrap(), fixture.source_path.to_str().unwrap()])
+        .output()?;
+    let suppressed_combined = format!("{}{}", String::from_utf8_lossy(&suppressed.stdout), String::from_utf8_lossy(&suppressed.stderr));
+    assert!(suppressed.status.success(), "glue check with suppression should pass:\n{}", suppressed_combined);
+    assert!(
+        !suppressed_combined.contains("Constant 'badName' should use CONSTANT_CASE"),
+        "Expected warning to be suppressed:\n{}",
+        suppressed_combined
+    );
+
+    std::fs::remove_dir_all(&fixture.temp_dir).ok();
+    Ok(())
+}
+
+#[test]
 fn e2e_go_ecommerce_snapshot() -> Result<()> {
     let fixture = GlueTestFixture::new("go_ecommerce", "ecommerce.glue")?;
     let output_path = fixture.generate_go()?;

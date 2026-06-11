@@ -7,6 +7,7 @@ doc_block_line = @{ SPACE* ~ "///" ~ (!NEWLINE ~ ANY)* }
 doc_block = @{ NEWLINE? ~ (doc_block_line ~ (NEWLINE? ~ doc_block_line ~ NEWLINE?)*) }
 
 ident = @{ (ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")*) | (ASCII_DIGIT ~ (ASCII_DIGIT+ | "XX")) }
+const_ident = @{ "_" ? ~ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
 
 string_literal = { "\"" ~ string_literal_inner ~ "\"" }
 string_literal_inner = @{ char* }
@@ -20,6 +21,11 @@ false_literal = { "false" }
 bool_literal = { true_literal | false_literal }
 int_literal = @{ ASCII_DIGIT+ }
 list_literal = ${ "[" ~ SPACE* ~ (literal ~ (SPACE* ~ "," ~ SPACE* ~ literal)*)? ~ SPACE* ~ "]" }
+const_ref = { const_ident }
+const_primary = { literal | const_ref | "(" ~ SPACE* ~ const_expr ~ SPACE* ~ ")" }
+const_mul = { const_primary ~ (SPACE* ~ "*" ~ SPACE* ~ const_primary)* }
+const_add = { const_mul ~ (SPACE* ~ "+" ~ SPACE* ~ const_mul)* }
+const_expr = { const_add }
 record = ${ "Record" ~ "<" ~ type_expr ~ "," ~ SPACE* ~ type_expr ~ SPACE* ~ ">" }
 optional_modifier = { "?" }
 literal = { string_literal | bool_literal | int_literal | list_literal }
@@ -36,17 +42,17 @@ import_wildcard = { "*" ~ ("as" ~ ident)? }
 import_items = { import_wildcard | import_named }
 import_stmt = { "import" ~ import_items ~ "from" ~ string_literal }
 
-decorator_named_arg = { ident ~ "=" ~ literal }
-decorator_positional_arg = { literal }
+decorator_named_arg = { ident ~ "=" ~ const_expr }
+decorator_positional_arg = { const_expr }
 decorator_args = _{
-    decorator_positional_arg ~ ("," ~ decorator_positional_arg)* ~ ("," ~ decorator_named_arg)*
-    | decorator_named_arg ~ ("," ~ decorator_named_arg)*
+    decorator_named_arg ~ ("," ~ decorator_named_arg)*
+    | decorator_positional_arg ~ ("," ~ decorator_positional_arg)* ~ ("," ~ decorator_named_arg)*
 }
 decorator = { "@" ~ ident ~ ("(" ~ decorator_args? ~ ")")? }
 
 // NOTE: Can be a string literal to allow for field names that are not valid identifiers (e.g., "2XX")
 field_name = { ident | string_literal }
-field_default_value = { literal }
+field_default_value = { const_expr }
 // TODO: This should be a `$` production
 field = { doc_block? ~ decorator* ~ field_name ~ optional_modifier? ~ ":" ~ type_expr ~ ("=" ~ field_default_value)? }
 
@@ -58,9 +64,10 @@ model_body = !{ (field | type_alias | model | enum_def)* }
 model = { doc_block? ~ decorator* ~ "model" ~ ident ~ "{" ~ model_body ~ "}" }
 anon_model = { "{" ~ model_body ~ "}" }
 type_alias = { doc_block? ~ "type" ~ ident ~ "=" ~ type_expr }
+const_def = { doc_block? ~ "const" ~ const_ident ~ (":" ~ type_expr)? ~ "=" ~ const_expr }
 
 endpoint = { doc_block? ~ decorator* ~ "endpoint" ~ string_literal ~ ident? ~ "{" ~ model_body ~ "}" }
 rpc = { doc_block? ~ "rpc" ~ ident ~ "{" ~ field* ~ "}" }
 service = { doc_block? ~ "service" ~ ident ~ "{" ~ rpc* ~ "}" }
 
-program = _{ SOI ~ (import_stmt | type_alias | model | endpoint | service | enum_def)+ ~ EOI }
+program = _{ SOI ~ (import_stmt | const_def | type_alias | model | endpoint | service | enum_def)+ ~ EOI }

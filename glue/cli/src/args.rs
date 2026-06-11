@@ -48,6 +48,9 @@ pub enum CliSubcommand {
     Check {
         /// Path or URL to the input .glue file (defaults to stdin if not provided)
         input: Option<PathBuf>,
+        /// Path to a custom config file. If not specified, Glue will automatically use `.gluerc`, `.gluerc.json`, `.gluerc.yaml`, or `.gluerc.yml` from the input file's directory when available.
+        #[arg(short = 'c', long)]
+        config: Option<PathBuf>,
     },
 
     /// Generates code from a Glue file
