@@ -59,8 +59,8 @@ impl<'a> RustGenerator<'a> {
         }
         self.output.push('\n');
 
-        for const_def in self.ctx.top_level_consts().collect::<Vec<_>>() {
-            let code = self.emit_const(&const_def)?;
+        for (const_def, scope) in self.ctx.scoped_consts() {
+            let code = self.emit_const(&const_def, scope)?;
             self.output.push_str(&code);
         }
         for model in self.ctx.top_level_models().collect::<Vec<_>>() {
@@ -84,15 +84,15 @@ impl<'a> RustGenerator<'a> {
         Ok(self.output.clone())
     }
 
-    fn emit_const(&self, const_def: &ConstDef) -> CodeGenResult<String> {
-        let name = const_def.name()?;
+    fn emit_const(&self, const_def: &ConstDef, scope: Option<SymId>) -> CodeGenResult<String> {
+        let name = self.ctx.const_name(const_def, scope, Case::UpperSnake)?;
         let vis = if const_def.is_private() { "" } else { "pub " };
-        let value = self.ctx.eval_const_def(const_def)?;
+        let value = self.ctx.eval_const_def_in_scope(const_def, scope)?;
         let (ty, literal) = match value {
             ConstValue::String(value) => ("&str", format!("{:?}", value)),
             ConstValue::Int(value) => ("i64", value.to_string()),
             ConstValue::Bool(value) => ("bool", value.to_string()),
-            ConstValue::List(_) => return Err(self.ctx.error(const_def.syntax(), "Top-level constants can only be int, string, or bool")),
+            ConstValue::List(_) => return Err(self.ctx.error(const_def.syntax(), "Constants can only be int, string, or bool")),
         };
         Ok(format!("{}const {}: {} = {};\n\n", vis, name, ty, literal))
     }
@@ -368,6 +368,35 @@ mod tests {
         assert!(output.contains("pub const DEFAULT_LIMIT: i64 = 200;"), "Expected folded int constant:\n{}", output);
         assert!(output.contains("const _PRIVATE_FLAG: bool = true;"), "Expected private constant:\n{}", output);
         assert!(output.contains("#[serde(rename = \"user_id\")]"), "Expected folded alias:\n{}", output);
+    }
+
+    #[test]
+    fn test_model_scoped_constants_emit_and_aliases_fold() {
+        let src = indoc! { r#"
+            model Aliases {
+                const SUFFIX = "_alias"
+                const USER_ID_ALIAS = "user_id" + SUFFIX
+                const _PRIVATE_FLAG = true
+            }
+
+            model User {
+                const SUFFIX = "_user"
+
+                @field(alias=Aliases.USER_ID_ALIAS)
+                user_id: string
+            }
+        "# };
+
+        let output = gen_rust(src);
+        assert!(output.contains("pub const ALIASES_SUFFIX: &str = \"_alias\";"), "Expected model-prefixed string constant:\n{}", output);
+        assert!(
+            output.contains("pub const ALIASES_USER_ID_ALIAS: &str = \"user_id_alias\";"),
+            "Expected declaration-scope folded constant:\n{}",
+            output
+        );
+        assert!(output.contains("const _ALIASES_PRIVATE_FLAG: bool = true;"), "Expected private model-prefixed constant:\n{}", output);
+        assert!(output.contains("pub const USER_SUFFIX: &str = \"_user\";"), "Expected second model-prefixed constant:\n{}", output);
+        assert!(output.contains("#[serde(rename = \"user_id_alias\")]"), "Expected folded qualified alias:\n{}", output);
     }
 
     #[test]

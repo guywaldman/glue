@@ -32,10 +32,14 @@ impl<'a> ConstEvaluator<'a> {
     }
 
     pub fn eval_const_def(&self, const_def: &ConstDef) -> Result<ConstValue, Report> {
+        self.eval_const_def_in_scope(const_def, None)
+    }
+
+    pub fn eval_const_def_in_scope(&self, const_def: &ConstDef, scope: Option<SymId>) -> Result<ConstValue, Report> {
         let expr = const_def
             .expr()
             .ok_or_else(|| self.diag.error(const_def.syntax().text_range(), "Constant is missing a value expression"))?;
-        self.eval_expr(&expr, None)
+        self.eval_expr(&expr, scope)
     }
 
     pub fn eval_expr(&self, expr: &ConstExpr, scope: Option<SymId>) -> Result<ConstValue, Report> {
@@ -89,9 +93,14 @@ impl<'a> ConstEvaluator<'a> {
 
     fn eval_ref_node(&self, node: &LNode, scope: Option<SymId>, stack: &mut Vec<SymId>) -> Result<ConstValue, Report> {
         let const_ref = ConstRef::cast(node.clone()).ok_or_else(|| self.internal_expr_error(node))?;
+        let path = const_ref.path();
         let name = const_ref.ident().ok_or_else(|| self.internal_expr_error(node))?;
-        let Some(sym_id) = self.symbols.resolve_id(scope, &name) else {
-            return Err(self.diag.error(node.text_range(), &format!("Undefined constant reference '{}'", name)));
+        let sym_id = if path.len() > 1 {
+            self.resolve_qualified_ref(node, scope, &path)?
+        } else {
+            self.symbols
+                .resolve_id(scope, &name)
+                .ok_or_else(|| self.diag.error(node.text_range(), &format!("Undefined constant reference '{}'", name)))?
         };
         let Some(sym) = self.symbols.get(sym_id) else {
             return Err(self.diag.error(node.text_range(), &format!("Undefined constant reference '{}'", name)));
@@ -109,10 +118,61 @@ impl<'a> ConstEvaluator<'a> {
         }
         let const_def = ConstDef::cast(sym.data.clone()).ok_or_else(|| self.internal_expr_error(&sym.data))?;
         let expr = const_def.expr().ok_or_else(|| self.internal_expr_error(&sym.data))?;
+        let const_scope = self.symbols.parent_scope_id(sym_id);
         stack.push(sym_id);
-        let value = self.eval_node(expr.syntax(), scope, stack);
+        let value = self.eval_node(expr.syntax(), const_scope, stack);
         stack.pop();
         value
+    }
+
+    fn resolve_qualified_ref(&self, node: &LNode, scope: Option<SymId>, path: &[String]) -> Result<SymId, Report> {
+        let ref_text = path.join(".");
+        let Some((const_name, model_path)) = path.split_last() else {
+            return Err(self.internal_expr_error(node));
+        };
+        let Some((first_model, nested_models)) = model_path.split_first() else {
+            return Err(self.internal_expr_error(node));
+        };
+
+        let mut model_id = self
+            .symbols
+            .resolve_id(scope, first_model)
+            .ok_or_else(|| self.diag.error(node.text_range(), &format!("Undefined constant reference '{}'", ref_text)))?;
+        self.ensure_model_ref(node, model_id, &ref_text)?;
+
+        for model_name in nested_models {
+            model_id = self
+                .symbols
+                .resolve_direct_child_id(model_id, model_name)
+                .ok_or_else(|| self.diag.error(node.text_range(), &format!("Undefined constant reference '{}'", ref_text)))?;
+            self.ensure_model_ref(node, model_id, &ref_text)?;
+        }
+
+        let const_id = self
+            .symbols
+            .resolve_direct_child_id(model_id, const_name)
+            .ok_or_else(|| self.diag.error(node.text_range(), &format!("Undefined constant reference '{}'", ref_text)))?;
+        let Some(const_sym) = self.symbols.get(const_id) else {
+            return Err(self.diag.error(node.text_range(), &format!("Undefined constant reference '{}'", ref_text)));
+        };
+        if const_sym.data.kind() != LSyntaxKind::CONST_DEF {
+            return Err(self.diag.error(node.text_range(), &format!("Reference '{}' is not a constant", ref_text)));
+        }
+        if const_name.starts_with('_') && !self.symbols.is_scope_within(scope, model_id) {
+            return Err(self.diag.error(node.text_range(), &format!("Constant '{}' is private to model '{}'", const_name, model_path.join("."))));
+        }
+
+        Ok(const_id)
+    }
+
+    fn ensure_model_ref(&self, node: &LNode, sym_id: SymId, ref_text: &str) -> Result<(), Report> {
+        let Some(sym) = self.symbols.get(sym_id) else {
+            return Err(self.diag.error(node.text_range(), &format!("Undefined constant reference '{}'", ref_text)));
+        };
+        if sym.data.kind() != LSyntaxKind::MODEL {
+            return Err(self.diag.error(node.text_range(), &format!("Reference '{}' does not start with a model", ref_text)));
+        }
+        Ok(())
     }
 
     fn eval_literal_node(&self, node: &LNode) -> Result<ConstValue, Report> {

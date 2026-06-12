@@ -196,10 +196,7 @@ impl SemanticAnalyzer {
 
     fn check_consts(&self, root: &LNode, symbols: &SymTable<LNode>, errors: &mut Vec<SemanticAnalyzerError>, warnings: &mut Vec<SemanticWarning>, diag: DiagnosticContext) {
         let evaluator = ConstEvaluator::new(symbols, diag.clone());
-        for const_node in root.children().filter(|n| n.kind() == LSyntaxKind::CONST_DEF) {
-            let Some(const_def) = ConstDef::cast(const_node.clone()) else {
-                continue;
-            };
+        for (const_def, scope) in Self::collect_consts(root, symbols) {
             let Some(name) = const_def.ident() else {
                 continue;
             };
@@ -223,7 +220,7 @@ impl SemanticAnalyzer {
                 });
             }
 
-            let value = match evaluator.eval_const_def(&const_def) {
+            let value = match evaluator.eval_const_def_in_scope(&const_def, scope) {
                 Ok(value) => value,
                 Err(report) => {
                     errors.push(SemanticAnalyzerError::ConstantError(report));
@@ -248,6 +245,58 @@ impl SemanticAnalyzer {
                     errors.push(SemanticAnalyzerError::ConstantError(report));
                 }
             }
+        }
+    }
+
+    fn collect_consts(root: &LNode, symbols: &SymTable<LNode>) -> Vec<(ConstDef, Option<SymId>)> {
+        let mut consts = Vec::new();
+        for child in root.children() {
+            Self::collect_consts_walk(child, symbols, None, &mut consts);
+        }
+        consts
+    }
+
+    fn collect_consts_walk(node: LNode, symbols: &SymTable<LNode>, scope: Option<SymId>, out: &mut Vec<(ConstDef, Option<SymId>)>) {
+        match node.kind() {
+            LSyntaxKind::CONST_DEF => {
+                if let Some(const_def) = ConstDef::cast(node) {
+                    out.push((const_def, scope));
+                }
+            }
+            LSyntaxKind::MODEL => {
+                let Some(model) = Model::cast(node) else {
+                    return;
+                };
+                let Some(model_name) = model.ident() else {
+                    return;
+                };
+                let Some(model_scope) = symbols.resolve_id(scope, &model_name) else {
+                    return;
+                };
+
+                for const_node in model.nested_const_nodes() {
+                    Self::collect_consts_walk(const_node, symbols, Some(model_scope), out);
+                }
+                for nested_model_node in model.nested_model_nodes() {
+                    Self::collect_consts_walk(nested_model_node, symbols, Some(model_scope), out);
+                }
+            }
+            LSyntaxKind::ENDPOINT => {
+                let Some(endpoint) = Endpoint::cast(node) else {
+                    return;
+                };
+                let Some(endpoint_name) = endpoint.path_string_literal_node().and_then(|s| s.value()) else {
+                    return;
+                };
+                let Some(endpoint_scope) = symbols.resolve_id(scope, &endpoint_name) else {
+                    return;
+                };
+
+                for nested_model_node in endpoint.nested_model_nodes() {
+                    Self::collect_consts_walk(nested_model_node, symbols, Some(endpoint_scope), out);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -491,6 +540,15 @@ impl SemanticAnalyzer {
         let endpoint_name = endpoint.path_string_literal_node().unwrap().value().unwrap();
         let endpoint_scope = symbols.resolve_id(scope, &endpoint_name);
 
+        for const_node in endpoint.nested_const_nodes() {
+            let report = diag.error_with_help(
+                const_node.text_range(),
+                "Constants cannot be declared directly inside endpoints",
+                "Move this constant to the top level or to a named model.",
+            );
+            errors.push(SemanticAnalyzerError::ConstantError(report));
+        }
+
         for field_node in endpoint.field_nodes() {
             Self::check_field(field_node, symbols, endpoint_scope, errors, diag.clone());
         }
@@ -700,11 +758,12 @@ impl SemanticAnalyzer {
             .into_iter()
             .chain(anon_model.nested_enum_nodes())
             .chain(anon_model.nested_type_alias_nodes())
+            .chain(anon_model.nested_const_nodes())
         {
             let report = diag.error_with_help(
                 node.text_range(),
                 "Anonymous structs cannot contain nested declarations",
-                "Move nested models, enums, or type aliases to the surrounding model scope.",
+                "Move nested models, enums, type aliases, or constants to the surrounding model scope.",
             );
             errors.push(SemanticAnalyzerError::DuplicateField(report));
         }
@@ -937,6 +996,9 @@ impl SemanticAnalyzer {
                 for nested_type_alias_node in model.nested_type_alias_nodes() {
                     let _ = Self::generate_symbol_table_walk(nested_type_alias_node, syms, Some(model_scope_id), errors, diag);
                 }
+                for nested_const_node in model.nested_const_nodes() {
+                    let _ = Self::generate_symbol_table_walk(nested_const_node, syms, Some(model_scope_id), errors, diag);
+                }
             }
             LSyntaxKind::ENDPOINT => {
                 let endpoint = Endpoint::cast(node.clone()).unwrap();
@@ -1104,6 +1166,161 @@ mod tests {
 
         let result = analyze_source(src).expect("Expected inferred constants to analyze");
         assert!(result.warnings.is_empty(), "Expected CONSTANT_CASE constants to avoid warnings");
+    }
+
+    #[test]
+    fn test_model_scoped_constants_validate_defaults_and_decorators() {
+        let src = indoc! { r#"
+            model Aliases {
+                const USER_ID_ALIAS = "user_" + "id"
+                const BASE_TAG = 10
+            }
+
+            model User {
+                const DEFAULT_LIMIT = 100
+
+                limit: int = DEFAULT_LIMIT
+                @field(alias=Aliases.USER_ID_ALIAS)
+                user_id: string
+                @field(proto_tag=Aliases.BASE_TAG + 1)
+                tagged_id: int
+            }
+        "# };
+
+        let result = analyze_source(src).expect("Expected model-scoped constants to analyze");
+        assert!(result.warnings.is_empty(), "Expected CONSTANT_CASE constants to avoid warnings");
+    }
+
+    #[test]
+    fn test_qualified_model_constant_nested_chain_analyzes() {
+        let src = indoc! { r#"
+            model Outer {
+                model Inner {
+                    const USER_ID_ALIAS = "user_id"
+                }
+            }
+
+            model User {
+                @field(alias=Outer.Inner.USER_ID_ALIAS)
+                user_id: string
+            }
+        "# };
+
+        let result = analyze_source(src);
+        assert!(result.is_ok(), "Expected nested qualified model constant to analyze");
+    }
+
+    #[test]
+    fn test_private_model_constant_qualified_from_outside_fails() {
+        let src = indoc! { r#"
+            model Aliases {
+                const _USER_ID_ALIAS = "user_id"
+            }
+
+            model User {
+                @field(alias=Aliases._USER_ID_ALIAS)
+                user_id: string
+            }
+        "# };
+
+        let result = analyze_source(src);
+        assert!(result.is_err(), "Expected private qualified model constant to fail");
+        let errors = result.err().unwrap();
+        assert!(errors.iter().any(|e| e.report().to_string().contains("private to model")), "Expected private constant error");
+    }
+
+    #[test]
+    fn test_qualified_model_type_alias_in_decorator_arg_fails_as_not_constant() {
+        let src = indoc! { r#"
+            model Aliases {
+                type USER_ID_ALIAS = string
+            }
+
+            model User {
+                @field(alias=Aliases.USER_ID_ALIAS)
+                user_id: string
+            }
+        "# };
+
+        let result = analyze_source(src);
+        assert!(result.is_err(), "Expected qualified type alias reference to fail as non-constant");
+        let errors = result.err().unwrap();
+        assert!(errors.iter().any(|e| e.report().to_string().contains("is not a constant")), "Expected not-a-constant error");
+    }
+
+    #[test]
+    fn test_missing_qualified_model_constant_fails() {
+        let src = indoc! { r#"
+            model Aliases {
+                const USER_ID_ALIAS = "user_id"
+            }
+
+            model User {
+                @field(alias=Aliases.MISSING_ALIAS)
+                user_id: string
+            }
+        "# };
+
+        let result = analyze_source(src);
+        assert!(result.is_err(), "Expected missing qualified model constant to fail");
+        let errors = result.err().unwrap();
+        assert!(errors.iter().any(|e| e.report().to_string().contains("Undefined constant reference 'Aliases.MISSING_ALIAS'")));
+    }
+
+    #[test]
+    fn test_model_constant_refs_evaluate_in_declaration_scope() {
+        let src = indoc! { r#"
+            model Aliases {
+                const SUFFIX = "_alias"
+                const USER_ID_ALIAS = "user_id" + SUFFIX
+            }
+
+            model User {
+                const SUFFIX = "_user"
+
+                @field(alias=Aliases.USER_ID_ALIAS)
+                user_id: string
+            }
+        "# };
+
+        let result = analyze_source(src);
+        assert!(result.is_ok(), "Expected qualified constant to evaluate in its declaration scope");
+    }
+
+    #[test]
+    fn test_anonymous_struct_constants_fail() {
+        let src = indoc! { r#"
+            model User {
+                profile: {
+                    const PROFILE_ALIAS = "profile"
+                    name: string
+                }
+            }
+        "# };
+
+        let result = analyze_source(src);
+        assert!(result.is_err(), "Expected constants in anonymous structs to fail");
+        let errors = result.err().unwrap();
+        assert!(errors.iter().any(|e| e.report().to_string().contains("Anonymous structs cannot contain nested declarations")));
+    }
+
+    #[test]
+    fn test_endpoint_constants_fail() {
+        let src = indoc! { r#"
+            endpoint "GET /users" ListUsers {
+                const USER_ID_ALIAS = "user_id"
+                responses: User[]
+            }
+
+            model User {
+                id: string
+            }
+        "# };
+
+        let result = analyze_source(src);
+        assert!(result.is_err(), "Expected constants directly inside endpoints to fail");
+        let errors = result.err().unwrap();
+        assert!(errors.iter().any(|e| e.report().to_string().contains("Constants cannot be declared directly inside endpoints")));
     }
 
     #[test]
