@@ -49,15 +49,16 @@ Prefer current public docs over memorized syntax when exact behavior matters:
 - Optional fields: `field?: Type`.
 - Defaults: `field: Type = value`.
 - Type aliases: `type UserId = string`.
-- Top-level constants: `const MAX_PAGE_SIZE = 100`; optional annotations use `const MAX_PAGE_SIZE: int = 100`; use `CONSTANT_CASE`, and a leading `_` makes the generated constant private.
-- Constant expressions support int `+`/`*`, string `+`, parentheses, bool literals, and references to other constants.
+- Constants: `const MAX_PAGE_SIZE = 100`; optional annotations use `const MAX_PAGE_SIZE: int = 100`. Constants can be top-level or declared inside models.
+- Model-scoped constants: public constants can be referenced as `Model.CONSTANT` or `Outer.Inner.CONSTANT`; leading `_` constants cannot be referenced from outside their owning model.
+- Constant expressions support int `+`/`*`, string `+`, parentheses, bool literals, and references to other constants, including qualified model constants.
 - Models: `model User { id: UserId }`.
 - Enums: `enum Status: "pending" | "paid" | "cancelled"`.
 - Imports must appear before declarations:
   - `import * from "common.glue"`
   - `import * as common from "common.glue"`
   - `import { User, Address as PostalAddress } from "domain.glue"`
-- Field metadata can use `@field(alias="external_name", example="value", proto_tag=1)`.
+- Field metadata can use `@field(alias="external_name", example="value", proto_tag=1)`. `alias` and `proto_tag` can use constants, e.g. `@field(alias=Aliases.USER_ID_ALIAS, proto_tag=Tags.USER_ID)`.
 - Endpoints use `endpoint "METHOD /path/{param}" Name { ... }` with optional `body`, `headers`, and `responses`.
 - Protobuf services use `service Name { rpc Method { body: Request returns: Response } }`.
 
@@ -69,7 +70,7 @@ Supported generation targets are `typescript`, `python`, `rust`, `go`, `openapi`
 - Use stable aliases for IDs and repeated scalar concepts: `type UserId = string`, `type IsoTimestamp = string`, `type MoneyCents = int`.
 - Use enums for closed vocabularies. Keep enum values meaningful wire values, usually lowercase strings.
 - Make optionality intentional. Use `?` for data that may be absent; use defaults for values the producer can safely omit.
-- Avoid global namespace pollution and leverage nested models, enums, and aliases to keep related concepts together. For example, if `Order` is the only model that uses `OrderStatus`, nesting `OrderStatus` within `Order` keeps the domain tidy and makes it clear that the enum is specific to orders.
+- Avoid global namespace pollution and leverage nested models, enums, aliases, and constants to keep related concepts together. For example, if `Order` is the only model that uses `OrderStatus`, nesting `OrderStatus` within `Order` keeps the domain tidy and makes it clear that the enum is specific to orders.
 - Keep endpoint payloads named. Prefer `CreateOrderRequest` and `OrderResponse` over anonymous ad hoc endpoint-only models.
 - Use `Record<string, T>` for keyed objects and dictionaries; use arrays for ordered lists.
 - Keep imports simple and acyclic. Split files by domain only when the resulting boundaries are obvious.

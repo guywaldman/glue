@@ -47,7 +47,7 @@ Notes:
 
 # Constants
 
-Glue supports top-level constants for reusable literal values.
+Glue supports top-level and model-scoped constants for reusable literal values.
 
 ```glue
 const MAX_PAGE_SIZE = 100
@@ -57,6 +57,21 @@ const _RETRY_MS = (100 + 50) * 2
 
 // Optional explicit annotation
 const FEATURE_ENABLED: bool = true
+
+model FieldNames {
+  const SUFFIX = "_id"
+  const USER_ID_ALIAS = "user" + SUFFIX
+  const _INTERNAL_ALIAS = "internal_id"
+}
+
+model Tags {
+  const USER_ID = 1
+}
+
+model User {
+  @field(alias=FieldNames.USER_ID_ALIAS, proto_tag=Tags.USER_ID)
+  user_id: int
+}
 ```
 
 Notes:
@@ -66,9 +81,10 @@ Notes:
 - String expressions support `+`, parentheses, and references to string constants.
 - Bool expressions support literals and references only.
 - Constants can be referenced before they are declared. Cycles are rejected.
-- Names should use `CONSTANT_CASE`. A leading `_` marks a constant as private in generated language targets.
-- Constants can be used in field defaults and decorator arguments.
-- TypeScript, Python, Rust, and Go emit standalone constants. OpenAPI, JSON Schema, and Protobuf only consume folded constant values.
+- Constants declared inside a model are scoped to that model. Public model constants can be referenced as `Model.CONSTANT`; nested model constants can be referenced as `Outer.Inner.CONSTANT`.
+- Names should use `CONSTANT_CASE`. A leading `_` marks a constant as private in generated language targets. Private model constants cannot be referenced from outside their owning model as `Model._CONSTANT`.
+- Constants can be used in field defaults and decorator arguments, including `@field(alias=...)` and `@field(proto_tag=...)`.
+- TypeScript, Python, Rust, and Go emit standalone constants. Model-scoped constants are emitted with model-path prefixes. OpenAPI, JSON Schema, and Protobuf only consume folded constant values.
 
 # Models
 
@@ -117,10 +133,12 @@ model User {
 Fields can be decorated with the `@field` decorator, which allows you to specify additional metadata for the field that can be used by code generators.
 
 ```glue
-const USER_EMAIL_ALIAS = "email"
+model FieldNames {
+  const USER_EMAIL_ALIAS = "email"
+}
 
 model User {
-  @field(alias=USER_EMAIL_ALIAS, example="user@example.com")
+  @field(alias=FieldNames.USER_EMAIL_ALIAS, example="user@example.com")
   email_address: string
 }
 ```
