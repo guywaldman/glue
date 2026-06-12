@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.6.1](https://github.com/guywaldman/glue/compare/v1.6.0...v1.6.1) (2026-06-12)
+
+
+### Bug Fixes
+
+* comment docs should transpile according to the target idiom ([9add495](https://github.com/guywaldman/glue/commit/9add4955ff9cf418591edc50ca89a4fc1b32ba05))
+* files field in config can also be a list (also added support coverage for union types) ([a6bacc4](https://github.com/guywaldman/glue/commit/a6bacc4317ddad45599c4943196789ca351de856))
+
 ## [1.6.0](https://github.com/guywaldman/glue/compare/v1.5.0...v1.6.0) (2026-06-12)
 
 
