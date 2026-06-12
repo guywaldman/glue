@@ -4,8 +4,11 @@
     "type": "object",
     "properties": {
         "gen": {
-            "$ref": "#/$defs/GlueConfigSchema::GenConfig",
-            "description": "Per-generation configuration entries"
+            "type": "array",
+            "description": "Per-generation configuration entries",
+            "items": {
+                "$ref": "#/$defs/GlueConfigSchema::GenConfig"
+            }
         },
         "global": {
             "$ref": "#/$defs/GlueConfigSchema::Global",
@@ -17,8 +20,11 @@
             "type": "object",
             "properties": {
                 "gen": {
-                    "$ref": "#/$defs/GlueConfigSchema::GenConfig",
-                    "description": "Per-generation configuration entries"
+                    "type": "array",
+                    "description": "Per-generation configuration entries",
+                    "items": {
+                        "$ref": "#/$defs/GlueConfigSchema::GenConfig"
+                    }
                 },
                 "global": {
                     "$ref": "#/$defs/GlueConfigSchema::Global",
@@ -34,8 +40,18 @@
                     "description": "Per-generation configuration overrides"
                 },
                 "files": {
-                    "type": "string",
-                    "description": "Glob selector for input files"
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    ],
+                    "description": "Glob selector or selectors for input files"
                 },
                 "mode": {
                     "$ref": "#/$defs/GlueConfigSchema::GenConfig::Mode",

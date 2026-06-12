@@ -137,14 +137,19 @@ impl<'a> OpenAPIGenerator<'a> {
 
     fn type_to_schema(&self, ty: &Type) -> openapi::SchemaOrReference<openapi::Schema> {
         let atoms = ty.type_atoms();
-        if atoms.len() != 1 {
-            // Union types not yet supported
+        if atoms.len() > 1 {
+            let any_of = atoms.iter().map(|atom| self.type_atom_to_schema(atom)).collect();
             return openapi::SchemaOrReference::Item(openapi::Schema {
-                schema_type: Some("object".to_string()),
+                any_of: Some(any_of),
                 ..Default::default()
             });
         }
-        self.type_atom_to_schema(&atoms[0])
+        atoms.first().map(|atom| self.type_atom_to_schema(atom)).unwrap_or_else(|| {
+            openapi::SchemaOrReference::Item(openapi::Schema {
+                schema_type: Some("object".to_string()),
+                ..Default::default()
+            })
+        })
     }
 
     fn type_atom_to_schema(&self, atom: &TypeAtom) -> openapi::SchemaOrReference<openapi::Schema> {
@@ -460,6 +465,35 @@ mod tests {
 
         let json_value: Value = serde_json::from_str(&result).unwrap();
         assert_json_snapshot!(json_value);
+    }
+
+    #[test]
+    fn test_union_schema_uses_any_of() {
+        let src = indoc! {r#"
+            model Config {
+                files: string | string[]
+            }
+        "#};
+
+        let (program, source) = analyze_test_glue_file(src);
+        let ir = GlueIr::from_analyzed(source.file_name, program);
+        let codegen = CodeGenOpenAPI;
+        let result = codegen
+            .generate(
+                ir,
+                &SourceCodeMetadata {
+                    file_name: source.file_name,
+                    file_contents: source.file_contents,
+                },
+                None,
+            )
+            .unwrap();
+
+        let json_value: Value = serde_json::from_str(&result).unwrap();
+        let any_of = json_value["components"]["schemas"]["Config"]["properties"]["files"]["anyOf"].as_array().expect("files should be anyOf");
+        assert_eq!(any_of[0]["type"], "string");
+        assert_eq!(any_of[1]["type"], "array");
+        assert_eq!(any_of[1]["items"]["type"], "string");
     }
 
     #[test]

@@ -158,4 +158,5 @@ service UserService {
 
 - `Record<K, V>` is emitted as `map<K, V>` for supported Protobuf key/value types.
 - Anonymous structs are emitted as generated messages named from the owning field path.
+- Unions are emitted as `oneof` only when every member is valid inside a Protobuf `oneof`; repeated fields, maps, optional members, and explicit `proto_tag` unions are rejected with an error.
 - RPC `body` and `returns` must be message types.

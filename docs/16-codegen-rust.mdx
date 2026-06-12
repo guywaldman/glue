@@ -75,4 +75,5 @@ pub enum Status {
 - Optional fields are emitted as `Option<T>`.
 - Arrays are emitted as `Vec<T>`.
 - `Record<K, V>` is emitted as `HashMap<K, V>`.
+- Unions are emitted as generated `#[serde(untagged)]` enums.
 - Anonymous structs are emitted as generated structs named from the owning field path.

@@ -48,6 +48,7 @@ Prefer current public docs over memorized syntax when exact behavior matters:
 - Maps: `Record<KeyType, ValueType>`.
 - Optional fields: `field?: Type`.
 - Defaults: `field: Type = value`.
+- Union types: `string | string[]`.
 - Type aliases: `type UserId = string`.
 - Constants: `const MAX_PAGE_SIZE = 100`; optional annotations use `const MAX_PAGE_SIZE: int = 100`. Constants can be top-level or declared inside models.
 - Model-scoped constants: public constants can be referenced as `Model.CONSTANT` or `Outer.Inner.CONSTANT`; leading `_` constants cannot be referenced from outside their owning model.
@@ -87,6 +88,7 @@ Glue Protobuf generation emits `proto3` files from models, enums, and services.
 - Use `@field(proto_tag=<number>)` when the schema needs stable wire compatibility across field reordering. If one field in a model has `proto_tag`, every field in that model must have one.
 - Optional scalar and message fields generate `optional` Protobuf fields. Optional repeated and map fields are accepted, but Protobuf has no presence for those shapes, so they emit as regular `repeated` and `map` fields.
 - `Record<K, V>` emits `map<K, V>` for supported Protobuf key/value types. Anonymous structs emit generated messages named from the owning field path.
+- Unions emit `oneof` only when every member is valid inside a Protobuf `oneof`; repeated fields, maps, optional members, and explicit `proto_tag` unions are rejected with an error.
 - Services use `service` and `rpc` declarations with `body` and `returns`; both should be message types. HTTP `endpoint` declarations are ignored by the Protobuf generator.
 
 ```glue
@@ -172,7 +174,9 @@ gen:
         zod: true
 
   - mode: python
-    files: "schemas/*.glue"
+    files:
+      - "schemas/*.glue"
+      - "shared/*.glue"
     output: "py/{file_name}.{file_ext}"
     config_overrides:
       python:
@@ -227,7 +231,8 @@ global:
 gen:
   # Generate TypeScript runtime schemas for every Glue file.
   - mode: typescript
-    files: "schemas/*.glue"
+    files:
+      - "schemas/*.glue"
     output: "typescript/{file_name}.{file_ext}"
     config_overrides:
       typescript:
@@ -236,7 +241,8 @@ gen:
   # Generate Python models from the same source files, but choose dataclasses
   # for this target instead of the global pydantic default.
   - mode: python
-    files: "schemas/*.glue"
+    files:
+      - "schemas/*.glue"
     output: "python/{file_name}.{file_ext}"
     config_overrides:
       python:
@@ -244,12 +250,14 @@ gen:
 
   # Generate a single OpenAPI document from the API-facing Glue file.
   - mode: openapi
-    files: "schemas/commerce_api.glue"
+    files:
+      - "schemas/commerce_api.glue"
     output: "openapi/commerce.{file_ext}"
 
   # Generate Protobuf messages for model-only schemas.
   - mode: protobuf
-    files: "schemas/models.glue"
+    files:
+      - "schemas/models.glue"
     output: "protobuf/{file_name}.{file_ext}"
 ```
 

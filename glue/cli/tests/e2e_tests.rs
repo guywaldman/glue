@@ -155,6 +155,39 @@ impl GlueTestFixture {
         Ok(output_path)
     }
 
+    fn run_codegen_expect_error(&self, mode: &str) -> Result<String> {
+        let output_path = self.temp_dir.join(format!("{}_{}.out", self.source_path.file_stem().unwrap().to_string_lossy(), mode));
+        let config_path = self.source_path.parent().unwrap().join(".gluerc.yaml");
+        let mut args = vec![
+            "run".to_string(),
+            "--bin".to_string(),
+            "glue".to_string(),
+            "--".to_string(),
+            "gen".to_string(),
+            mode.to_string(),
+            "-i".to_string(),
+            self.source_path.to_str().unwrap().to_string(),
+            "-o".to_string(),
+            output_path.to_str().unwrap().to_string(),
+        ];
+
+        if config_path.exists() {
+            args.extend(["-c".to_string(), config_path.to_str().unwrap().to_string()]);
+        }
+
+        let output = Command::new("cargo")
+            .args(&args)
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .output()
+            .map_err(|e| anyhow!("Failed to run glue CLI: {}", e))?;
+
+        if output.status.success() {
+            return Err(anyhow!("Expected glue codegen for {} to fail, but it succeeded", mode));
+        }
+
+        Ok(format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)))
+    }
+
     fn run_check(&self) -> Result<()> {
         let output = Command::new("cargo")
             .args(["run", "--bin", "glue", "--", "check", self.source_path.to_str().unwrap()])
@@ -551,6 +584,64 @@ fn e2e_anonymous_struct_generates_all_targets() -> Result<()> {
 }
 
 #[test]
+fn e2e_union_generates_supported_targets() -> Result<()> {
+    let fixture = GlueTestFixture::from_source(
+        "union_supported_targets",
+        "union.glue",
+        r#"
+            model UnionExample {
+                value: string | int
+                files: string | string[]
+            }
+        "#,
+    )?;
+
+    let typescript_path = fixture.generate_typescript()?;
+    let typescript = std::fs::read_to_string(&typescript_path)?;
+    assert!(typescript.contains("value: string | number;"), "Missing TypeScript scalar union:\n{}", typescript);
+    assert!(typescript.contains("files: string | string[];"), "Missing TypeScript string/list union:\n{}", typescript);
+
+    let python_path = fixture.generate_python()?;
+    validate_python_syntax(&python_path)?;
+    let python = std::fs::read_to_string(&python_path)?;
+    assert!(python.contains("value: Annotated[Union[str, int], Field()]"), "Missing Python scalar union:\n{}", python);
+    assert!(python.contains("files: Annotated[Union[str, list[str]], Field()]"), "Missing Python string/list union:\n{}", python);
+
+    let rust_path = fixture.generate_rust()?;
+    let rust = std::fs::read_to_string(&rust_path)?;
+    assert!(rust.contains("pub value: UnionExampleValue,"), "Missing Rust union field type:\n{}", rust);
+    assert!(rust.contains("pub files: UnionExampleFiles,"), "Missing Rust string/list union field type:\n{}", rust);
+    assert!(rust.contains("#[serde(untagged)]"), "Missing Rust untagged union enum:\n{}", rust);
+    assert!(rust.contains("pub enum UnionExampleFiles"), "Missing Rust generated union enum:\n{}", rust);
+    assert!(rust.contains("StringArray(Vec<String>),"), "Missing Rust array variant:\n{}", rust);
+
+    let openapi_path = fixture.generate_openapi()?;
+    let openapi: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&openapi_path)?)?;
+    let openapi_files = openapi["components"]["schemas"]["UnionExample"]["properties"]["files"]["anyOf"]
+        .as_array()
+        .expect("OpenAPI files should use anyOf");
+    assert_eq!(openapi_files[0]["type"], "string");
+    assert_eq!(openapi_files[1]["type"], "array");
+    assert_eq!(openapi_files[1]["items"]["type"], "string");
+
+    let jsonschema_path = fixture.generate_jsonschema()?;
+    let jsonschema: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&jsonschema_path)?)?;
+    let jsonschema_value = jsonschema["properties"]["value"]["anyOf"].as_array().expect("JSON Schema value should use anyOf");
+    assert_eq!(jsonschema_value[0]["type"], "string");
+    assert_eq!(jsonschema_value[1]["type"], "integer");
+    let jsonschema_files = jsonschema["properties"]["files"]["anyOf"].as_array().expect("JSON Schema files should use anyOf");
+    assert_eq!(jsonschema_files[0]["type"], "string");
+    assert_eq!(jsonschema_files[1]["type"], "array");
+    assert_eq!(jsonschema_files[1]["items"]["type"], "string");
+
+    for path in [typescript_path, python_path, rust_path, openapi_path, jsonschema_path] {
+        cleanup(&path);
+    }
+
+    Ok(())
+}
+
+#[test]
 fn e2e_python_pydantic_movies() -> Result<()> {
     let fixture = GlueTestFixture::new("python_movies", "movies.glue")?;
     let output_path = fixture.generate_python()?;
@@ -672,7 +763,9 @@ gen:
         data_model_library: dataclasses
 
   - mode: go
-    files: "models/*.glue"
+    files:
+      - "models/user.glue"
+      - "models/order.glue"
     output: "go/{file_name}.{file_ext}"
     config_overrides:
       go:
@@ -964,6 +1057,61 @@ fn e2e_protobuf_service_with_models() -> Result<()> {
     let result = compile_proto_with_protoc(&output_path);
     cleanup(&output_path);
     result
+}
+
+#[test]
+fn e2e_protobuf_union_subset() -> Result<()> {
+    let supported = GlueTestFixture::from_source(
+        "protobuf_union_oneof",
+        "union_oneof.glue",
+        r#"
+            model Event {
+                value: string | int
+                label: string
+            }
+        "#,
+    )?;
+    let output_path = supported.generate_protobuf()?;
+    let content = std::fs::read_to_string(&output_path)?;
+    assert!(content.contains("oneof value {"), "Missing Protobuf oneof:\n{}", content);
+    assert!(content.contains("string value_string = 1;"), "Missing string oneof member:\n{}", content);
+    assert!(content.contains("int32 value_int = 2;"), "Missing int oneof member:\n{}", content);
+    assert!(content.contains("string label = 3;"), "Expected field tags to advance past oneof members:\n{}", content);
+
+    let result = compile_proto_with_protoc(&output_path);
+    cleanup(&output_path);
+    result?;
+
+    let repeated = GlueTestFixture::from_source(
+        "protobuf_union_repeated_error",
+        "union_repeated.glue",
+        r#"
+            model Config {
+                files: string | string[]
+            }
+        "#,
+    )?;
+    let repeated_error = repeated.run_codegen_expect_error("protobuf")?;
+    assert!(
+        repeated_error.contains("repeated fields are not allowed in oneof"),
+        "Expected repeated oneof member error:\n{}",
+        repeated_error
+    );
+
+    let tagged = GlueTestFixture::from_source(
+        "protobuf_union_tagged_error",
+        "union_tagged.glue",
+        r#"
+            model Event {
+                @field(proto_tag=1)
+                value: string | int
+            }
+        "#,
+    )?;
+    let tagged_error = tagged.run_codegen_expect_error("protobuf")?;
+    assert!(tagged_error.contains("each oneof member needs its own field tag"), "Expected tagged union error:\n{}", tagged_error);
+
+    Ok(())
 }
 
 #[test]

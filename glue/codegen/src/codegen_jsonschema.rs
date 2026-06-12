@@ -217,7 +217,9 @@ impl CodeGeneratorImpl {
         if types.len() == 1 {
             Ok(types.into_iter().next().unwrap())
         } else {
-            Ok(json::JsonValue::Array(types))
+            let mut union_obj = json::object::Object::new();
+            union_obj.insert("anyOf", json::JsonValue::Array(types));
+            Ok(union_obj.into())
         }
     }
 
@@ -263,11 +265,12 @@ impl CodeGeneratorImpl {
             {
                 let alias = lang::TypeAlias::cast(ref_sym.data.clone()).ok_or(CodeGenError::InternalError("Expected type alias node".into()))?;
                 let alias_type_node = alias.type_node().ok_or(CodeGenError::InternalError("Type alias missing type expression".into()))?;
-                return self.visit_type(alias_type_node, parent_sym);
+                let alias_json = self.visit_type(alias_type_node, parent_sym)?;
+                return Ok(self.wrap_if_array(&type_atom, alias_json));
             }
             let sym_id = self.syms.resolve_id(parent_sym, &ref_name).expect("Unresolved symbol");
-            if self.defs.contains_key(&sym_id) {
-                Ok(self.format_ref(parent_sym, &ref_name).into())
+            let type_json = if self.defs.contains_key(&sym_id) {
+                self.format_ref(parent_sym, &ref_name).into()
             } else {
                 // Def not generated - generate it.
                 let ref_sym = self
@@ -280,16 +283,17 @@ impl CodeGeneratorImpl {
                     LSyntaxKind::MODEL => {
                         // Visit the model, which also adds it to refs.
                         self.visit_model(ref_node.clone(), parent_sym)?;
-                        Ok(self.format_ref(parent_sym, &ref_name).into())
+                        self.format_ref(parent_sym, &ref_name).into()
                     }
                     LSyntaxKind::ENUM => {
                         // Visit the enum, which also adds it to refs.
                         self.visit_enum(ref_node.clone(), parent_sym)?;
-                        Ok(self.format_ref(parent_sym, &ref_name).into())
+                        self.format_ref(parent_sym, &ref_name).into()
                     }
-                    _ => Err(CodeGenError::InternalError(format!("Unsupported type reference kind: {:?}", ref_node.kind()))),
+                    _ => return Err(CodeGenError::InternalError(format!("Unsupported type reference kind: {:?}", ref_node.kind()))),
                 }
-            }
+            };
+            Ok(self.wrap_if_array(&type_atom, type_json))
         }
     }
 
@@ -318,6 +322,17 @@ impl CodeGeneratorImpl {
         let mut ref_obj = json::object::Object::new();
         ref_obj.insert("$ref", ref_path.into());
         ref_obj
+    }
+
+    fn wrap_if_array(&self, atom: &TypeAtom, schema: json::JsonValue) -> json::JsonValue {
+        if !atom.is_array() {
+            return schema;
+        }
+
+        let mut array_obj = json::object::Object::new();
+        array_obj.insert("type", "array".into());
+        array_obj.insert("items", schema);
+        array_obj.into()
     }
 }
 
@@ -402,5 +417,106 @@ mod tests {
         "# };
 
         assert_snapshot!(gen_test(&CodeGenJsonSchema, src));
+    }
+
+    #[test]
+    fn array_refs_emit_items_schema() {
+        let src = indoc! { r#"
+            @root
+            model Config {
+                entries: Entry[]
+            }
+
+            model Entry {
+                id: string
+            }
+        "# };
+
+        let output = gen_test(&CodeGenJsonSchema, src);
+        let schema: serde_json::Value = serde_json::from_str(&output).expect("schema should be valid JSON");
+
+        assert_eq!(schema["properties"]["entries"]["type"], "array");
+        assert_eq!(schema["properties"]["entries"]["items"]["$ref"], "#/$defs/Entry");
+    }
+
+    #[test]
+    fn generated_config_schema_accepts_string_and_list_files_config() {
+        let schema_src = include_str!("../../assets/config_schema.glue");
+        let schema_json = gen_test(&CodeGenJsonSchema, schema_src);
+        let schema: serde_json::Value = serde_json::from_str(&schema_json).expect("schema should be valid JSON");
+        let config: serde_json::Value = serde_yaml::from_str(indoc! { r#"
+            global:
+              output_base_dir: generated
+
+            gen:
+              - mode: typescript
+                files: "models/*.glue"
+                output: "ts/models.{file_ext}"
+
+              - mode: python
+                files:
+                  - "schemas/*.glue"
+                  - "shared/*.glue"
+                output: "py/{file_name}.{file_ext}"
+                config_overrides:
+                  typescript:
+                    zod: true
+        "# })
+        .expect("config should be valid YAML");
+
+        assert_json_matches_schema(&schema, &schema, &config, "$").expect("config should conform to generated schema");
+    }
+
+    fn assert_json_matches_schema(root: &serde_json::Value, schema: &serde_json::Value, value: &serde_json::Value, path: &str) -> Result<(), String> {
+        if let Some(ref_path) = schema.get("$ref").and_then(|v| v.as_str()) {
+            let pointer = ref_path.strip_prefix('#').ok_or_else(|| format!("Unsupported ref at {}: {}", path, ref_path))?;
+            let resolved = root.pointer(pointer).ok_or_else(|| format!("Unresolved ref at {}: {}", path, ref_path))?;
+            return assert_json_matches_schema(root, resolved, value, path);
+        }
+
+        if let Some(any_of) = schema.get("anyOf").and_then(|v| v.as_array()) {
+            if any_of.iter().any(|candidate| assert_json_matches_schema(root, candidate, value, path).is_ok()) {
+                return Ok(());
+            }
+            return Err(format!("Value at {} does not match any anyOf schema: {}", path, value));
+        }
+
+        if let Some(enum_values) = schema.get("enum").and_then(|v| v.as_array())
+            && !enum_values.contains(value)
+        {
+            return Err(format!("Value at {} is not in enum: {}", path, value));
+        }
+
+        let Some(schema_type) = schema.get("type").and_then(|v| v.as_str()) else {
+            return Ok(());
+        };
+
+        match schema_type {
+            "object" => {
+                let object = value.as_object().ok_or_else(|| format!("Expected object at {}, got {}", path, value))?;
+                if let Some(properties) = schema.get("properties").and_then(|v| v.as_object()) {
+                    for (key, property_schema) in properties {
+                        if let Some(property_value) = object.get(key) {
+                            assert_json_matches_schema(root, property_schema, property_value, &format!("{}.{}", path, key))?;
+                        }
+                    }
+                }
+            }
+            "array" => {
+                let array = value.as_array().ok_or_else(|| format!("Expected array at {}, got {}", path, value))?;
+                if let Some(items_schema) = schema.get("items") {
+                    for (index, item) in array.iter().enumerate() {
+                        assert_json_matches_schema(root, items_schema, item, &format!("{}[{}]", path, index))?;
+                    }
+                }
+            }
+            "string" if !value.is_string() => return Err(format!("Expected string at {}, got {}", path, value)),
+            "integer" if !value.is_i64() && !value.is_u64() => return Err(format!("Expected integer at {}, got {}", path, value)),
+            "number" if !value.is_number() => return Err(format!("Expected number at {}, got {}", path, value)),
+            "boolean" if !value.is_boolean() => return Err(format!("Expected boolean at {}, got {}", path, value)),
+            _ => {}
+        }
+
+        Ok(())
     }
 }

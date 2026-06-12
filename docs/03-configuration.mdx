@@ -24,7 +24,7 @@ glue gen --config path/to/.gluerc ...
 ## How the config is structured
 
 - `global`: defaults applied to every generation entry.
-- `gen`: a list of per-input rules (`mode`, `files`) with optional output and overrides.
+- `gen`: a list of per-input rules (`mode`, `files`) with optional output and overrides. `files` can be a single glob string or a list of glob strings.
 
 ## JSON schema
 
@@ -65,7 +65,9 @@ gen:
         zod: true
 
   - mode: python
-    files: "schemas/api/*.glue"
+    files:
+      - "schemas/api/*.glue"
+      - "schemas/shared/*.glue"
     output: "src/generated/{file_name}.py"
     config_overrides:
       python:

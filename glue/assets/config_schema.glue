@@ -38,8 +38,8 @@ model GlueConfigSchema {
 			/// Go
 			"go"
 
-		/// Glob selector for input files
-		files: string
+		/// Glob selector or selectors for input files
+		files: string | string[]
 		/// Output path template (supports {file_name} and {file_ext})
 		output?: string
 		/// Per-generation configuration overrides

@@ -190,17 +190,19 @@ impl GlueCli {
         let effective_config_path = Some(config_path.to_path_buf());
 
         for entry in entries {
+            let files = entry.files.as_globs();
+            let files_label = Self::gen_entry_files_label(&files);
             let mode = entry
                 .mode
                 .as_ref()
                 .map(Self::config_mode_to_codegen_mode)
-                .ok_or_else(|| CliError::BadInput(format!("Config gen entry for '{}' is missing mode", entry.files)))?;
-            let input_paths = Self::expand_gen_entry_files(&entry.files, config_dir)?;
+                .ok_or_else(|| CliError::BadInput(format!("Config gen entry for '{}' is missing mode", files_label)))?;
+            let input_paths = Self::expand_gen_entry_files(&files, config_dir)?;
             if input_paths.is_empty() {
-                return Err(CliError::BadInput(format!("Config gen entry '{}' did not match any files", entry.files)));
+                return Err(CliError::BadInput(format!("Config gen entry '{}' did not match any files", files_label)));
             }
             let Some(output_template) = entry.output.as_deref() else {
-                return Err(CliError::BadInput(format!("Config gen entry for '{}' is missing output", entry.files)));
+                return Err(CliError::BadInput(format!("Config gen entry for '{}' is missing output", files_label)));
             };
 
             for input_path in input_paths {
@@ -570,7 +572,7 @@ impl GlueCli {
             {
                 continue;
             }
-            if Self::glob_matches(&entry.files, config_dir, input_path)? {
+            if Self::glob_matches(&entry.files.as_globs(), config_dir, input_path)? {
                 return Ok(Some(entry.clone()));
             }
         }
@@ -582,25 +584,40 @@ impl GlueCli {
         config_path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."))
     }
 
-    fn glob_matches(pattern: &str, config_dir: &Path, input_path: &Path) -> Result<bool, CliError> {
-        let glob = Glob::new(pattern).map_err(|e| CliError::BadInput(format!("Invalid glob pattern '{}': {}", pattern, e)))?;
-        let mut builder = GlobSetBuilder::new();
-        builder.add(glob);
-        let set = builder.build().map_err(|e| CliError::BadInput(format!("Invalid glob pattern '{}': {}", pattern, e)))?;
+    fn glob_matches(patterns: &[String], config_dir: &Path, input_path: &Path) -> Result<bool, CliError> {
+        let set = Self::build_glob_set(patterns)?;
 
         let target_path = input_path.strip_prefix(config_dir).or_else(|_| input_path.strip_prefix(Path::new("."))).unwrap_or(input_path);
 
         Ok(set.is_match(target_path))
     }
 
-    fn expand_gen_entry_files(pattern: &str, config_dir: &Path) -> Result<Vec<PathBuf>, CliError> {
-        Glob::new(pattern).map_err(|e| CliError::BadInput(format!("Invalid glob pattern '{}': {}", pattern, e)))?;
+    fn build_glob_set(patterns: &[String]) -> Result<globset::GlobSet, CliError> {
+        let mut builder = GlobSetBuilder::new();
+        for pattern in patterns {
+            let glob = Glob::new(pattern).map_err(|e| CliError::BadInput(format!("Invalid glob pattern '{}': {}", pattern, e)))?;
+            builder.add(glob);
+        }
+        builder
+            .build()
+            .map_err(|e| CliError::BadInput(format!("Invalid glob patterns '{}': {}", Self::gen_entry_files_label(patterns), e)))
+    }
+
+    fn expand_gen_entry_files(patterns: &[String], config_dir: &Path) -> Result<Vec<PathBuf>, CliError> {
+        let set = Self::build_glob_set(patterns)?;
 
         let mut paths = Vec::new();
         Self::walk_files(config_dir, &mut paths)?;
-        paths.retain(|path| Self::glob_matches(pattern, config_dir, path).unwrap_or(false));
+        paths.retain(|path| {
+            let target_path = path.strip_prefix(config_dir).or_else(|_| path.strip_prefix(Path::new("."))).unwrap_or(path);
+            set.is_match(target_path)
+        });
         paths.sort();
         Ok(paths)
+    }
+
+    fn gen_entry_files_label(patterns: &[String]) -> String {
+        patterns.join(", ")
     }
 
     fn walk_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), CliError> {
@@ -804,7 +821,8 @@ mod tests {
     use super::GlueCli;
     use codegen::{CodeGen, CodeGenMode};
     use config::{
-        GlueConfig, GlueConfigSchemaGenConfig, GlueConfigSchemaGenConfigMode, GlueConfigSchemaGeneration, GlueConfigSchemaGenerationPythonDataModelLibrary, GlueConfigSchemaGenerationWatermark,
+        GlueConfig, GlueConfigSchemaGenConfig, GlueConfigSchemaGenConfigFiles, GlueConfigSchemaGenConfigMode, GlueConfigSchemaGeneration, GlueConfigSchemaGenerationPythonDataModelLibrary,
+        GlueConfigSchemaGenerationWatermark,
     };
     use lang::{SemanticAnalyzerOptions, SourceCodeMetadata};
     use std::path::{Path, PathBuf};
@@ -1021,13 +1039,13 @@ mod tests {
             r#gen: Some(vec![
                 GlueConfigSchemaGenConfig {
                     mode: Some(GlueConfigSchemaGenConfigMode::Typescript),
-                    files: "models/*.glue".to_string(),
+                    files: GlueConfigSchemaGenConfigFiles::StringArray(vec!["models/*.glue".to_string()]),
                     output: Some("ts/{file_name}.{file_ext}".to_string()),
                     config_overrides: None,
                 },
                 GlueConfigSchemaGenConfig {
                     mode: Some(GlueConfigSchemaGenConfigMode::Python),
-                    files: "models/*.glue".to_string(),
+                    files: GlueConfigSchemaGenConfigFiles::StringArray(vec!["models/*.glue".to_string()]),
                     output: Some("py/{file_name}.{file_ext}".to_string()),
                     config_overrides: None,
                 },

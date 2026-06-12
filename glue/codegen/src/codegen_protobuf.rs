@@ -123,24 +123,37 @@ impl<'a> ProtobufGenerator<'a> {
     fn emit_message(&mut self, name: &str, fields: &[Field], scope: Option<SymId>, path: &[String]) -> CodeGenResult<String> {
         let mut output = format!("message {} {{\n", name);
         let field_tags = self.field_tags(name, fields, scope)?;
-        for (field, tag) in fields.iter().zip(field_tags) {
+        for (field, tags) in fields.iter().zip(field_tags) {
             let field_name = field.name()?;
             let field_ty = field.field_type()?;
             let mut field_path = path.to_vec();
             field_path.push(field_name.clone());
-            let (proto_type, optional) = self.emit_field_type(field, &field_ty, scope, &field_path)?;
-            let label = if optional { "optional " } else { "" };
-            output.push_str(&format!("    {}{} {} = {};\n", label, proto_type, field_name, tag));
+            let atoms = self.expanded_type_atoms(&field_ty, scope)?;
+            if atoms.len() > 1 {
+                output.push_str(&self.emit_oneof_field(field, &atoms, &tags, scope, &field_path)?);
+            } else {
+                let (proto_type, optional) = self.emit_field_type(field, &field_ty, scope, &field_path)?;
+                let label = if optional { "optional " } else { "" };
+                output.push_str(&format!("    {}{} {} = {};\n", label, proto_type, field_name, tags[0]));
+            }
         }
         output.push_str("}\n\n");
         Ok(output)
     }
 
-    fn field_tags(&self, message_name: &str, fields: &[Field], scope: Option<SymId>) -> CodeGenResult<Vec<i64>> {
+    fn field_tags(&self, message_name: &str, fields: &[Field], scope: Option<SymId>) -> CodeGenResult<Vec<Vec<i64>>> {
         let explicit_tags = fields.iter().map(|field| self.ctx.field_proto_tag(field, scope)).collect::<CodeGenResult<Vec<_>>>()?;
         let tagged_count = explicit_tags.iter().filter(|tag| tag.is_some()).count();
         if tagged_count == 0 {
-            return Ok((1..=fields.len() as i64).collect());
+            let mut next_tag = 1;
+            let mut tags = Vec::with_capacity(fields.len());
+            for field in fields {
+                let ty = field.field_type()?;
+                let slot_count = self.expanded_type_atoms(&ty, scope)?.len().max(1);
+                tags.push((next_tag..next_tag + slot_count as i64).collect());
+                next_tag += slot_count as i64;
+            }
+            return Ok(tags);
         }
         if tagged_count != fields.len() {
             let field = fields.iter().zip(explicit_tags.iter()).find_map(|(field, tag)| tag.is_none().then_some(field)).unwrap();
@@ -156,11 +169,18 @@ impl<'a> ProtobufGenerator<'a> {
         let mut seen = HashSet::new();
         let mut tags = Vec::new();
         for (field, tag) in fields.iter().zip(explicit_tags.into_iter().flatten()) {
+            let ty = field.field_type()?;
+            if self.expanded_type_atoms(&ty, scope)?.len() > 1 {
+                return Err(self.ctx.error(
+                    field.syntax(),
+                    "Protobuf union fields cannot use @field(proto_tag=...) because each oneof member needs its own field tag",
+                ));
+            }
             Self::validate_proto_tag(field, tag, &self.ctx)?;
             if !seen.insert(tag) {
                 return Err(self.ctx.error(field.syntax(), &format!("Duplicate Protobuf field tag {} in message '{}'", tag, message_name)));
             }
-            tags.push(tag);
+            tags.push(vec![tag]);
         }
         Ok(tags)
     }
@@ -173,6 +193,37 @@ impl<'a> ProtobufGenerator<'a> {
             return Err(ctx.error(field.syntax(), "Protobuf field tags 19000 through 19999 are reserved"));
         }
         Ok(())
+    }
+
+    fn emit_oneof_field(&mut self, field: &Field, atoms: &[TypeAtom], tags: &[i64], scope: Option<SymId>, path: &[String]) -> CodeGenResult<String> {
+        let field_name = field.name()?;
+        let mut output = format!("    oneof {} {{\n", field_name);
+        let mut used_names = HashSet::new();
+
+        for (index, (atom, tag)) in atoms.iter().zip(tags.iter()).enumerate() {
+            if atom.is_array() {
+                return Err(self
+                    .ctx
+                    .error(atom.syntax(), "Protobuf oneof union members cannot be repeated; repeated fields are not allowed in oneof"));
+            }
+            if atom.as_record_type().is_some() {
+                return Err(self.ctx.error(atom.syntax(), "Protobuf oneof union members cannot be maps; map fields are not allowed in oneof"));
+            }
+            if atom.is_optional() {
+                return Err(self.ctx.error(atom.syntax(), "Protobuf oneof union members cannot be optional; oneof already tracks presence"));
+            }
+
+            let (proto_type, _) = self.emit_type_atom_inner(atom, scope, path, false)?;
+            let mut member_name = format!("{}_{}", field_name, self.oneof_member_suffix(atom, scope)?);
+            if !used_names.insert(member_name.clone()) {
+                member_name = format!("{}_{}", member_name, index + 2);
+                used_names.insert(member_name.clone());
+            }
+            output.push_str(&format!("        {} {} = {};\n", proto_type, member_name, tag));
+        }
+
+        output.push_str("    }\n");
+        Ok(output)
     }
 
     fn emit_field_type(&mut self, field: &Field, ty: &Type, scope: Option<SymId>, path: &[String]) -> CodeGenResult<(String, bool)> {
@@ -274,9 +325,15 @@ impl<'a> ProtobufGenerator<'a> {
     }
 
     fn emit_type_inner(&mut self, ty: &Type, scope: Option<SymId>, path: &[String], allow_optional: bool) -> CodeGenResult<(String, bool)> {
-        let atoms = ty.type_atoms();
+        let atoms = self.expanded_type_atoms(ty, scope)?;
+        if atoms.len() > 1 {
+            return Err(self.ctx.error(ty.syntax(), "Protobuf unions are only supported for message fields, where they are emitted as oneof"));
+        }
         let atom = atoms.first().ok_or_else(|| CodeGenContext::internal_error("Type should have at least one type atom"))?;
+        self.emit_type_atom_inner(atom, scope, path, allow_optional)
+    }
 
+    fn emit_type_atom_inner(&mut self, atom: &TypeAtom, scope: Option<SymId>, path: &[String], allow_optional: bool) -> CodeGenResult<(String, bool)> {
         if atom.is_optional() && !allow_optional {
             return Err(self.ctx.error(atom.syntax(), "Protobuf optional types are only supported for message fields"));
         }
@@ -318,6 +375,42 @@ impl<'a> ProtobufGenerator<'a> {
 
         let proto_type = if atom.is_array() { format!("repeated {}", base) } else { base };
         Ok((proto_type, optional))
+    }
+
+    fn expanded_type_atoms(&self, ty: &Type, scope: Option<SymId>) -> CodeGenResult<Vec<TypeAtom>> {
+        let atoms = ty.type_atoms();
+        if atoms.len() != 1 {
+            return Ok(atoms);
+        }
+
+        let Some(ref_token) = atoms[0].as_ref_token() else {
+            return Ok(atoms);
+        };
+        let ref_name = ref_token.text().to_string();
+        if let Some(alias_type) = self.ctx.resolve_type_alias(scope, &ref_name)? {
+            return Ok(alias_type.type_atoms());
+        }
+        Ok(atoms)
+    }
+
+    fn oneof_member_suffix(&self, atom: &TypeAtom, scope: Option<SymId>) -> CodeGenResult<String> {
+        let suffix = if let Some(primitive) = atom.as_primitive_type() {
+            primitive.to_string()
+        } else if let Some(ref_token) = atom.as_ref_token() {
+            let ref_name = ref_token.text().to_string();
+            if let Some(alias_type) = self.ctx.resolve_type_alias(scope, &ref_name)? {
+                let alias_atoms = alias_type.type_atoms();
+                if alias_atoms.len() == 1 {
+                    return self.oneof_member_suffix(&alias_atoms[0], scope);
+                }
+            }
+            ref_name
+        } else if atom.anon_model().is_some() {
+            "message".to_string()
+        } else {
+            "value".to_string()
+        };
+        Ok(convert_generated_identifier_case(&suffix, Case::Snake))
     }
 }
 
@@ -609,5 +702,68 @@ mod tests {
         let result = generate(src).unwrap();
         assert!(result.contains("map<string, string> metadata = 1;"));
         assert!(!result.contains("optional map"));
+    }
+
+    #[test]
+    fn test_scalar_union_field_emits_oneof() {
+        let src = indoc! {r#"
+            model Event {
+                value: string | int
+                label: string
+            }
+        "#};
+        let result = generate(src).unwrap();
+        assert!(result.contains("oneof value {"), "Expected oneof:\n{}", result);
+        assert!(result.contains("string value_string = 1;"), "Expected string oneof member:\n{}", result);
+        assert!(result.contains("int32 value_int = 2;"), "Expected int oneof member:\n{}", result);
+        assert!(result.contains("string label = 3;"), "Expected later field tag to advance past oneof members:\n{}", result);
+    }
+
+    #[test]
+    fn test_alias_union_field_emits_oneof() {
+        let src = indoc! {r#"
+            type Value = string | int
+
+            model Event {
+                value: Value
+            }
+        "#};
+        let result = generate(src).unwrap();
+        assert!(result.contains("oneof value {"), "Expected alias union to emit oneof:\n{}", result);
+        assert!(result.contains("string value_string = 1;"), "Expected string oneof member:\n{}", result);
+        assert!(result.contains("int32 value_int = 2;"), "Expected int oneof member:\n{}", result);
+    }
+
+    #[test]
+    fn test_repeated_union_member_fails_with_clear_error() {
+        let src = indoc! {r#"
+            model Config {
+                files: string | string[]
+            }
+        "#};
+        let err = generate(src).unwrap_err();
+        match err {
+            CodeGenError::GenerationError(report) => {
+                assert!(report.to_string().contains("repeated fields are not allowed in oneof"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_proto_tagged_union_field_fails_with_clear_error() {
+        let src = indoc! {r#"
+            model Event {
+                @field(proto_tag=1)
+                value: string | int
+            }
+        "#};
+        let err = generate(src).unwrap_err();
+        match err {
+            CodeGenError::GenerationError(report) => {
+                assert!(report.to_string().contains("each oneof member needs its own field tag"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
     }
 }

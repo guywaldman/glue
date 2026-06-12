@@ -111,13 +111,15 @@ global:
 
 gen:
   - mode: typescript
-    files: "models/*.glue"
+    files:
+      - "models/*.glue"
     output: "{file_name}.ts" # Output path template (relative to output_base_dir)
     config_overrides:
       typescript:
         zod: true # Emit Zod types for TypeScript generation
   - mode: python
-    files: "schemas/*.glue"
+    files:
+      - "schemas/*.glue"
     output: "schemas/{file_name}.py"
     config_overrides:
       python:

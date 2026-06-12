@@ -28,12 +28,22 @@ struct RustGenerator<'a> {
     postludes: Vec<String>,
     anon_namer: AnonymousTypeNamer,
     pending_anon_models: Vec<AnonymousModelDef>,
+    pending_union_types: Vec<UnionTypeDef>,
+    emitted_union_type_count: usize,
 }
 
 #[derive(Clone)]
 struct AnonymousModelDef {
     name: String,
     model: AnonModel,
+    scope: Option<SymId>,
+    path: Vec<String>,
+}
+
+#[derive(Clone)]
+struct UnionTypeDef {
+    name: String,
+    atoms: Vec<TypeAtom>,
     scope: Option<SymId>,
     path: Vec<String>,
 }
@@ -47,6 +57,8 @@ impl<'a> RustGenerator<'a> {
             postludes: Vec::new(),
             anon_namer,
             pending_anon_models: Vec::new(),
+            pending_union_types: Vec::new(),
+            emitted_union_type_count: 0,
         }
     }
 
@@ -79,6 +91,7 @@ impl<'a> RustGenerator<'a> {
         for postlude in &self.postludes {
             self.output.push_str(postlude);
         }
+        self.emit_pending_union_types()?;
         self.emit_pending_anon_models()?;
 
         Ok(self.output.clone())
@@ -143,6 +156,18 @@ impl<'a> RustGenerator<'a> {
         Ok(())
     }
 
+    fn emit_pending_union_types(&mut self) -> CodeGenResult<()> {
+        let mut index = self.emitted_union_type_count;
+        while index < self.pending_union_types.len() {
+            let def = self.pending_union_types[index].clone();
+            let code = self.emit_union_type(&def)?;
+            self.output.push_str(&code);
+            index += 1;
+            self.emitted_union_type_count = index;
+        }
+        Ok(())
+    }
+
     fn emit_anon_model(&mut self, def: &AnonymousModelDef) -> CodeGenResult<String> {
         let mut output = String::new();
         output.push_str("#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]\n");
@@ -203,10 +228,7 @@ impl<'a> RustGenerator<'a> {
             output.push_str(&format!("    #[serde(rename = \"{}\")]\n", alias_value));
         }
 
-        let type_atoms = field_type.type_atoms();
-        let type_strs: Vec<String> = type_atoms.iter().map(|atom| self.emit_type_atom(atom, parent_scope, &field_path)).collect::<Result<Vec<_>, _>>()?;
-
-        let mut type_code = type_strs.join(" | ");
+        let mut type_code = self.emit_type(&field_type, parent_scope, &field_path)?;
 
         if field.is_optional() {
             output.push_str("    #[serde(skip_serializing_if = \"Option::is_none\")]\n");
@@ -236,39 +258,117 @@ impl<'a> RustGenerator<'a> {
         ))
     }
 
+    fn emit_type(&mut self, ty: &Type, parent_scope: Option<SymId>, path: &[String]) -> CodeGenResult<String> {
+        let atoms = ty.type_atoms();
+        if atoms.len() == 1 {
+            return self.emit_type_atom(&atoms[0], parent_scope, path);
+        }
+
+        let name = self.anon_namer.allocate(&self.ctx, path, Case::Pascal);
+        self.pending_union_types.push(UnionTypeDef {
+            name: name.clone(),
+            atoms,
+            scope: parent_scope,
+            path: path.to_vec(),
+        });
+        Ok(name)
+    }
+
+    fn emit_union_type(&mut self, def: &UnionTypeDef) -> CodeGenResult<String> {
+        let mut output = String::new();
+        output.push_str("#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]\n");
+        output.push_str("#[serde(untagged)]\n");
+        output.push_str(&format!("pub enum {} {{\n", def.name));
+
+        let mut variants = Vec::with_capacity(def.atoms.len());
+        let mut used_variant_names = std::collections::HashSet::new();
+        for atom in &def.atoms {
+            let variant_type = self.emit_type_atom(atom, def.scope, &def.path)?;
+            let mut variant_name = self.union_variant_name(atom, def.scope)?;
+            if !used_variant_names.insert(variant_name.clone()) {
+                let base = variant_name;
+                let mut suffix = 2;
+                loop {
+                    let candidate = format!("{}{}", base, suffix);
+                    if used_variant_names.insert(candidate.clone()) {
+                        variant_name = candidate;
+                        break;
+                    }
+                    suffix += 1;
+                }
+            }
+            variants.push((variant_name, variant_type));
+        }
+
+        for (variant_name, variant_type) in &variants {
+            output.push_str(&format!("    {}({}),\n", variant_name, variant_type));
+        }
+        output.push_str("}\n\n");
+
+        if let Some((variant_name, _)) = variants.first() {
+            output.push_str(&format!(
+                "impl Default for {} {{\n    fn default() -> Self {{\n        Self::{}(Default::default())\n    }}\n}}\n\n",
+                def.name, variant_name
+            ));
+        }
+
+        Ok(output)
+    }
+
+    fn union_variant_name(&self, atom: &TypeAtom, parent_scope: Option<SymId>) -> CodeGenResult<String> {
+        let base = if let Some(primitive) = atom.as_primitive_type() {
+            match primitive {
+                lang::PrimitiveType::Any => "Any".to_string(),
+                lang::PrimitiveType::String => "String".to_string(),
+                lang::PrimitiveType::Int => "Int".to_string(),
+                lang::PrimitiveType::Float => "Float".to_string(),
+                lang::PrimitiveType::Bool => "Bool".to_string(),
+            }
+        } else if atom.as_record_type().is_some() {
+            "Record".to_string()
+        } else if let Some(ref_token) = atom.as_ref_token() {
+            let ref_name = ref_token.text().trim();
+            if let Some(alias_type) = self.ctx.resolve_type_alias(parent_scope, ref_name)? {
+                let alias_atoms = alias_type.type_atoms();
+                if alias_atoms.len() == 1 {
+                    self.union_variant_name(&alias_atoms[0], parent_scope)?
+                } else {
+                    self.ctx.symbol_name(ref_name, Case::Pascal)
+                }
+            } else {
+                self.ctx.symbol_name(ref_name, Case::Pascal)
+            }
+        } else if atom.anon_model().is_some() {
+            "Object".to_string()
+        } else {
+            "Value".to_string()
+        };
+
+        if atom.is_array() { Ok(format!("{}Array", base)) } else { Ok(base) }
+    }
+
     fn emit_type_atom(&mut self, atom: &TypeAtom, parent_scope: Option<SymId>, path: &[String]) -> CodeGenResult<String> {
         let mut base = if let Some(primitive) = atom.as_primitive_type() {
             TypeMapper::to_rust(primitive).to_string()
         } else if let Some(record_type) = atom.as_record_type() {
             let src_type = record_type.src_type_node().ok_or_else(|| CodeGenContext::internal_error("Record missing source type"))?;
             let dest_type = record_type.dest_type_node().ok_or_else(|| CodeGenContext::internal_error("Record missing destination type"))?;
-
-            let src_atoms = Type::cast(src_type).map(|t: Type| t.type_atoms()).unwrap_or_default();
-            let dest_atoms = Type::cast(dest_type).map(|t: Type| t.type_atoms()).unwrap_or_default();
+            let src_type = Type::cast(src_type).ok_or_else(|| CodeGenContext::internal_error("Expected Type for record source"))?;
+            let dest_type = Type::cast(dest_type).ok_or_else(|| CodeGenContext::internal_error("Expected Type for record destination"))?;
 
             let mut key_path = path.to_vec();
             key_path.push("Key".to_string());
             let mut value_path = path.to_vec();
             value_path.push("Value".to_string());
 
-            let src_str = src_atoms
-                .first()
-                .map(|a| self.emit_type_atom(a, parent_scope, &key_path))
-                .transpose()?
-                .unwrap_or_else(|| "String".to_string());
-            let dest_str = dest_atoms
-                .first()
-                .map(|a| self.emit_type_atom(a, parent_scope, &value_path))
-                .transpose()?
-                .unwrap_or_else(|| "serde_json::Value".to_string());
+            let src_str = self.emit_type(&src_type, parent_scope, &key_path)?;
+            let dest_str = self.emit_type(&dest_type, parent_scope, &value_path)?;
 
             format!("HashMap<{}, {}>", src_str, dest_str)
         } else if let Some(ref_token) = atom.as_ref_token() {
             let ref_name = ref_token.text().trim();
             if let Some(alias_type) = self.ctx.resolve_type_alias(parent_scope, ref_name)? {
-                let alias_atoms = alias_type.type_atoms();
-                let alias_codes = alias_atoms.iter().map(|a| self.emit_type_atom(a, parent_scope, path)).collect::<Result<Vec<_>, _>>()?;
-                alias_codes.join(" | ")
+                self.emit_type(&alias_type, parent_scope, path)?
             } else {
                 self.ctx
                     .qualified_name(parent_scope, ref_name, Case::Pascal)
@@ -511,6 +611,23 @@ mod tests {
         let output = gen_rust(src);
         assert!(output.contains("pub profile: UserProfileAnon,"), "Expected anonymous struct collision suffix:\n{}", output);
         assert!(output.contains("pub struct UserProfileAnon {"), "Expected suffixed anonymous struct declaration:\n{}", output);
+    }
+
+    #[test]
+    fn test_union_field_emits_untagged_enum() {
+        let src = indoc! { r#"
+            model Config {
+                files: string | string[]
+            }
+        "# };
+
+        let output = gen_rust(src);
+        assert!(output.contains("pub files: ConfigFiles,"), "Expected field to use generated union enum:\n{}", output);
+        assert!(output.contains("#[serde(untagged)]"), "Expected serde untagged enum:\n{}", output);
+        assert!(output.contains("pub enum ConfigFiles {"), "Expected generated union enum:\n{}", output);
+        assert!(output.contains("String(String),"), "Expected scalar string variant:\n{}", output);
+        assert!(output.contains("StringArray(Vec<String>),"), "Expected array string variant:\n{}", output);
+        assert!(output.contains("impl Default for ConfigFiles"), "Expected generated default impl:\n{}", output);
     }
 
     #[test]

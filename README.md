@@ -96,7 +96,8 @@ global:
 
 gen:
   - mode: typescript
-    files: "models/*.glue"
+    files:
+      - "models/*.glue"
     output: "{file_name}.ts"
     config_overrides:
       typescript:
