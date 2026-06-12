@@ -44,8 +44,8 @@ impl<'a> TypeScriptGenerator<'a> {
             self.output.push_str("import { z } from \"zod\";\n\n");
         }
 
-        for const_def in self.ctx.top_level_consts().collect::<Vec<_>>() {
-            self.emit_const(&const_def)?;
+        for (const_def, scope) in self.ctx.scoped_consts() {
+            self.emit_const(&const_def, scope)?;
         }
         for model in self.ctx.top_level_models().collect::<Vec<_>>() {
             self.emit_model(&model, None)?;
@@ -57,15 +57,15 @@ impl<'a> TypeScriptGenerator<'a> {
         Ok(self.output.clone())
     }
 
-    fn emit_const(&mut self, const_def: &ConstDef) -> CodeGenResult<()> {
-        let name = const_def.name()?;
+    fn emit_const(&mut self, const_def: &ConstDef, scope: Option<SymId>) -> CodeGenResult<()> {
+        let name = self.ctx.const_name(const_def, scope, Case::UpperSnake)?;
         let export = if const_def.is_private() { "" } else { "export " };
-        let value = self.ctx.eval_const_def(const_def)?;
+        let value = self.ctx.eval_const_def_in_scope(const_def, scope)?;
         let (ty, literal) = match value {
             ConstValue::String(value) => ("string", serde_json::to_string(&value).map_err(|e| CodeGenContext::internal_error(e.to_string()))?),
             ConstValue::Int(value) => ("number", value.to_string()),
             ConstValue::Bool(value) => ("boolean", value.to_string()),
-            ConstValue::List(_) => return Err(self.ctx.error(const_def.syntax(), "Top-level constants can only be int, string, or bool")),
+            ConstValue::List(_) => return Err(self.ctx.error(const_def.syntax(), "Constants can only be int, string, or bool")),
         };
         self.output.push_str(&format!("{}const {}: {} = {};\n\n", export, name, ty, literal));
         Ok(())
@@ -386,6 +386,37 @@ mod tests {
         assert!(output.contains("export const MAX_PAGE_SIZE: number = 100;"), "Expected int constant:\n{}", output);
         assert!(output.contains("const _RETRY_MS: number = 300;"), "Expected private constant without export:\n{}", output);
         assert!(output.find("USER_ALIAS").unwrap() < output.find("export type Request").unwrap());
+    }
+
+    #[test]
+    fn test_model_scoped_constants_emit_with_prefixes() {
+        let src = indoc! { r#"
+            model Aliases {
+                const SUFFIX = "_alias"
+                const USER_ID_ALIAS = "user_id" + SUFFIX
+                const _PRIVATE_FLAG = true
+            }
+
+            model User {
+                const SUFFIX = "_user"
+                user_id: string
+            }
+        "# };
+
+        let output = gen_typescript(src);
+        assert!(
+            output.contains("export const ALIASES_SUFFIX: string = \"_alias\";"),
+            "Expected model-prefixed string constant:\n{}",
+            output
+        );
+        assert!(
+            output.contains("export const ALIASES_USER_ID_ALIAS: string = \"user_id_alias\";"),
+            "Expected declaration-scope folded constant:\n{}",
+            output
+        );
+        assert!(output.contains("const _ALIASES_PRIVATE_FLAG: boolean = true;"), "Expected private model-prefixed constant:\n{}", output);
+        assert!(output.contains("export const USER_SUFFIX: string = \"_user\";"), "Expected second model-prefixed constant:\n{}", output);
+        assert!(output.find("ALIASES_SUFFIX").unwrap() < output.find("export type Aliases").unwrap());
     }
 
     #[test]

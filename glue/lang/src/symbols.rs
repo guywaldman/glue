@@ -110,6 +110,31 @@ where
         None
     }
 
+    pub fn resolve_direct_child_id(&self, parent_id: SymId, entry_name: &str) -> Option<SymId> {
+        let parent_entry = self.0.get(parent_id)?;
+        let full_entry_name = Self::join_entries(&parent_entry.name, entry_name);
+        self.0.iter().find_map(|(_, sym_entry)| (sym_entry.name == full_entry_name).then_some(sym_entry.id))
+    }
+
+    pub fn parent_scope_id(&self, id: SymId) -> Option<SymId> {
+        let entry = self.0.get(id)?;
+        let (parent_name, _) = entry.name.rsplit_once(SYMBOL_NAME_SEPARATOR)?;
+        self.0.iter().find_map(|(_, sym_entry)| (sym_entry.name == parent_name).then_some(sym_entry.id))
+    }
+
+    pub fn is_scope_within(&self, scope: Option<SymId>, ancestor: SymId) -> bool {
+        let Some(scope) = scope else {
+            return false;
+        };
+        let Some(scope_entry) = self.0.get(scope) else {
+            return false;
+        };
+        let Some(ancestor_entry) = self.0.get(ancestor) else {
+            return false;
+        };
+        scope_entry.name == ancestor_entry.name || scope_entry.name.starts_with(&format!("{}{}", ancestor_entry.name, SYMBOL_NAME_SEPARATOR))
+    }
+
     pub fn entries(&self, scope: Option<SymId>) -> Vec<SymEntry<TData>> {
         // Receives e.g., the scope of "User::Details::name" and reeturns all entries,
         // for which the ID starts with "User::Details::", "User::", or "".

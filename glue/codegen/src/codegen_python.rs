@@ -135,8 +135,8 @@ impl<'a> PythonGenerator<'a> {
     }
 
     fn generate(&mut self) -> CodeGenResult<String> {
-        for const_def in self.ctx.top_level_consts().collect::<Vec<_>>() {
-            self.emit_const(&const_def)?;
+        for (const_def, scope) in self.ctx.scoped_consts() {
+            self.emit_const(&const_def, scope)?;
         }
         for model in self.ctx.top_level_models().collect::<Vec<_>>() {
             self.emit_model(&model, None)?;
@@ -151,17 +151,17 @@ impl<'a> PythonGenerator<'a> {
         if body.is_empty() { Ok(preludes) } else { Ok(format!("{}\n\n{}", preludes, body)) }
     }
 
-    fn emit_const(&mut self, const_def: &ConstDef) -> CodeGenResult<()> {
+    fn emit_const(&mut self, const_def: &ConstDef, scope: Option<SymId>) -> CodeGenResult<()> {
         if !self.output.is_empty() && !self.output.ends_with("\n\n") {
             self.output.push_str("\n\n");
         }
-        let name = const_def.name()?;
-        let value = self.ctx.eval_const_def(const_def)?;
+        let name = self.ctx.const_name(const_def, scope, Case::UpperSnake)?;
+        let value = self.ctx.eval_const_def_in_scope(const_def, scope)?;
         let (ty, literal) = match value {
             ConstValue::String(value) => ("str", serde_json::to_string(&value).map_err(|e| CodeGenContext::internal_error(e.to_string()))?),
             ConstValue::Int(value) => ("int", value.to_string()),
             ConstValue::Bool(value) => ("bool", if value { "True" } else { "False" }.to_string()),
-            ConstValue::List(_) => return Err(self.ctx.error(const_def.syntax(), "Top-level constants can only be int, string, or bool")),
+            ConstValue::List(_) => return Err(self.ctx.error(const_def.syntax(), "Constants can only be int, string, or bool")),
         };
         self.output.push_str(&format!("{}: {} = {}\n", name, ty, literal));
         Ok(())
@@ -525,6 +525,39 @@ mod tests {
         assert!(output.contains("_PRIVATE_FLAG: bool = True"), "Expected private bool constant:\n{}", output);
         assert!(output.contains("limit: Annotated[int, Field(default=200)]"), "Expected folded default:\n{}", output);
         assert!(output.contains("user_id: Annotated[str, Field(alias=\"user_id\")]"), "Expected folded alias:\n{}", output);
+    }
+
+    #[test]
+    fn test_model_scoped_constants_emit_and_aliases_fold() {
+        let src = indoc! { r#"
+            model Aliases {
+                const SUFFIX = "_alias"
+                const USER_ID_ALIAS = "user_id" + SUFFIX
+                const _PRIVATE_FLAG = true
+            }
+
+            model User {
+                const SUFFIX = "_user"
+
+                @field(alias=Aliases.USER_ID_ALIAS)
+                user_id: string
+            }
+        "# };
+
+        let output = gen_python(src);
+        assert!(output.contains("ALIASES_SUFFIX: str = \"_alias\""), "Expected model-prefixed string constant:\n{}", output);
+        assert!(
+            output.contains("ALIASES_USER_ID_ALIAS: str = \"user_id_alias\""),
+            "Expected declaration-scope folded constant:\n{}",
+            output
+        );
+        assert!(output.contains("_ALIASES_PRIVATE_FLAG: bool = True"), "Expected private model-prefixed constant:\n{}", output);
+        assert!(output.contains("USER_SUFFIX: str = \"_user\""), "Expected second model-prefixed constant:\n{}", output);
+        assert!(
+            output.contains("user_id: Annotated[str, Field(alias=\"user_id_alias\")]"),
+            "Expected folded qualified alias:\n{}",
+            output
+        );
     }
 
     #[test]

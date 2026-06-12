@@ -191,6 +191,15 @@ impl AnonModel {
             .flat_map(|model_body| model_body.children().filter(|n| n.kind() == LSyntaxKind::TYPE_ALIAS))
             .collect()
     }
+
+    pub fn nested_const_nodes(&self) -> Vec<LNode> {
+        self.0
+            .children()
+            .find(|n| n.kind() == LSyntaxKind::MODEL_BODY)
+            .into_iter()
+            .flat_map(|model_body| model_body.children().filter(|n| n.kind() == LSyntaxKind::CONST_DEF))
+            .collect()
+    }
 }
 
 ast_node!(Model, LSyntaxKind::MODEL);
@@ -240,11 +249,21 @@ impl ConstDef {
 
 impl ConstRef {
     pub fn ident_token(&self) -> Option<LToken> {
-        self.0.children_with_tokens().filter_map(|e| e.into_token()).find(|t| t.kind() == LSyntaxKind::CONST_IDENT)
+        self.0.children_with_tokens().filter_map(|e| e.into_token()).filter(|t| t.kind() == LSyntaxKind::CONST_IDENT).last()
     }
 
     pub fn ident(&self) -> Option<String> {
-        self.ident_token().map(|t| t.text().to_string())
+        let path = self.path();
+        (!path.is_empty()).then(|| path.join("."))
+    }
+
+    pub fn path(&self) -> Vec<String> {
+        self.0
+            .children_with_tokens()
+            .filter_map(|e| e.into_token())
+            .filter(|t| matches!(t.kind(), LSyntaxKind::IDENT | LSyntaxKind::CONST_IDENT))
+            .map(|t| t.text().to_string())
+            .collect()
     }
 }
 
@@ -331,6 +350,19 @@ impl Model {
         self.nested_type_alias_nodes().into_iter().filter_map(TypeAlias::cast).collect()
     }
 
+    pub fn nested_const_nodes(&self) -> Vec<LNode> {
+        self.0
+            .children()
+            .find(|n| n.kind() == LSyntaxKind::MODEL_BODY)
+            .into_iter()
+            .flat_map(|model_body| model_body.children().filter(|n| n.kind() == LSyntaxKind::CONST_DEF))
+            .collect()
+    }
+
+    pub fn nested_consts(&self) -> Vec<ConstDef> {
+        self.nested_const_nodes().into_iter().filter_map(ConstDef::cast).collect()
+    }
+
     pub fn decorator_nodes(&self) -> Vec<LNode> {
         self.0.children().filter(|n| n.kind() == LSyntaxKind::DECORATOR).collect()
     }
@@ -402,6 +434,13 @@ impl Endpoint {
 
     pub fn nested_enums(&self) -> Vec<Enum> {
         self.nested_enum_nodes().into_iter().filter_map(Enum::cast).collect()
+    }
+
+    pub fn nested_const_nodes(&self) -> Vec<LNode> {
+        self.model_body()
+            .into_iter()
+            .flat_map(|model_body| model_body.children().filter(|n| n.kind() == LSyntaxKind::CONST_DEF))
+            .collect()
     }
 
     pub fn responses_field_node(&self) -> Option<LNode> {
@@ -1137,6 +1176,45 @@ mod tests {
         assert!(consts[1].is_private());
         assert!(consts[1].type_node().is_none());
         assert!(consts[2].expr().is_some());
+    }
+
+    #[test]
+    fn test_nested_const_declaration_and_qualified_const_ref() {
+        let src = indoc! { r#"
+            model User {
+                const LOCAL_ALIAS = "user_id"
+
+                @field(alias=Child.CHILD_ALIAS)
+                child_id: string
+
+                model Child {
+                    const CHILD_ALIAS = "child_id"
+                }
+            }
+        "# };
+
+        let metadata = SourceCodeMetadata {
+            file_name: "test.glue",
+            file_contents: src,
+        };
+
+        let parsed = Parser::new().parse(&metadata).expect("expected parser to accept nested constants and qualified refs");
+        let root = RootNode::cast(parsed.ast_root).expect("expected RootNode");
+        let models = root.top_level_models();
+        assert_eq!(models.len(), 1);
+
+        let nested_consts = models[0].nested_consts();
+        assert_eq!(nested_consts.len(), 1);
+        assert_eq!(nested_consts[0].ident().as_deref(), Some("LOCAL_ALIAS"));
+
+        let const_ref = models[0]
+            .field_nodes()
+            .first()
+            .and_then(|field| field.descendants().find(|node| node.kind() == LSyntaxKind::CONST_REF))
+            .and_then(ConstRef::cast)
+            .expect("expected qualified const ref");
+        assert_eq!(const_ref.path(), vec!["Child", "CHILD_ALIAS"]);
+        assert_eq!(const_ref.ident().as_deref(), Some("Child.CHILD_ALIAS"));
     }
 
     #[test]

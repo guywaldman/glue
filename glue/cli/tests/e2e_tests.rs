@@ -422,6 +422,64 @@ global:
 }
 
 #[test]
+fn e2e_check_model_scoped_constants() -> Result<()> {
+    let fixture = GlueTestFixture::from_source(
+        "model_scoped_constants",
+        "constants.glue",
+        r#"
+            model Tags {
+                const BASE_TAG = 10
+            }
+
+            model Aliases {
+                const SUFFIX = "_alias"
+                const USER_ID_ALIAS = "user_id" + SUFFIX
+            }
+
+            model User {
+                const SUFFIX = "_user"
+
+                @field(alias=Aliases.USER_ID_ALIAS, proto_tag=Tags.BASE_TAG + 1)
+                user_id: int
+            }
+        "#,
+    )?;
+
+    fixture.run_check()?;
+
+    std::fs::remove_dir_all(&fixture.temp_dir).ok();
+    Ok(())
+}
+
+#[test]
+fn e2e_check_private_model_scoped_constants_cannot_be_qualified() -> Result<()> {
+    let fixture = GlueTestFixture::from_source(
+        "private_model_scoped_constants",
+        "constants.glue",
+        r#"
+            model Aliases {
+                const _USER_ID_ALIAS = "user_id"
+            }
+
+            model User {
+                @field(alias=Aliases._USER_ID_ALIAS)
+                user_id: int
+            }
+        "#,
+    )?;
+
+    let output = fixture.run_check_expect_error_output()?;
+    assert!(
+        output.contains("Constant '_USER_ID_ALIAS' is private to model 'Aliases'"),
+        "Expected private model constant error:\n{}",
+        output
+    );
+
+    std::fs::remove_dir_all(&fixture.temp_dir).ok();
+    Ok(())
+}
+
+#[test]
 fn e2e_go_ecommerce_snapshot() -> Result<()> {
     let fixture = GlueTestFixture::new("go_ecommerce", "ecommerce.glue")?;
     let output_path = fixture.generate_go()?;

@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use config::GlueConfigSchemaGeneration;
 use convert_case::{Case, Casing, Converter};
 use lang::{
-    AstNode, ConstDef, ConstEvaluator, ConstValue, DecoratorArg, DiagnosticContext, Enum, EnumVariant, Field, LNode, LSyntaxKind, Literal, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG,
+    AstNode, ConstDef, ConstEvaluator, ConstValue, DecoratorArg, DiagnosticContext, Enum, EnumVariant, Field, LNode, LSyntaxKind, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG,
     MODEL_FIELD_DECORATOR_EXAMPLE_ARG, MODEL_FIELD_DECORATOR_PROTO_TAG_ARG, Model, PrimitiveType, Service, SourceCodeMetadata, SymId, SymTable, Type, TypeAlias, TypeAtom,
 };
 
@@ -82,6 +82,44 @@ impl<'a> CodeGenContext<'a> {
 
     pub fn top_level_consts(&self) -> impl Iterator<Item = ConstDef> + '_ {
         self.ast.children().filter(|n| n.kind() == LSyntaxKind::CONST_DEF).filter_map(ConstDef::cast)
+    }
+
+    pub fn scoped_consts(&self) -> Vec<(ConstDef, Option<SymId>)> {
+        let mut consts = Vec::new();
+        for const_def in self.top_level_consts() {
+            consts.push((const_def, None));
+        }
+        for model in self.top_level_models() {
+            self.collect_model_consts(&model, None, &mut consts);
+        }
+        for endpoint in self.top_level_endpoints() {
+            let Some(endpoint_name) = endpoint.path_string() else {
+                continue;
+            };
+            let Some(endpoint_scope) = self.resolve_id(None, &endpoint_name) else {
+                continue;
+            };
+            for model in endpoint.nested_models() {
+                self.collect_model_consts(&model, Some(endpoint_scope), &mut consts);
+            }
+        }
+        consts
+    }
+
+    fn collect_model_consts(&self, model: &Model, parent_scope: Option<SymId>, out: &mut Vec<(ConstDef, Option<SymId>)>) {
+        let Some(model_name) = model.ident() else {
+            return;
+        };
+        let Some(model_scope) = self.resolve_id(parent_scope, &model_name) else {
+            return;
+        };
+
+        for const_def in model.nested_consts() {
+            out.push((const_def, Some(model_scope)));
+        }
+        for nested_model in model.nested_models() {
+            self.collect_model_consts(&nested_model, Some(model_scope), out);
+        }
     }
 
     /// Find the root model (@root-decorated, or the sole model)
@@ -163,6 +201,29 @@ impl<'a> CodeGenContext<'a> {
 
     pub fn eval_const_def(&self, const_def: &ConstDef) -> Result<ConstValue, CodeGenError> {
         ConstEvaluator::new(&self.symbols, self.diag.clone()).eval_const_def(const_def).map_err(CodeGenError::GenerationError)
+    }
+
+    pub fn eval_const_def_in_scope(&self, const_def: &ConstDef, scope: Option<SymId>) -> Result<ConstValue, CodeGenError> {
+        ConstEvaluator::new(&self.symbols, self.diag.clone())
+            .eval_const_def_in_scope(const_def, scope)
+            .map_err(CodeGenError::GenerationError)
+    }
+
+    pub fn const_name(&self, const_def: &ConstDef, scope: Option<SymId>, nested_case: Case) -> Result<String, CodeGenError> {
+        let name = const_def.name()?;
+        let Some(scope) = scope else {
+            return Ok(name);
+        };
+        self.resolve(Some(scope), &name)
+            .map(|entry| {
+                let generated = self.symbol_name(&entry.name, nested_case);
+                if const_def.is_private() && !generated.starts_with('_') {
+                    format!("_{}", generated)
+                } else {
+                    generated
+                }
+            })
+            .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved symbol for Constant: {}", name)))
     }
 
     pub fn eval_decorator_arg(&self, arg: &DecoratorArg, scope: Option<SymId>) -> Result<Option<ConstValue>, CodeGenError> {
@@ -356,8 +417,6 @@ impl NamedExt for ConstDef {
 pub trait FieldExt {
     fn name(&self) -> Result<String, CodeGenError>;
     fn field_type(&self) -> Result<Type, CodeGenError>;
-    fn alias(&self) -> Result<Option<String>, CodeGenError>;
-    fn proto_tag(&self) -> Result<Option<i64>, CodeGenError>;
 }
 
 impl FieldExt for Field {
@@ -367,32 +426,6 @@ impl FieldExt for Field {
 
     fn field_type(&self) -> Result<Type, CodeGenError> {
         self.ty().ok_or_else(|| CodeGenContext::internal_error("Field missing type"))
-    }
-
-    fn alias(&self) -> Result<Option<String>, CodeGenError> {
-        let decorators = self.decorators();
-        let field_dec = decorators.iter().find(|d| d.ident().as_deref() == Some(MODEL_FIELD_DECORATOR.id));
-        if let Some(dec) = field_dec
-            && let Some(alias_arg) = dec.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_ALIAS_ARG)
-            && let Some(Literal::StringLiteral(s)) = alias_arg.literal()
-        {
-            return Ok(s.value());
-        }
-        Ok(None)
-    }
-
-    fn proto_tag(&self) -> Result<Option<i64>, CodeGenError> {
-        let decorators = self.decorators();
-        let field_dec = decorators.iter().find(|d| d.ident().as_deref() == Some(MODEL_FIELD_DECORATOR.id));
-        if let Some(dec) = field_dec
-            && let Some(proto_tag_arg) = dec.arg(MODEL_FIELD_DECORATOR, &MODEL_FIELD_DECORATOR_PROTO_TAG_ARG)
-        {
-            return match proto_tag_arg.literal() {
-                Some(Literal::IntLiteral { value, .. }) => Ok(Some(value)),
-                _ => Err(CodeGenContext::internal_error("Field proto_tag must be an integer")),
-            };
-        }
-        Ok(None)
     }
 }
 

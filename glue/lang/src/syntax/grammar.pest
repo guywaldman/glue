@@ -21,7 +21,7 @@ false_literal = { "false" }
 bool_literal = { true_literal | false_literal }
 int_literal = @{ ASCII_DIGIT+ }
 list_literal = ${ "[" ~ SPACE* ~ (literal ~ (SPACE* ~ "," ~ SPACE* ~ literal)*)? ~ SPACE* ~ "]" }
-const_ref = { const_ident }
+const_ref = { (ident ~ ".")* ~ const_ident }
 const_primary = { literal | const_ref | "(" ~ SPACE* ~ const_expr ~ SPACE* ~ ")" }
 const_mul = { const_primary ~ (SPACE* ~ "*" ~ SPACE* ~ const_primary)* }
 const_add = { const_mul ~ (SPACE* ~ "+" ~ SPACE* ~ const_mul)* }
@@ -60,7 +60,7 @@ enum_variant = { doc_block? ~ decorator* ~ string_literal }
 enum_variants = { enum_variant ~ ("|" ~ enum_variant)* }
 enum_def = { doc_block? ~ decorator* ~ "enum" ~ ident ~ ":" ~ enum_variants }
 
-model_body = !{ (field | type_alias | model | enum_def)* }
+model_body = !{ (field | const_def | type_alias | model | enum_def)* }
 model = { doc_block? ~ decorator* ~ "model" ~ ident ~ "{" ~ model_body ~ "}" }
 anon_model = { "{" ~ model_body ~ "}" }
 type_alias = { doc_block? ~ "type" ~ ident ~ "=" ~ type_expr }

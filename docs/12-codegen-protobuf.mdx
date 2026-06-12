@@ -84,6 +84,19 @@ model User {
 
 If one field in a message has `proto_tag`, every field in that message must have one. Untagged messages keep source-order numbering.
 
+`proto_tag` can use folded int constant expressions, including model-scoped constants:
+
+```glue
+model Tags {
+	const USER_ID = 1
+}
+
+model User {
+	@field(proto_tag=Tags.USER_ID)
+	id: int
+}
+```
+
 ## Optional fields
 
 Optional Glue fields generate `optional` Protobuf fields:

@@ -751,8 +751,55 @@ impl Lsp {
         {
             return Some(parent.text().to_string());
         }
+        if let Some(parent) = token.parent()
+            && parent.kind() == LSyntaxKind::CONST_REF
+        {
+            return Some(parent.text().to_string());
+        }
 
         Some(token.text().to_string())
+    }
+
+    fn resolve_reference_symbol(symbols: &SymTable<LNode>, scope: Option<lang::SymId>, ref_name: &str) -> Option<lang::SymEntry<LNode>> {
+        if let Some(sym_id) = Self::resolve_qualified_const_reference_id(symbols, scope, ref_name) {
+            return symbols.get(sym_id).cloned();
+        }
+        symbols.resolve(scope, ref_name)
+    }
+
+    fn resolve_qualified_const_reference_id(symbols: &SymTable<LNode>, scope: Option<lang::SymId>, ref_name: &str) -> Option<lang::SymId> {
+        let parts = ref_name.split('.').collect::<Vec<_>>();
+        if parts.len() < 2 {
+            return None;
+        }
+        let (const_name, model_parts) = parts.split_last()?;
+        let (first_model, nested_models) = model_parts.split_first()?;
+
+        let mut model_id = symbols.resolve_id(scope, first_model)?;
+        if symbols.get(model_id)?.data.kind() != LSyntaxKind::MODEL {
+            return None;
+        }
+        for model_name in nested_models {
+            model_id = symbols.resolve_direct_child_id(model_id, model_name)?;
+            if symbols.get(model_id)?.data.kind() != LSyntaxKind::MODEL {
+                return None;
+            }
+        }
+
+        let const_id = symbols.resolve_direct_child_id(model_id, const_name)?;
+        if symbols.get(const_id)?.data.kind() != LSyntaxKind::CONST_DEF {
+            return None;
+        }
+        if const_name.starts_with('_') && !symbols.is_scope_within(scope, model_id) {
+            return None;
+        }
+
+        Some(const_id)
+    }
+
+    fn scope_for_symbol_node(symbols: &SymTable<LNode>, node: &LNode) -> Option<lang::SymId> {
+        let entry = symbols.all_entries().into_iter().find(|entry| entry.data == *node)?;
+        symbols.parent_scope_id(entry.id)
     }
 
     fn namespace_alias_at_offset(&self, ast: &LNode, offset: u32) -> Option<String> {
@@ -890,7 +937,8 @@ impl Lsp {
                     let symbols = symbols?;
                     let diag = diag?;
                     let expr = const_def.expr()?;
-                    ConstEvaluator::new(symbols, diag).eval_expr(&expr, None).ok().map(|value| format!("constant {}", value.ty()))
+                    let scope = Self::scope_for_symbol_node(symbols, node);
+                    ConstEvaluator::new(symbols, diag).eval_expr(&expr, scope).ok().map(|value| format!("constant {}", value.ty()))
                 });
                 Some(SymbolInfo {
                     kind: "constant",
@@ -1061,7 +1109,7 @@ impl LanguageServer for Lsp {
         let scope = self.find_scope_at_offset(&ast, offset, &symbols);
         info!("Enclosing scope: {scope:?}");
 
-        if let Some(sym_entry) = symbols.resolve(scope, &ref_name) {
+        if let Some(sym_entry) = Self::resolve_reference_symbol(&symbols, scope, &ref_name) {
             let def_node = &sym_entry.data;
             let start_offset = def_node.text_range().start();
             let end_offset = def_node.text_range().end();
@@ -1178,7 +1226,7 @@ impl LanguageServer for Lsp {
 
         // Try to resolve the symbol with scope awareness
         let scope = self.find_scope_at_offset(&ast, offset, &symbols);
-        let info = if let Some(sym_entry) = symbols.resolve(scope, &ref_name) {
+        let info = if let Some(sym_entry) = Self::resolve_reference_symbol(&symbols, scope, &ref_name_for_import_resolution) {
             let diag = self.load_document_or_file(&uri).map(|source| DiagnosticContext::new(uri.clone(), source));
             self.extract_symbol_info(&sym_entry.data, Some(&symbols), diag)
         } else {
@@ -3095,6 +3143,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_goto_definition_qualified_model_constant_reference() {
+        let src = indoc! {r#"
+            model Aliases {
+                const USER_ID_ALIAS = "user_id"
+            }
+
+            model User {
+                @field(alias=Aliases.USER_ID_ALIAS)
+                user_id: string
+            }
+        "#}
+        .trim();
+
+        let (lsp, uri) = setup_lsp(src).await;
+
+        let params = lsp::GotoDefinitionParams {
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            text_document_position_params: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri: uri.parse().unwrap() },
+                position: position_of_last(src, "USER_ID_ALIAS"),
+            },
+        };
+        let resp = lsp.goto_definition(params).await;
+        let Ok(Some(lsp::GotoDefinitionResponse::Scalar(loc))) = &resp else {
+            panic!("unexpected response: {resp:?}");
+        };
+
+        assert_eq!(loc.uri, uri.parse().unwrap());
+        assert_eq!(loc.range.start.line, 1);
+    }
+
+    #[tokio::test]
     async fn test_hover_on_type_alias_reference() {
         let src = indoc! {r#"
             type UserId = string
@@ -3159,6 +3240,44 @@ mod tests {
         assert!(markup.value.contains("constant DEFAULT_LIMIT"), "hover should identify constant");
         assert!(markup.value.contains("constant int"), "hover should include constant type");
         assert!(markup.value.contains("Default page size."), "hover should include docs");
+    }
+
+    #[tokio::test]
+    async fn test_hover_on_qualified_model_constant_reference() {
+        let src = indoc! {r#"
+            model Aliases {
+                const SUFFIX = "_alias"
+                /// Alias for user IDs.
+                const USER_ID_ALIAS = "user_id" + SUFFIX
+            }
+
+            model User {
+                @field(alias=Aliases.USER_ID_ALIAS)
+                user_id: string
+            }
+        "#}
+        .trim();
+
+        let (lsp, uri) = setup_lsp(src).await;
+
+        let params = lsp::HoverParams {
+            text_document_position_params: lsp::TextDocumentPositionParams {
+                text_document: lsp::TextDocumentIdentifier { uri: uri.parse().unwrap() },
+                position: position_of_last(src, "USER_ID_ALIAS"),
+            },
+            work_done_progress_params: Default::default(),
+        };
+        let resp = lsp.hover(params).await;
+        let Ok(Some(hover)) = &resp else {
+            panic!("expected hover response, got: {resp:?}");
+        };
+
+        let lsp::HoverContents::Markup(markup) = &hover.contents else {
+            panic!("expected markup content");
+        };
+        assert!(markup.value.contains("constant USER_ID_ALIAS"), "hover should identify model constant");
+        assert!(markup.value.contains("constant string"), "hover should include inferred constant type");
+        assert!(markup.value.contains("Alias for user IDs."), "hover should include docs");
     }
 
     #[tokio::test]

@@ -517,6 +517,23 @@ mod tests {
     }
 
     #[test]
+    fn test_proto_tag_model_scoped_constant_expression() {
+        let src = indoc! {r#"
+            model Tags {
+                const BASE_TAG = 10
+            }
+
+            model User {
+                @field(proto_tag=Tags.BASE_TAG + 1)
+                id: int
+            }
+        "#};
+        let result = generate(src).unwrap();
+        assert!(result.contains("int32 id = 11;"), "Expected folded model-scoped proto tag:\n{}", result);
+        assert!(!result.contains("BASE_TAG"), "Expected Protobuf output not to emit constants:\n{}", result);
+    }
+
+    #[test]
     fn test_proto_tag_invalid_fails() {
         let src = indoc! {r#"
             model User {
