@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/guywaldman/glue/compare/v1.5.0...v1.6.0) (2026-06-12)
+
+
+### Features
+
+* add support for model-scoped constants ([#69](https://github.com/guywaldman/glue/issues/69)) ([8833c87](https://github.com/guywaldman/glue/commit/8833c874c986645d043d183a0321e6444c0f7ae7))
+
 ## [1.5.0](https://github.com/guywaldman/glue/compare/v1.4.0...v1.5.0) (2026-06-11)
 
 
