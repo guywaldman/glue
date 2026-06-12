@@ -164,6 +164,9 @@ impl<'a> PythonGenerator<'a> {
             ConstValue::List(_) => return Err(self.ctx.error(const_def.syntax(), "Constants can only be int, string, or bool")),
         };
         self.output.push_str(&format!("{}: {} = {}\n", name, ty, literal));
+        if let Some(docs) = const_def.docs() {
+            self.output.push_str(&DocEmitter::python_docstring(&docs));
+        }
         Ok(())
     }
 
@@ -508,6 +511,7 @@ mod tests {
     #[test]
     fn test_constants_emit_and_defaults_fold() {
         let src = indoc! { r#"
+            /// Alias used for user IDs.
             const USER_ALIAS = "user_" + "id"
             const DEFAULT_LIMIT = 100 * 2
             const _PRIVATE_FLAG = true
@@ -520,6 +524,11 @@ mod tests {
         "# };
 
         let output = gen_python(src);
+        assert!(
+            output.contains("USER_ALIAS: str = \"user_id\"\n\"\"\"Alias used for user IDs.\"\"\""),
+            "Expected constant attribute docstring:\n{}",
+            output
+        );
         assert!(output.contains("USER_ALIAS: str = \"user_id\""), "Expected folded string constant:\n{}", output);
         assert!(output.contains("DEFAULT_LIMIT: int = 200"), "Expected folded int constant:\n{}", output);
         assert!(output.contains("_PRIVATE_FLAG: bool = True"), "Expected private bool constant:\n{}", output);

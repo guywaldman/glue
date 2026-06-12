@@ -89,7 +89,8 @@ impl<'a> GoGenerator<'a> {
             ConstValue::Bool(value) => ("bool", value.to_string()),
             ConstValue::List(_) => return Err(self.ctx.error(const_def.syntax(), "Constants can only be int, string, or bool")),
         };
-        Ok(format!("const {} {} = {}\n\n", name, ty, literal))
+        let docs = const_def.docs().map(|docs| Self::emit_go_docs(&docs, &name)).unwrap_or_default();
+        Ok(format!("{}const {} {} = {}\n\n", docs, name, ty, literal))
     }
 
     fn emit_model(&mut self, model: &Model, parent_scope: Option<SymId>) -> CodeGenResult<String> {
@@ -436,6 +437,7 @@ mod tests {
     #[test]
     fn test_constants_emit() {
         let src = indoc! {r#"
+            /// Alias used for user IDs.
             const USER_ALIAS = "user_" + "id"
             const DEFAULT_LIMIT = 100 * 2
             const _PRIVATE_FLAG = true
@@ -447,6 +449,7 @@ mod tests {
         "#};
 
         let output = gen_go(src);
+        assert!(output.contains("// USER_ALIAS Alias used for user IDs.\nconst USER_ALIAS"), "Expected constant docs:\n{}", output);
         assert!(output.contains("const USER_ALIAS string = \"user_id\""), "Expected folded string constant:\n{}", output);
         assert!(output.contains("const DEFAULT_LIMIT int = 200"), "Expected folded int constant:\n{}", output);
         assert!(output.contains("const _PRIVATE_FLAG bool = true"), "Expected private constant:\n{}", output);

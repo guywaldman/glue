@@ -94,7 +94,8 @@ impl<'a> RustGenerator<'a> {
             ConstValue::Bool(value) => ("bool", value.to_string()),
             ConstValue::List(_) => return Err(self.ctx.error(const_def.syntax(), "Constants can only be int, string, or bool")),
         };
-        Ok(format!("{}const {}: {} = {};\n\n", vis, name, ty, literal))
+        let docs = const_def.docs().map(|docs| DocEmitter::rust_docs(&docs, 0)).unwrap_or_default();
+        Ok(format!("{}{}const {}: {} = {};\n\n", docs, vis, name, ty, literal))
     }
 
     fn emit_model(&mut self, model: &Model, parent_scope: Option<SymId>) -> CodeGenResult<String> {
@@ -353,6 +354,7 @@ mod tests {
     #[test]
     fn test_constants_emit() {
         let src = indoc! { r#"
+            /// Alias used for user IDs.
             const USER_ALIAS = "user_" + "id"
             const DEFAULT_LIMIT = 100 * 2
             const _PRIVATE_FLAG: bool = true
@@ -364,6 +366,7 @@ mod tests {
         "# };
 
         let output = gen_rust(src);
+        assert!(output.contains("/// Alias used for user IDs.\npub const USER_ALIAS"), "Expected constant docs:\n{}", output);
         assert!(output.contains("pub const USER_ALIAS: &str = \"user_id\";"), "Expected folded string constant:\n{}", output);
         assert!(output.contains("pub const DEFAULT_LIMIT: i64 = 200;"), "Expected folded int constant:\n{}", output);
         assert!(output.contains("const _PRIVATE_FLAG: bool = true;"), "Expected private constant:\n{}", output);

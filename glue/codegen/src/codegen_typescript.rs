@@ -67,6 +67,9 @@ impl<'a> TypeScriptGenerator<'a> {
             ConstValue::Bool(value) => ("boolean", value.to_string()),
             ConstValue::List(_) => return Err(self.ctx.error(const_def.syntax(), "Constants can only be int, string, or bool")),
         };
+        if let Some(docs) = const_def.docs() {
+            self.output.push_str(&DocEmitter::ts_docstring(&docs));
+        }
         self.output.push_str(&format!("{}const {}: {} = {};\n\n", export, name, ty, literal));
         Ok(())
     }
@@ -372,6 +375,7 @@ mod tests {
     #[test]
     fn test_constants_emit_before_types() {
         let src = indoc! { r#"
+            /// Alias used for user IDs.
             const USER_ALIAS = "user_" + "id"
             const MAX_PAGE_SIZE: int = 100
             const _RETRY_MS = (100 + 50) * 2
@@ -382,6 +386,7 @@ mod tests {
         "# };
 
         let output = gen_typescript(src);
+        assert!(output.contains("/**\n * Alias used for user IDs.\n */\nexport const USER_ALIAS"), "Expected constant docs:\n{}", output);
         assert!(output.contains("export const USER_ALIAS: string = \"user_id\";"), "Expected string constant to be folded:\n{}", output);
         assert!(output.contains("export const MAX_PAGE_SIZE: number = 100;"), "Expected int constant:\n{}", output);
         assert!(output.contains("const _RETRY_MS: number = 300;"), "Expected private constant without export:\n{}", output);
