@@ -1,4 +1,4 @@
-use config::GlueConfigSchemaGeneration;
+use config::{GlueConfigSchemaGeneration, GlueConfigSchemaGenerationRustExtraDerives};
 use convert_case::Case;
 use lang::{AnonModel, AstNode, ConstDef, ConstValue, Enum, Field, GlueIr, Model, PrimitiveType, SourceCodeMetadata, SymId, Type, TypeAtom};
 
@@ -17,9 +17,11 @@ impl CodeGenerator for CodeGenRust {
             .into_analyzed_program()
             .ok_or_else(|| CodeGenError::InternalError("Glue IR does not contain an analyzed program".to_string()))?;
         let lint_suppressions = config.as_ref().and_then(|g| g.lint_suppressions).unwrap_or(true);
-        let serde_struct_derives = config.as_ref().and_then(|g| g.rust.as_ref()).and_then(|r| r.serde_struct_derives).unwrap_or(true);
+        let rust_config = config.as_ref().and_then(|g| g.rust.as_ref());
+        let serde_struct_derives = rust_config.and_then(|r| r.serde_struct_derives).unwrap_or(true);
+        let extra_derives = RustExtraDerives::from_config(rust_config.and_then(|r| r.extra_derives.as_ref()))?;
         let ctx = CodeGenContext::new(program.ast_root.clone(), program.symbols, source, config.as_ref());
-        let mut generator = RustGenerator::new(ctx, lint_suppressions, serde_struct_derives);
+        let mut generator = RustGenerator::new(ctx, lint_suppressions, serde_struct_derives, extra_derives);
         generator.generate()
     }
 }
@@ -35,6 +37,7 @@ struct RustGenerator<'a> {
     emitted_union_type_count: usize,
     lint_suppressions: bool,
     serde_struct_derives: bool,
+    extra_derives: RustExtraDerives,
 }
 
 #[derive(Clone)]
@@ -54,7 +57,7 @@ struct UnionTypeDef {
 }
 
 impl<'a> RustGenerator<'a> {
-    fn new(ctx: CodeGenContext<'a>, lint_suppressions: bool, serde_struct_derives: bool) -> Self {
+    fn new(ctx: CodeGenContext<'a>, lint_suppressions: bool, serde_struct_derives: bool, extra_derives: RustExtraDerives) -> Self {
         let anon_namer = AnonymousTypeNamer::new(&ctx, Case::Pascal);
         Self {
             ctx,
@@ -67,6 +70,7 @@ impl<'a> RustGenerator<'a> {
             emitted_union_type_count: 0,
             lint_suppressions,
             serde_struct_derives,
+            extra_derives,
         }
     }
 
@@ -113,28 +117,35 @@ impl<'a> RustGenerator<'a> {
         Ok(output)
     }
 
-    fn struct_derive_attr(&self) -> &'static str {
-        if self.serde_struct_derives {
-            "#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]\n"
+    fn struct_derive_attr(&self) -> String {
+        let base = if self.serde_struct_derives {
+            &["serde::Serialize", "serde::Deserialize", "Debug", "Clone", "Default"][..]
         } else {
-            "#[derive(Debug, Clone, Default)]\n"
-        }
+            &["Debug", "Clone", "Default"][..]
+        };
+        format_derive_attr(base, &self.extra_derives.structs)
     }
 
-    fn enum_derive_attr(&self) -> &'static str {
-        if self.serde_struct_derives {
-            "#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]\n"
+    fn enum_derive_attr(&self) -> String {
+        let base = if self.serde_struct_derives {
+            &["serde::Serialize", "serde::Deserialize", "Debug", "Clone", "Copy", "PartialEq", "Eq", "Hash"][..]
         } else {
-            "#[derive(Debug, Clone, PartialEq, Eq)]\n"
-        }
+            &["Debug", "Clone", "Copy", "PartialEq", "Eq", "Hash"][..]
+        };
+        format_derive_attr(base, &self.extra_derives.enums)
     }
 
-    fn union_derive_attr(&self) -> &'static str {
-        if self.serde_struct_derives {
-            "#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]\n#[serde(untagged)]\n"
+    fn union_derive_attr(&self) -> String {
+        let base = if self.serde_struct_derives {
+            &["serde::Serialize", "serde::Deserialize", "Debug", "Clone"][..]
         } else {
-            "#[derive(Debug, Clone)]\n"
+            &["Debug", "Clone"][..]
+        };
+        let mut attr = format_derive_attr(base, &self.extra_derives.unions);
+        if self.serde_struct_derives {
+            attr.push_str("#[serde(untagged)]\n");
         }
+        attr
     }
 
     fn emit_const(&self, const_def: &ConstDef, scope: Option<SymId>) -> CodeGenResult<String> {
@@ -162,7 +173,7 @@ impl<'a> RustGenerator<'a> {
             output.push_str(&DocEmitter::rust_docs(&docs, 0));
         }
 
-        output.push_str(self.struct_derive_attr());
+        output.push_str(&self.struct_derive_attr());
         output.push_str(&format!("pub struct {} {{\n", qualified_name));
 
         for field in model.fields() {
@@ -210,7 +221,7 @@ impl<'a> RustGenerator<'a> {
 
     fn emit_anon_model(&mut self, def: &AnonymousModelDef) -> CodeGenResult<String> {
         let mut output = String::new();
-        output.push_str(self.struct_derive_attr());
+        output.push_str(&self.struct_derive_attr());
         output.push_str(&format!("pub struct {} {{\n", def.name));
 
         for field in def.model.fields() {
@@ -231,7 +242,7 @@ impl<'a> RustGenerator<'a> {
             output.push_str(&DocEmitter::rust_docs(&docs, 0));
         }
 
-        output.push_str(self.enum_derive_attr());
+        output.push_str(&self.enum_derive_attr());
         output.push_str(&format!("pub enum {} {{\n", qualified_name));
 
         for variant in enum_.variants() {
@@ -320,7 +331,7 @@ impl<'a> RustGenerator<'a> {
 
     fn emit_union_type(&mut self, def: &UnionTypeDef) -> CodeGenResult<String> {
         let mut output = String::new();
-        output.push_str(self.union_derive_attr());
+        output.push_str(&self.union_derive_attr());
         output.push_str(&format!("pub enum {} {{\n", def.name));
 
         let mut variants = Vec::with_capacity(def.atoms.len());
@@ -442,6 +453,77 @@ impl<'a> RustGenerator<'a> {
     }
 }
 
+#[derive(Clone, Default)]
+struct RustExtraDerives {
+    structs: Vec<String>,
+    enums: Vec<String>,
+    unions: Vec<String>,
+}
+
+impl RustExtraDerives {
+    fn from_config(config: Option<&GlueConfigSchemaGenerationRustExtraDerives>) -> CodeGenResult<Self> {
+        let Some(config) = config else {
+            return Ok(Self::default());
+        };
+
+        Ok(Self {
+            structs: validate_derive_paths("rust.extra_derives.structs", config.structs.as_deref())?,
+            enums: validate_derive_paths("rust.extra_derives.enums", config.enums.as_deref())?,
+            unions: validate_derive_paths("rust.extra_derives.unions", config.unions.as_deref())?,
+        })
+    }
+}
+
+fn validate_derive_paths(config_path: &str, derives: Option<&[String]>) -> CodeGenResult<Vec<String>> {
+    let Some(derives) = derives else {
+        return Ok(Vec::new());
+    };
+
+    for derive in derives {
+        if !is_valid_rust_path(derive) {
+            return Err(CodeGenError::GenerationError(miette::miette!(
+                "Invalid Rust derive path in {}: '{}'. Expected a Rust path such as 'Hash', 'serde::Serialize', or 'schemars::JsonSchema'.",
+                config_path,
+                derive
+            )));
+        }
+    }
+
+    Ok(derives.to_vec())
+}
+
+fn format_derive_attr(base: &[&str], extra: &[String]) -> String {
+    let mut seen = std::collections::HashSet::new();
+    let mut derives = Vec::new();
+
+    for derive in base {
+        if seen.insert((*derive).to_string()) {
+            derives.push((*derive).to_string());
+        }
+    }
+
+    for derive in extra {
+        if seen.insert(derive.clone()) {
+            derives.push(derive.clone());
+        }
+    }
+
+    format!("#[derive({})]\n", derives.join(", "))
+}
+
+fn is_valid_rust_path(path: &str) -> bool {
+    !path.is_empty() && path.split("::").all(is_valid_rust_identifier)
+}
+
+fn is_valid_rust_identifier(segment: &str) -> bool {
+    let mut chars = segment.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+
+    (first == '_' || first.is_ascii_alphabetic()) && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+}
+
 fn rust_primitive_type(primitive: PrimitiveType) -> &'static str {
     match primitive {
         PrimitiveType::Any => "serde_json::Value",
@@ -473,11 +555,12 @@ fn const_integer_primitive(const_def: &ConstDef) -> PrimitiveType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use config::{GlueConfigSchemaGeneration, GlueConfigSchemaGenerationRust};
+    use config::{GlueConfigSchemaGeneration, GlueConfigSchemaGenerationRust, GlueConfigSchemaGenerationRustExtraDerives};
     use indoc::indoc;
     use insta::assert_snapshot;
+    use lang::GlueIr;
 
-    use crate::test_utils::{gen_test, gen_test_with_config};
+    use crate::test_utils::{analyze_test_glue_file, gen_test, gen_test_with_config};
 
     fn gen_rust(src: &str) -> String {
         gen_test(&CodeGenRust, src)
@@ -485,6 +568,12 @@ mod tests {
 
     fn gen_rust_with_config(src: &str, config: GlueConfigSchemaGeneration) -> String {
         gen_test_with_config(&CodeGenRust, src, Some(config))
+    }
+
+    fn try_gen_rust_with_config(src: &str, config: GlueConfigSchemaGeneration) -> CodeGenResult<String> {
+        let (program, source) = analyze_test_glue_file(src);
+        let ir = GlueIr::from_analyzed(source.file_name, program);
+        CodeGenRust.generate(ir, &source, Some(config))
     }
 
     #[test]
@@ -516,6 +605,19 @@ mod tests {
         let output = gen_rust("model User { id: string }");
 
         assert!(!output.contains("use std::collections::HashMap;"), "Expected unused HashMap import to be omitted:\n{}", output);
+    }
+
+    #[test]
+    fn test_regular_enums_derive_copy_and_hash_by_default() {
+        let output = gen_rust(indoc! { r#"
+            enum Status: "active" | "inactive"
+        "# });
+
+        assert!(
+            output.contains("#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]\npub enum Status"),
+            "Expected default enum derives to include Copy and Hash:\n{}",
+            output
+        );
     }
 
     #[test]
@@ -558,7 +660,7 @@ mod tests {
             output
         );
         assert!(
-            output.contains("#[derive(Debug, Clone, PartialEq, Eq)]\npub enum Status"),
+            output.contains("#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]\npub enum Status"),
             "Expected non-serde enum derive:\n{}",
             output
         );
@@ -574,6 +676,7 @@ mod tests {
                 rust: Some(GlueConfigSchemaGenerationRust {
                     include_yaml: Some(true),
                     serde_struct_derives: Some(false),
+                    ..Default::default()
                 }),
                 ..Default::default()
             },
@@ -581,6 +684,83 @@ mod tests {
 
         assert!(output.contains("Self: serde::de::DeserializeOwned,"), "Expected from_yaml serde bound:\n{}", output);
         assert!(output.contains("Self: serde::Serialize,"), "Expected to_yaml serde bound:\n{}", output);
+    }
+
+    #[test]
+    fn test_extra_derives_apply_by_shape_and_deduplicate() {
+        let src = indoc! { r#"
+            model User {
+                id: string
+                profile: {
+                    nickname: string
+                }
+                value: string | int
+            }
+
+            enum Status: "active" | "inactive"
+        "# };
+
+        let output = gen_rust_with_config(
+            src,
+            GlueConfigSchemaGeneration {
+                rust: Some(GlueConfigSchemaGenerationRust {
+                    extra_derives: Some(GlueConfigSchemaGenerationRustExtraDerives {
+                        structs: Some(vec!["Clone".to_string(), "PartialEq".to_string(), "Eq".to_string(), "Hash".to_string()]),
+                        enums: Some(vec!["Hash".to_string(), "Ord".to_string(), "PartialOrd".to_string()]),
+                        unions: Some(vec!["Clone".to_string(), "PartialEq".to_string()]),
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        );
+
+        assert!(
+            output.contains("#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default, PartialEq, Eq, Hash)]\npub struct User"),
+            "Expected extra struct derives with Clone deduplicated:\n{}",
+            output
+        );
+        assert!(
+            output.contains("#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default, PartialEq, Eq, Hash)]\npub struct UserProfile"),
+            "Expected extra derives on anonymous structs:\n{}",
+            output
+        );
+        assert!(
+            output.contains("#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]\npub enum Status"),
+            "Expected extra enum derives with Hash deduplicated:\n{}",
+            output
+        );
+        assert!(
+            output.contains("#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]\n#[serde(untagged)]\npub enum UserValue"),
+            "Expected extra union derives with Clone deduplicated:\n{}",
+            output
+        );
+    }
+
+    #[test]
+    fn test_invalid_extra_derive_path_fails() {
+        let result = try_gen_rust_with_config(
+            "model User { id: string }",
+            GlueConfigSchemaGeneration {
+                rust: Some(GlueConfigSchemaGenerationRust {
+                    extra_derives: Some(GlueConfigSchemaGenerationRustExtraDerives {
+                        structs: Some(vec!["Hash".to_string(), "bad-derive".to_string()]),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        );
+
+        let err = result.expect_err("invalid derive path should fail generation");
+        match err {
+            CodeGenError::GenerationError(report) => {
+                assert!(report.to_string().contains("Invalid Rust derive path in rust.extra_derives.structs"), "Unexpected error: {}", report);
+                assert!(report.to_string().contains("bad-derive"), "Unexpected error: {}", report);
+            }
+            other => panic!("Expected generation error, got {:?}", other),
+        }
     }
 
     #[test]

@@ -672,6 +672,23 @@ impl GlueCli {
             (Some(base), Some(overrides)) => Some(config::GlueConfigSchemaGenerationRust {
                 include_yaml: overrides.include_yaml.or(base.include_yaml),
                 serde_struct_derives: overrides.serde_struct_derives.or(base.serde_struct_derives),
+                extra_derives: Self::merge_rust_extra_derives(base.extra_derives, overrides.extra_derives),
+            }),
+        }
+    }
+
+    fn merge_rust_extra_derives(
+        base: Option<config::GlueConfigSchemaGenerationRustExtraDerives>,
+        overrides: Option<config::GlueConfigSchemaGenerationRustExtraDerives>,
+    ) -> Option<config::GlueConfigSchemaGenerationRustExtraDerives> {
+        match (base, overrides) {
+            (None, None) => None,
+            (Some(base), None) => Some(base),
+            (None, Some(overrides)) => Some(overrides),
+            (Some(base), Some(overrides)) => Some(config::GlueConfigSchemaGenerationRustExtraDerives {
+                structs: overrides.structs.or(base.structs),
+                enums: overrides.enums.or(base.enums),
+                unions: overrides.unions.or(base.unions),
             }),
         }
     }
@@ -754,6 +771,8 @@ impl GlueCli {
             Self::apply_override_arg(&mut root, override_arg, true)?;
         }
 
+        Self::normalize_rust_extra_derives_overrides(&mut root);
+
         serde_json::from_value::<GlueConfigSchemaGeneration>(Value::Object(root))
             .map(Some)
             .map_err(|e| CliError::BadInput(format!("Invalid --set/--set-string overrides for generation config: {}", e)))
@@ -812,6 +831,25 @@ impl GlueCli {
         let last = path_segments[path_segments.len() - 1].to_string();
         current.insert(last, value);
         Ok(())
+    }
+
+    fn normalize_rust_extra_derives_overrides(root: &mut Map<String, Value>) {
+        let Some(Value::Object(rust)) = root.get_mut("rust") else {
+            return;
+        };
+        let Some(Value::Object(extra_derives)) = rust.get_mut("extra_derives") else {
+            return;
+        };
+
+        for key in ["structs", "enums", "unions"] {
+            let Some(value) = extra_derives.get_mut(key) else {
+                continue;
+            };
+            if let Value::String(raw) = value {
+                let raw = raw.clone();
+                *value = Value::Array(raw.split(',').map(str::trim).filter(|part| !part.is_empty()).map(|part| Value::String(part.to_string())).collect());
+            }
+        }
     }
 
     const WATERMARK_SEPERATOR: &'static str = "------------------------------------";
@@ -990,6 +1028,9 @@ mod tests {
             "typescript.zod=true".to_string(),
             "python.data_model_library=dataclasses".to_string(),
             "rust.serde_struct_derives=false".to_string(),
+            "rust.extra_derives.structs=PartialEq,Eq,Hash".to_string(),
+            "rust.extra_derives.enums=Ord,PartialOrd".to_string(),
+            "rust.extra_derives.unions=PartialEq".to_string(),
             "watermark=none".to_string(),
             "go.package_name=myapi".to_string(),
         ];
@@ -1001,7 +1042,12 @@ mod tests {
         assert_eq!(result.typescript.and_then(|ts| ts.zod), Some(true));
         assert_eq!(result.watermark, Some(GlueConfigSchemaGenerationWatermark::None));
         assert_eq!(result.python.and_then(|py| py.data_model_library), Some(GlueConfigSchemaGenerationPythonDataModelLibrary::Dataclasses));
-        assert_eq!(result.rust.and_then(|rust| rust.serde_struct_derives), Some(false));
+        let rust = result.rust.expect("rust overrides should parse");
+        assert_eq!(rust.serde_struct_derives, Some(false));
+        let extra_derives = rust.extra_derives.expect("extra derives should parse");
+        assert_eq!(extra_derives.structs, Some(vec!["PartialEq".to_string(), "Eq".to_string(), "Hash".to_string()]));
+        assert_eq!(extra_derives.enums, Some(vec!["Ord".to_string(), "PartialOrd".to_string()]));
+        assert_eq!(extra_derives.unions, Some(vec!["PartialEq".to_string()]));
         assert_eq!(result.go.and_then(|go| go.package_name), Some("myapi".to_string()));
     }
 
@@ -1026,13 +1072,24 @@ mod tests {
     fn cli_overrides_take_precedence_over_base_config() {
         let base = GlueConfigSchemaGeneration {
             watermark: Some(GlueConfigSchemaGenerationWatermark::Short),
+            rust: Some(config::GlueConfigSchemaGenerationRust {
+                extra_derives: Some(config::GlueConfigSchemaGenerationRustExtraDerives {
+                    structs: Some(vec!["PartialEq".to_string()]),
+                    enums: Some(vec!["Hash".to_string()]),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
             ..Default::default()
         };
-        let set = vec!["watermark=none".to_string()];
+        let set = vec!["watermark=none".to_string(), "rust.extra_derives.enums=Ord,PartialOrd".to_string()];
         let cli_overrides = GlueCli::parse_cli_generation_overrides(&set, &[]).expect("overrides should parse");
         let merged = GlueCli::merge_generation_config(Some(base), cli_overrides).expect("merged config should exist");
 
         assert_eq!(merged.watermark, Some(GlueConfigSchemaGenerationWatermark::None));
+        let extra_derives = merged.rust.and_then(|rust| rust.extra_derives).expect("merged extra derives should exist");
+        assert_eq!(extra_derives.structs, Some(vec!["PartialEq".to_string()]));
+        assert_eq!(extra_derives.enums, Some(vec!["Ord".to_string(), "PartialOrd".to_string()]));
     }
 
     #[test]

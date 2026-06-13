@@ -64,4 +64,36 @@ gen:
         let entries = config.r#gen.expect("gen entries should exist");
         assert_eq!(entries[0].files.as_globs(), vec!["models/*.glue"]);
     }
+
+    #[test]
+    fn from_yaml_accepts_rust_extra_derives() {
+        let config = GlueConfig::from_yaml(
+            r#"
+global:
+  config:
+    rust:
+      extra_derives:
+        structs:
+          - PartialEq
+          - Eq
+          - Hash
+        enums:
+          - Ord
+          - PartialOrd
+        unions:
+          - PartialEq
+"#,
+        )
+        .expect("config should parse");
+
+        let extra_derives = config
+            .global
+            .and_then(|global| global.config)
+            .and_then(|generation| generation.rust)
+            .and_then(|rust| rust.extra_derives)
+            .expect("rust extra derives should parse");
+        assert_eq!(extra_derives.structs, Some(vec!["PartialEq".to_string(), "Eq".to_string(), "Hash".to_string()]));
+        assert_eq!(extra_derives.enums, Some(vec!["Ord".to_string(), "PartialOrd".to_string()]));
+        assert_eq!(extra_derives.unions, Some(vec!["PartialEq".to_string()]));
+    }
 }

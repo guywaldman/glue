@@ -36,7 +36,7 @@ pub struct GlueConfigSchemaGlobal {
 }
 
 /// Code generation target
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GlueConfigSchemaGenConfigMode {
     /// JSON Schema
     #[serde(rename = "jsonschema")]
@@ -84,7 +84,7 @@ pub struct GlueConfigSchemaGenerationTypeScript {
 }
 
 /// The Python modeling library
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GlueConfigSchemaGenerationPythonDataModelLibrary {
     /// Pydantic (v2) BaseModel classes with Field() annotations
     #[serde(rename = "pydantic")]
@@ -111,6 +111,19 @@ pub struct GlueConfigSchemaGenerationPython {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
+pub struct GlueConfigSchemaGenerationRustExtraDerives {
+    /// Additional derives for generated structs, including anonymous structs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub structs: Option<Vec<String>>,
+    /// Additional derives for regular generated enums.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enums: Option<Vec<String>>,
+    /// Additional derives for generated union enums.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unions: Option<Vec<String>>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
 pub struct GlueConfigSchemaGenerationRust {
     /// Include serde_yaml support in generated output
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -118,6 +131,9 @@ pub struct GlueConfigSchemaGenerationRust {
     /// Whether to derive serde Serialize/Deserialize and emit serde attributes for generated structs, enums, and union enums. Defaults to true.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub serde_struct_derives: Option<bool>,
+    /// Additional Rust derives to append by generated shape. Entries must be Rust derive paths such as `Hash`, `serde::Serialize`, or `schemars::JsonSchema`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra_derives: Option<GlueConfigSchemaGenerationRustExtraDerives>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
@@ -135,7 +151,7 @@ pub struct GlueConfigSchemaGenerationProtobuf {
 }
 
 /// Mode for generating the watermark comment at the top of generated files
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GlueConfigSchemaGenerationWatermark {
     /// Includes full details including generation timestamp, Glue version, source file, etc.
     #[serde(rename = "full")]

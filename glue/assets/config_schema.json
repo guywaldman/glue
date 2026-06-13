@@ -157,6 +157,10 @@
         "GlueConfigSchema::Generation::Rust": {
             "type": "object",
             "properties": {
+                "extra_derives": {
+                    "$ref": "#/$defs/GlueConfigSchema::Generation::Rust::ExtraDerives",
+                    "description": "Additional Rust derives to append by generated shape. Entries must be Rust derive paths such as `Hash`, `serde::Serialize`, or `schemars::JsonSchema`."
+                },
                 "include_yaml": {
                     "type": "boolean",
                     "description": "Include serde_yaml support in generated output"
@@ -164,6 +168,32 @@
                 "serde_struct_derives": {
                     "type": "boolean",
                     "description": "Whether to derive serde Serialize/Deserialize and emit serde attributes for generated structs, enums, and union enums. Defaults to true."
+                }
+            }
+        },
+        "GlueConfigSchema::Generation::Rust::ExtraDerives": {
+            "type": "object",
+            "properties": {
+                "enums": {
+                    "type": "array",
+                    "description": "Additional derives for regular generated enums.",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "structs": {
+                    "type": "array",
+                    "description": "Additional derives for generated structs, including anonymous structs.",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "unions": {
+                    "type": "array",
+                    "description": "Additional derives for generated union enums.",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },

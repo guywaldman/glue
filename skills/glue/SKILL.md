@@ -222,6 +222,13 @@ global:
       data_model_library: pydantic
       base_model: pydantic.BaseModel
 
+    # Rust can opt into extra derives by generated shape.
+    rust:
+      extra_derives:
+        structs: ["PartialEq"]
+        enums: ["Ord", "PartialOrd"]
+        unions: ["PartialEq"]
+
     # Go packages usually need a stable package name.
     go:
       package_name: commerce

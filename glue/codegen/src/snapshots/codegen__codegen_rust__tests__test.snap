@@ -22,7 +22,7 @@ pub struct GlueConfigSchemaGenerationPythonPydantic {
 }
 
 /// Watermark modes for generated files
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GlueConfigSchemaGenerationWatermark {
     /// Includes full watermark with generation command and timestamp
     #[serde(rename = "full")]

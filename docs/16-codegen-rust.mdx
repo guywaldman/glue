@@ -21,11 +21,16 @@ global:
 		rust:
 			include_yaml: true
 			serde_struct_derives: false
+			extra_derives:
+				structs: ["PartialEq"]
+				enums: ["Ord", "PartialOrd"]
+				unions: ["PartialEq"]
 ```
 
 When `include_yaml` is enabled, generated models include `from_yaml`/`to_yaml` helper methods.
 Set `serde_struct_derives: false` to omit serde `Serialize`/`Deserialize` derives and serde attributes from generated structs, enums, and union enums.
 If both options are combined, provide serde impls yourself before using the YAML helpers.
+Use `extra_derives` to append additional Rust derive paths by generated shape. Entries must be Rust paths such as `Hash`, `serde::Serialize`, or `schemars::JsonSchema`.
 
 ## Example
 
@@ -64,7 +69,7 @@ pub struct User {
 		pub metadata: HashMap<String, serde_json::Value>,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Status {
 		#[serde(rename = "active")]
 		Active,
@@ -80,5 +85,6 @@ pub enum Status {
 - `int` emits `isize`, `uint` emits `usize`, and fixed-width integers emit their Rust equivalents (`i8`, `u64`, etc.).
 - Tuples are emitted as native Rust tuples, e.g. `(String, isize)`.
 - `Record<K, V>` is emitted as `HashMap<K, V>`.
+- Regular enums derive `Copy` and `Hash` by default.
 - By default, unions are emitted as generated `#[serde(untagged)]` enums.
 - Anonymous structs are emitted as generated structs named from the owning field path.

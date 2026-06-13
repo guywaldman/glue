@@ -7,6 +7,6 @@ mod schema;
 pub use config::GlueConfig;
 pub use schema::{
     GlueConfigSchema, GlueConfigSchemaGenConfig, GlueConfigSchemaGenConfigFiles, GlueConfigSchemaGenConfigMode, GlueConfigSchemaGeneration, GlueConfigSchemaGenerationGo,
-    GlueConfigSchemaGenerationProtobuf, GlueConfigSchemaGenerationPython, GlueConfigSchemaGenerationPythonDataModelLibrary, GlueConfigSchemaGenerationRust, GlueConfigSchemaGenerationTypeScript,
-    GlueConfigSchemaGenerationWatermark, GlueConfigSchemaGlobal, GlueConfigSchemaGlobalDiagnostics,
+    GlueConfigSchemaGenerationProtobuf, GlueConfigSchemaGenerationPython, GlueConfigSchemaGenerationPythonDataModelLibrary, GlueConfigSchemaGenerationRust, GlueConfigSchemaGenerationRustExtraDerives,
+    GlueConfigSchemaGenerationTypeScript, GlueConfigSchemaGenerationWatermark, GlueConfigSchemaGlobal, GlueConfigSchemaGlobalDiagnostics,
 };

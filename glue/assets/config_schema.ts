@@ -127,6 +127,25 @@ export type GlueConfigSchemaGenerationRust = {
    * Whether to derive serde Serialize/Deserialize and emit serde attributes for generated structs, enums, and union enums. Defaults to true.
    */
   serde_struct_derives?: boolean;
+  /**
+   * Additional Rust derives to append by generated shape. Entries must be Rust derive paths such as `Hash`, `serde::Serialize`, or `schemars::JsonSchema`.
+   */
+  extra_derives?: GlueConfigSchemaGenerationRustExtraDerives;
+};
+
+export type GlueConfigSchemaGenerationRustExtraDerives = {
+  /**
+   * Additional derives for generated structs, including anonymous structs.
+   */
+  structs?: string[];
+  /**
+   * Additional derives for regular generated enums.
+   */
+  enums?: string[];
+  /**
+   * Additional derives for generated union enums.
+   */
+  unions?: string[];
 };
 
 export type GlueConfigSchemaGenerationGo = {
