@@ -2,12 +2,12 @@ use std::collections::HashSet;
 
 use config::GlueConfigSchemaGeneration;
 use convert_case::Case;
-use lang::{AnonModel, AstNode, Enum, Field, GlueIr, LSyntaxKind, Rpc, Service, SourceCodeMetadata, SymId, Type, TypeAtom};
+use lang::{AnonModel, AstNode, Enum, Field, GlueIr, LSyntaxKind, PrimitiveType, Rpc, Service, SourceCodeMetadata, SymId, Type, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
     codegen::CodeGenResult,
-    context::{AnonymousTypeNamer, CodeGenContext, EnumVariantExt, FieldExt, NamedExt, TypeMapper, convert_generated_identifier_case},
+    context::{AnonymousTypeNamer, CodeGenContext, EnumVariantExt, FieldExt, NamedExt, convert_generated_identifier_case},
 };
 
 #[derive(Default)]
@@ -343,7 +343,7 @@ impl<'a> ProtobufGenerator<'a> {
 
         let mut optional = atom.is_optional();
         let base = if let Some(primitive) = atom.as_primitive_type() {
-            TypeMapper::to_protobuf(primitive).to_string()
+            protobuf_primitive_type(primitive).to_string()
         } else if let Some(record) = atom.as_record_type() {
             let src = record.src_type_node().ok_or_else(|| CodeGenContext::internal_error("Record missing source type"))?;
             let dest = record.dest_type_node().ok_or_else(|| CodeGenContext::internal_error("Record missing destination type"))?;
@@ -449,6 +449,20 @@ impl<'a> ProtobufGenerator<'a> {
             "value".to_string()
         };
         Ok(convert_generated_identifier_case(&suffix, Case::Snake))
+    }
+}
+
+fn protobuf_primitive_type(primitive: PrimitiveType) -> &'static str {
+    match primitive {
+        PrimitiveType::I64 => "int64",
+        PrimitiveType::U64 => "uint64",
+        primitive if primitive.is_unsigned_integer() => "uint32",
+        primitive if primitive.is_integer() => "int32",
+        PrimitiveType::Any => "google.protobuf.Any",
+        PrimitiveType::String => "string",
+        PrimitiveType::Float => "float",
+        PrimitiveType::Bool => "bool",
+        _ => unreachable!("integer primitive handled above"),
     }
 }
 

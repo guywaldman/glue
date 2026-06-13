@@ -1,11 +1,11 @@
 use config::{GlueConfigSchemaGeneration, GlueConfigSchemaGenerationGo};
 use convert_case::Case;
-use lang::{AnonModel, AstNode, ConstDef, ConstValue, Enum, Field, GlueIr, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
+use lang::{AnonModel, AstNode, ConstDef, ConstValue, Enum, Field, GlueIr, Model, PrimitiveType, SourceCodeMetadata, SymId, Type, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
     codegen::CodeGenResult,
-    context::{AnonymousTypeNamer, CodeGenContext, FieldExt, NamedExt, TypeMapper, convert_generated_identifier_case, convert_user_identifier_case},
+    context::{AnonymousTypeNamer, CodeGenContext, FieldExt, NamedExt, convert_generated_identifier_case, convert_user_identifier_case},
 };
 
 #[derive(Default)]
@@ -94,7 +94,7 @@ impl<'a> GoGenerator<'a> {
         let value = self.ctx.eval_const_def_in_scope(const_def, scope)?;
         let (ty, literal) = match value {
             ConstValue::String(value) => ("string", serde_json::to_string(&value).map_err(|e| CodeGenContext::internal_error(e.to_string()))?),
-            ConstValue::Int(value) => (TypeMapper::to_go(TypeMapper::const_integer_primitive(const_def)), value.to_string()),
+            ConstValue::Int(value) => (go_primitive_type(const_integer_primitive(const_def)), value.to_string()),
             ConstValue::Bool(value) => ("bool", value.to_string()),
             ConstValue::List(_) => return Err(self.ctx.error(const_def.syntax(), "Constants can only be integer, string, or bool")),
         };
@@ -328,7 +328,7 @@ impl<'a> GoGenerator<'a> {
 
     fn emit_base_type(&mut self, atom: &TypeAtom, parent_scope: Option<SymId>, path: &[String]) -> CodeGenResult<String> {
         if let Some(primitive) = atom.as_primitive_type() {
-            return Ok(TypeMapper::to_go(primitive).to_string());
+            return Ok(go_primitive_type(primitive).to_string());
         }
 
         if let Some(record_type) = atom.as_record_type() {
@@ -477,6 +477,34 @@ impl<'a> GoGenerator<'a> {
         }
         output
     }
+}
+
+fn go_primitive_type(primitive: PrimitiveType) -> &'static str {
+    match primitive {
+        PrimitiveType::Any => "interface{}",
+        PrimitiveType::String => "string",
+        PrimitiveType::Int => "int",
+        PrimitiveType::UInt => "uint",
+        PrimitiveType::I8 => "int8",
+        PrimitiveType::I16 => "int16",
+        PrimitiveType::I32 => "int32",
+        PrimitiveType::I64 => "int64",
+        PrimitiveType::U8 => "uint8",
+        PrimitiveType::U16 => "uint16",
+        PrimitiveType::U32 => "uint32",
+        PrimitiveType::U64 => "uint64",
+        PrimitiveType::Float => "float64",
+        PrimitiveType::Bool => "bool",
+    }
+}
+
+fn const_integer_primitive(const_def: &ConstDef) -> PrimitiveType {
+    const_def
+        .type_node()
+        .and_then(Type::cast)
+        .and_then(|ty| ty.type_atoms().first().and_then(TypeAtom::as_primitive_type))
+        .filter(|primitive| primitive.is_integer())
+        .unwrap_or(PrimitiveType::Int)
 }
 
 #[cfg(test)]

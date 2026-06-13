@@ -1,11 +1,11 @@
 use config::{GlueConfigSchemaGeneration, GlueConfigSchemaGenerationPython, GlueConfigSchemaGenerationPythonDataModelLibrary};
 use convert_case::Case;
-use lang::{AnonModel, AstNode, ConstDef, ConstValue, Enum, Field, GlueIr, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
+use lang::{AnonModel, AstNode, ConstDef, ConstValue, Enum, Field, GlueIr, Model, PrimitiveType, SourceCodeMetadata, SymId, Type, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
     codegen::CodeGenResult,
-    context::{AnonymousTypeNamer, CodeGenContext, DocEmitter, EnumVariantExt, FieldExt, NamedExt, TypeMapper, convert_generated_identifier_case, convert_user_identifier_case, indent},
+    context::{AnonymousTypeNamer, CodeGenContext, DocEmitter, EnumVariantExt, FieldExt, NamedExt, convert_generated_identifier_case, convert_user_identifier_case, indent},
 };
 
 enum PyModelLibrary {
@@ -404,7 +404,7 @@ impl<'a> PythonGenerator<'a> {
 
     fn emit_type_atom(&mut self, atom: &TypeAtom, scope: Option<SymId>, path: &[String]) -> CodeGenResult<String> {
         let mut result = if let Some(primitive) = atom.as_primitive_type() {
-            TypeMapper::to_python(primitive).to_string()
+            python_primitive_type(primitive).to_string()
         } else if let Some(record) = atom.as_record_type() {
             let src = record.src_type_node().ok_or_else(|| CodeGenContext::internal_error("Record missing src type"))?;
             let dest = record.dest_type_node().ok_or_else(|| CodeGenContext::internal_error("Record missing dest type"))?;
@@ -466,6 +466,17 @@ impl<'a> PythonGenerator<'a> {
             ConstValue::String(value) => serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string()),
             ConstValue::List(_) => "None".to_string(),
         }
+    }
+}
+
+fn python_primitive_type(primitive: PrimitiveType) -> &'static str {
+    match primitive {
+        primitive if primitive.is_integer() => "int",
+        PrimitiveType::Any => "Any",
+        PrimitiveType::String => "str",
+        PrimitiveType::Float => "float",
+        PrimitiveType::Bool => "bool",
+        _ => unreachable!("integer primitive handled above"),
     }
 }
 

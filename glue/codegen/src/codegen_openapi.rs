@@ -2,11 +2,11 @@ use std::collections::HashMap;
 
 use config::GlueConfigSchemaGeneration;
 use convert_case::Case;
-use lang::{AnonModel, AstNode, ConstValue, Endpoint, Field, GlueIr, Model, SourceCodeMetadata, Type, TypeAtom};
+use lang::{AnonModel, AstNode, ConstValue, Endpoint, Field, GlueIr, Model, PrimitiveType, SourceCodeMetadata, Type, TypeAtom};
 
 use crate::CodeGenerator;
 use crate::codegen::CodeGenResult;
-use crate::context::{CodeGenContext, NamedExt, TypeMapper};
+use crate::context::{CodeGenContext, NamedExt};
 use crate::models::openapi;
 
 #[derive(Default)]
@@ -156,7 +156,7 @@ impl<'a> OpenAPIGenerator<'a> {
         let nullable = atom.is_optional().then_some(true);
 
         if let Some(primitive) = atom.as_primitive_type() {
-            let (schema_type, format) = TypeMapper::to_openapi(primitive);
+            let (schema_type, format) = openapi_primitive_schema_type(primitive);
             let base = openapi::Schema {
                 schema_type: Some(schema_type.to_string()),
                 format: format.map(String::from),
@@ -382,6 +382,24 @@ impl<'a> OpenAPIGenerator<'a> {
             content,
             required: Some(!body_field.is_optional()),
         }))
+    }
+}
+
+fn openapi_primitive_schema_type(primitive: PrimitiveType) -> (&'static str, Option<&'static str>) {
+    match primitive {
+        primitive if primitive.is_integer() => {
+            let format = match primitive {
+                PrimitiveType::I32 | PrimitiveType::U32 => Some("int32"),
+                PrimitiveType::I64 | PrimitiveType::U64 => Some("int64"),
+                _ => None,
+            };
+            ("integer", format)
+        }
+        PrimitiveType::Any => ("object", None),
+        PrimitiveType::String => ("string", None),
+        PrimitiveType::Float => ("number", Some("double")),
+        PrimitiveType::Bool => ("boolean", None),
+        _ => unreachable!("integer primitive handled above"),
     }
 }
 

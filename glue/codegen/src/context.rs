@@ -4,7 +4,7 @@ use config::GlueConfigSchemaGeneration;
 use convert_case::{Case, Casing, Converter};
 use lang::{
     AstNode, ConstDef, ConstEvaluator, ConstValue, DecoratorArg, DiagnosticContext, Enum, EnumVariant, Field, LNode, LSyntaxKind, MODEL_FIELD_DECORATOR, MODEL_FIELD_DECORATOR_ALIAS_ARG,
-    MODEL_FIELD_DECORATOR_EXAMPLE_ARG, MODEL_FIELD_DECORATOR_PROTO_TAG_ARG, Model, PrimitiveType, Service, SourceCodeMetadata, SymId, SymTable, Type, TypeAlias, TypeAtom,
+    MODEL_FIELD_DECORATOR_EXAMPLE_ARG, MODEL_FIELD_DECORATOR_PROTO_TAG_ARG, Model, Service, SourceCodeMetadata, SymId, SymTable, Type, TypeAlias,
 };
 
 use crate::CodeGenError;
@@ -463,111 +463,6 @@ impl DocEmitter {
 
     pub fn joined(docs: &[String]) -> String {
         docs.join("\n")
-    }
-}
-
-pub struct TypeMapper;
-
-impl TypeMapper {
-    pub fn const_integer_primitive(const_def: &ConstDef) -> PrimitiveType {
-        const_def
-            .type_node()
-            .and_then(Type::cast)
-            .and_then(|ty| ty.type_atoms().first().and_then(TypeAtom::as_primitive_type))
-            .filter(|primitive| primitive.is_integer())
-            .unwrap_or(PrimitiveType::Int)
-    }
-
-    pub fn to_rust(primitive: PrimitiveType) -> &'static str {
-        match primitive {
-            PrimitiveType::Any => "serde_json::Value",
-            PrimitiveType::String => "String",
-            PrimitiveType::Int => "isize",
-            PrimitiveType::UInt => "usize",
-            PrimitiveType::I8 => "i8",
-            PrimitiveType::I16 => "i16",
-            PrimitiveType::I32 => "i32",
-            PrimitiveType::I64 => "i64",
-            PrimitiveType::U8 => "u8",
-            PrimitiveType::U16 => "u16",
-            PrimitiveType::U32 => "u32",
-            PrimitiveType::U64 => "u64",
-            PrimitiveType::Float => "f64",
-            PrimitiveType::Bool => "bool",
-        }
-    }
-
-    pub fn to_python(primitive: PrimitiveType) -> &'static str {
-        match primitive {
-            primitive if primitive.is_integer() => "int",
-            PrimitiveType::Any => "Any",
-            PrimitiveType::String => "str",
-            PrimitiveType::Float => "float",
-            PrimitiveType::Bool => "bool",
-            _ => unreachable!("integer primitive handled above"),
-        }
-    }
-
-    pub fn to_json_schema(primitive: PrimitiveType) -> &'static str {
-        match primitive {
-            primitive if primitive.is_integer() => "integer",
-            PrimitiveType::Any => "object",
-            PrimitiveType::String => "string",
-            PrimitiveType::Float => "number",
-            PrimitiveType::Bool => "boolean",
-            _ => unreachable!("integer primitive handled above"),
-        }
-    }
-
-    pub fn to_openapi(primitive: PrimitiveType) -> (&'static str, Option<&'static str>) {
-        match primitive {
-            primitive if primitive.is_integer() => {
-                let format = match primitive {
-                    PrimitiveType::I32 | PrimitiveType::U32 => Some("int32"),
-                    PrimitiveType::I64 | PrimitiveType::U64 => Some("int64"),
-                    _ => None,
-                };
-                ("integer", format)
-            }
-            PrimitiveType::Any => ("object", None),
-            PrimitiveType::String => ("string", None),
-            PrimitiveType::Float => ("number", Some("double")),
-            PrimitiveType::Bool => ("boolean", None),
-            _ => unreachable!("integer primitive handled above"),
-        }
-    }
-
-    pub fn to_protobuf(primitive: PrimitiveType) -> &'static str {
-        match primitive {
-            PrimitiveType::I64 => "int64",
-            PrimitiveType::U64 => "uint64",
-            primitive if primitive.is_unsigned_integer() => "uint32",
-            primitive if primitive.is_integer() => "int32",
-            PrimitiveType::Any => "google.protobuf.Any",
-            PrimitiveType::String => "string",
-            PrimitiveType::Float => "float",
-            PrimitiveType::Bool => "bool",
-            _ => unreachable!("integer primitive handled above"),
-        }
-    }
-
-    pub fn to_go(primitive: PrimitiveType) -> &'static str {
-        match primitive {
-            PrimitiveType::Any => "interface{}",
-            PrimitiveType::String => "string",
-            PrimitiveType::Int => "int",
-            PrimitiveType::UInt => "uint",
-            PrimitiveType::I8 => "int8",
-            PrimitiveType::I16 => "int16",
-            PrimitiveType::I32 => "int32",
-            PrimitiveType::I64 => "int64",
-            PrimitiveType::U8 => "uint8",
-            PrimitiveType::U16 => "uint16",
-            PrimitiveType::U32 => "uint32",
-            PrimitiveType::U64 => "uint64",
-            PrimitiveType::Float => "float64",
-            PrimitiveType::Bool => "bool",
-        }
     }
 }
 

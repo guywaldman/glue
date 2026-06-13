@@ -1,11 +1,11 @@
 use config::GlueConfigSchemaGeneration;
 use convert_case::Case;
-use lang::{AnonModel, AstNode, ConstDef, ConstValue, Enum, Field, GlueIr, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
+use lang::{AnonModel, AstNode, ConstDef, ConstValue, Enum, Field, GlueIr, Model, PrimitiveType, SourceCodeMetadata, SymId, Type, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
     codegen::CodeGenResult,
-    context::{CodeGenContext, DocEmitter, EnumVariantExt, FieldExt, NamedExt, TypeMapper},
+    context::{CodeGenContext, DocEmitter, EnumVariantExt, FieldExt, NamedExt},
 };
 
 #[derive(Default)]
@@ -174,7 +174,7 @@ impl<'a> TypeScriptGenerator<'a> {
 
     fn emit_type_atom(&self, atom: &TypeAtom, scope: Option<SymId>) -> CodeGenResult<String> {
         let mut result = if let Some(primitive) = atom.as_primitive_type() {
-            <TypeMapper as TypeScriptTypeMapper>::to_typescript(primitive).to_string()
+            typescript_primitive_type(primitive).to_string()
         } else if let Some(record) = atom.as_record_type() {
             let src = record.src_type_node().ok_or_else(|| CodeGenContext::internal_error("Record missing src type"))?;
             let dest = record.dest_type_node().ok_or_else(|| CodeGenContext::internal_error("Record missing dest type"))?;
@@ -290,13 +290,13 @@ impl<'a> TypeScriptGenerator<'a> {
         Ok(format!("z.object({{ {} }})", fields.join(", ")))
     }
 
-    fn zod_for_primitive(&self, primitive: lang::PrimitiveType) -> String {
+    fn zod_for_primitive(&self, primitive: PrimitiveType) -> String {
         match primitive {
             primitive if primitive.is_integer() => "z.number()".to_string(),
-            lang::PrimitiveType::String => "z.string()".to_string(),
-            lang::PrimitiveType::Float => "z.number()".to_string(),
-            lang::PrimitiveType::Bool => "z.boolean()".to_string(),
-            lang::PrimitiveType::Any => "z.any()".to_string(),
+            PrimitiveType::String => "z.string()".to_string(),
+            PrimitiveType::Float => "z.number()".to_string(),
+            PrimitiveType::Bool => "z.boolean()".to_string(),
+            PrimitiveType::Any => "z.any()".to_string(),
             _ => unreachable!("integer primitive handled above"),
         }
     }
@@ -320,20 +320,14 @@ impl TsDocEmitter for DocEmitter {
     }
 }
 
-trait TypeScriptTypeMapper {
-    fn to_typescript(primitive: lang::PrimitiveType) -> &'static str;
-}
-
-impl TypeScriptTypeMapper for TypeMapper {
-    fn to_typescript(primitive: lang::PrimitiveType) -> &'static str {
-        match primitive {
-            primitive if primitive.is_integer() => "number",
-            lang::PrimitiveType::String => "string",
-            lang::PrimitiveType::Float => "number",
-            lang::PrimitiveType::Bool => "boolean",
-            lang::PrimitiveType::Any => "any",
-            _ => unreachable!("integer primitive handled above"),
-        }
+fn typescript_primitive_type(primitive: PrimitiveType) -> &'static str {
+    match primitive {
+        primitive if primitive.is_integer() => "number",
+        PrimitiveType::String => "string",
+        PrimitiveType::Float => "number",
+        PrimitiveType::Bool => "boolean",
+        PrimitiveType::Any => "any",
+        _ => unreachable!("integer primitive handled above"),
     }
 }
 

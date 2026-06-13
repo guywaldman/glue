@@ -1,11 +1,11 @@
 use config::GlueConfigSchemaGeneration;
 use convert_case::Case;
-use lang::{AnonModel, AstNode, ConstDef, ConstValue, Enum, Field, GlueIr, Model, SourceCodeMetadata, SymId, Type, TypeAtom};
+use lang::{AnonModel, AstNode, ConstDef, ConstValue, Enum, Field, GlueIr, Model, PrimitiveType, SourceCodeMetadata, SymId, Type, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
     codegen::CodeGenResult,
-    context::{AnonymousTypeNamer, CodeGenContext, DocEmitter, FieldExt, NamedExt, TypeMapper, convert_generated_identifier_case},
+    context::{AnonymousTypeNamer, CodeGenContext, DocEmitter, FieldExt, NamedExt, convert_generated_identifier_case},
 };
 
 #[derive(Default)]
@@ -143,7 +143,7 @@ impl<'a> RustGenerator<'a> {
         let value = self.ctx.eval_const_def_in_scope(const_def, scope)?;
         let (ty, literal) = match value {
             ConstValue::String(value) => ("&str", format!("{:?}", value)),
-            ConstValue::Int(value) => (TypeMapper::to_rust(TypeMapper::const_integer_primitive(const_def)), value.to_string()),
+            ConstValue::Int(value) => (rust_primitive_type(const_integer_primitive(const_def)), value.to_string()),
             ConstValue::Bool(value) => ("bool", value.to_string()),
             ConstValue::List(_) => return Err(self.ctx.error(const_def.syntax(), "Constants can only be integer, string, or bool")),
         };
@@ -386,7 +386,7 @@ impl<'a> RustGenerator<'a> {
 
     fn emit_type_atom(&mut self, atom: &TypeAtom, parent_scope: Option<SymId>, path: &[String]) -> CodeGenResult<String> {
         let mut base = if let Some(primitive) = atom.as_primitive_type() {
-            TypeMapper::to_rust(primitive).to_string()
+            rust_primitive_type(primitive).to_string()
         } else if let Some(record_type) = atom.as_record_type() {
             self.imports.insert("use std::collections::HashMap;");
             let src_type = record_type.src_type_node().ok_or_else(|| CodeGenContext::internal_error("Record missing source type"))?;
@@ -440,6 +440,34 @@ impl<'a> RustGenerator<'a> {
 
         Ok(base)
     }
+}
+
+fn rust_primitive_type(primitive: PrimitiveType) -> &'static str {
+    match primitive {
+        PrimitiveType::Any => "serde_json::Value",
+        PrimitiveType::String => "String",
+        PrimitiveType::Int => "isize",
+        PrimitiveType::UInt => "usize",
+        PrimitiveType::I8 => "i8",
+        PrimitiveType::I16 => "i16",
+        PrimitiveType::I32 => "i32",
+        PrimitiveType::I64 => "i64",
+        PrimitiveType::U8 => "u8",
+        PrimitiveType::U16 => "u16",
+        PrimitiveType::U32 => "u32",
+        PrimitiveType::U64 => "u64",
+        PrimitiveType::Float => "f64",
+        PrimitiveType::Bool => "bool",
+    }
+}
+
+fn const_integer_primitive(const_def: &ConstDef) -> PrimitiveType {
+    const_def
+        .type_node()
+        .and_then(Type::cast)
+        .and_then(|ty| ty.type_atoms().first().and_then(TypeAtom::as_primitive_type))
+        .filter(|primitive| primitive.is_integer())
+        .unwrap_or(PrimitiveType::Int)
 }
 
 #[cfg(test)]
