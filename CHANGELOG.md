@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.11.0](https://github.com/guywaldman/glue/compare/v1.10.0...v1.11.0) (2026-06-13)
+
+
+### Features
+
+* add more Rust derives & make it configurable ([a7baaf9](https://github.com/guywaldman/glue/commit/a7baaf977ed6670d3cd55a33c6ff94a6eabc09dc))
+* **codegen:** export public type aliases ([b7644a5](https://github.com/guywaldman/glue/commit/b7644a503080aa5f12da84144292560cbf73e952))
+
 ## [1.10.0](https://github.com/guywaldman/glue/compare/v1.9.0...v1.10.0) (2026-06-13)
 
 
