@@ -499,6 +499,12 @@ impl SemanticAnalyzer {
                 }
             }
 
+            if let Some(tuple) = atom.as_tuple_type() {
+                for item_type in tuple.item_type_nodes() {
+                    Self::collect_type_refs(item_type, out);
+                }
+            }
+
             if let Some(anon_model_node) = atom.as_anon_model()
                 && let Some(anon_model) = AnonModel::cast(anon_model_node)
             {
@@ -660,6 +666,9 @@ impl SemanticAnalyzer {
                         let report = diag.error(field_default_value_node.text_range(), "Type of default value does not match field type");
                         errors.push(SemanticAnalyzerError::DuplicateField(report));
                     }
+                } else if type_atom.as_tuple_type().is_some() {
+                    let report = diag.error(field_default_value_node.text_range(), "Tuple default values are not supported yet");
+                    errors.push(SemanticAnalyzerError::DuplicateField(report));
                 } else {
                     // Not a literal type - must be a ref
                     if let Some(ref_name) = type_atom.as_ref_name()
@@ -747,6 +756,12 @@ impl SemanticAnalyzer {
                 }
                 if let Some(dest) = record.dest_type_node() {
                     Self::check_type(dest, symbols, scope, errors, diag.clone());
+                }
+            }
+
+            if let Some(tuple) = type_atom.as_tuple_type() {
+                for item_type in tuple.item_type_nodes() {
+                    Self::check_type(item_type, symbols, scope, errors, diag.clone());
                 }
             }
         }
@@ -1454,6 +1469,23 @@ mod tests {
         let parsed = Parser::new().parse(&source).unwrap();
         let result = SemanticAnalyzer::new().analyze(&parsed, &source);
         assert!(result.is_err(), "Expected semantic analysis to fail for unknown record type");
+    }
+
+    #[test]
+    fn test_tuple_unknown_type_fails() {
+        let src = indoc! { r#"
+            model User {
+                pair: (string, Foo)
+            }
+        "# };
+
+        let source = SourceCodeMetadata {
+            file_name: "test.glue",
+            file_contents: src,
+        };
+        let parsed = Parser::new().parse(&source).unwrap();
+        let result = SemanticAnalyzer::new().analyze(&parsed, &source);
+        assert!(result.is_err(), "Expected semantic analysis to fail for unknown tuple type");
     }
 
     #[test]

@@ -415,6 +415,15 @@ impl<'a> PythonGenerator<'a> {
             let mut value_path = path.to_vec();
             value_path.push("Value".to_string());
             format!("dict[{}, {}]", self.emit_type(&src_type, scope, &key_path)?, self.emit_type(&dest_type, scope, &value_path)?)
+        } else if let Some(tuple) = atom.as_tuple_type() {
+            let item_types = tuple.item_types();
+            let mut item_codes = Vec::with_capacity(item_types.len());
+            for (index, item_type) in item_types.iter().enumerate() {
+                let mut item_path = path.to_vec();
+                item_path.push(format!("Item{}", index));
+                item_codes.push(self.emit_type(item_type, scope, &item_path)?);
+            }
+            format!("tuple[{}]", item_codes.join(", "))
         } else if let Some(ref_token) = atom.as_ref_token() {
             let type_name = ref_token.text().to_string();
             if let Some(alias_type) = self.ctx.resolve_type_alias(scope, &type_name)? {
@@ -834,5 +843,19 @@ mod tests {
         let output = gen_python(src);
         assert!(output.contains("dict[str, int]"), "Expected dict in output:\n{}", output);
         assert_snapshot!(output);
+    }
+
+    #[test]
+    fn test_tuple_types() {
+        let src = indoc! { r#"
+            model Event {
+                pair: (string, int)
+                history: (string, int)[]
+            }
+        "# };
+
+        let output = gen_python(src);
+        assert!(output.contains("pair: Annotated[tuple[str, int], Field()]"), "Expected Python tuple:\n{}", output);
+        assert!(output.contains("history: Annotated[list[tuple[str, int]], Field()]"), "Expected Python tuple list:\n{}", output);
     }
 }

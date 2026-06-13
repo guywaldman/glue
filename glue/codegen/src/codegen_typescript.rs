@@ -181,6 +181,9 @@ impl<'a> TypeScriptGenerator<'a> {
             let src_type = Type::cast(src).ok_or_else(|| CodeGenContext::internal_error("Expected Type for record src"))?;
             let dest_type = Type::cast(dest).ok_or_else(|| CodeGenContext::internal_error("Expected Type for record dest"))?;
             format!("Record<{}, {}>", self.emit_type(&src_type, scope)?, self.emit_type(&dest_type, scope)?)
+        } else if let Some(tuple) = atom.as_tuple_type() {
+            let item_codes = tuple.item_types().iter().map(|item| self.emit_type(item, scope)).collect::<CodeGenResult<Vec<_>>>()?;
+            format!("[{}]", item_codes.join(", "))
         } else if let Some(ref_token) = atom.as_ref_token() {
             let type_name = ref_token.text().to_string();
             if let Some(alias_type) = self.ctx.resolve_type_alias(scope, &type_name)? {
@@ -241,6 +244,9 @@ impl<'a> TypeScriptGenerator<'a> {
             let key_schema = self.emit_zod_type(&src_type, scope)?;
             let value_schema = self.emit_zod_type(&dest_type, scope)?;
             format!("z.record({}, {})", key_schema, value_schema)
+        } else if let Some(tuple) = atom.as_tuple_type() {
+            let item_schemas = tuple.item_types().iter().map(|item| self.emit_zod_type(item, scope)).collect::<CodeGenResult<Vec<_>>>()?;
+            format!("z.tuple([{}])", item_schemas.join(", "))
         } else if let Some(ref_token) = atom.as_ref_token() {
             let type_name = ref_token.text().to_string();
             if let Some(alias_type) = self.ctx.resolve_type_alias(scope, &type_name)? {
@@ -453,6 +459,28 @@ mod tests {
         "# };
 
         assert_snapshot!(gen_typescript_with_zod(src, true));
+    }
+
+    #[test]
+    fn test_tuple_types() {
+        let src = indoc! { r#"
+            model Event {
+                pair: (string, int)
+                history: (string, int)[]
+            }
+        "# };
+
+        let output = gen_typescript(src);
+        assert!(output.contains("pair: [string, number];"), "Expected TypeScript tuple:\n{}", output);
+        assert!(output.contains("history: [string, number][];"), "Expected TypeScript tuple array:\n{}", output);
+
+        let zod_output = gen_typescript_with_zod(src, true);
+        assert!(zod_output.contains("pair: z.tuple([z.string(), z.number()])"), "Expected Zod tuple schema:\n{}", zod_output);
+        assert!(
+            zod_output.contains("history: z.array(z.tuple([z.string(), z.number()]))"),
+            "Expected Zod tuple array schema:\n{}",
+            zod_output
+        );
     }
 
     #[test]

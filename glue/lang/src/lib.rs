@@ -24,5 +24,5 @@ pub use semantic_analyzer::{AnalyzedProgram, SemanticAnalyzer, SemanticAnalyzerE
 pub use symbols::{SymEntry, SymId, SymTable, symbol_name_to_parts};
 pub use syntax::{
     AnonModel, AstNode, AstVisitor, ConstAdd, ConstDef, ConstExpr, ConstExprType, ConstMul, ConstPrimary, ConstRef, Decorator, DecoratorArg, Endpoint, Enum, EnumVariant, Field, ImportNamedItem,
-    ImportStmt, LNode, LSyntaxKind, Literal, LiteralExpr, Model, Parser, ParserError, PrimitiveType, RootNode, Rpc, Service, Type, TypeAlias, TypeAtom,
+    ImportStmt, LNode, LSyntaxKind, Literal, LiteralExpr, Model, Parser, ParserError, PrimitiveType, RootNode, Rpc, Service, TupleType, Type, TypeAlias, TypeAtom,
 };

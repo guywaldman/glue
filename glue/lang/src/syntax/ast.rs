@@ -972,6 +972,18 @@ impl RecordType {
     }
 }
 
+ast_node!(TupleType, LSyntaxKind::TUPLE);
+
+impl TupleType {
+    pub fn item_type_nodes(&self) -> Vec<LNode> {
+        self.0.children().filter(|n| n.kind() == LSyntaxKind::TYPE).collect()
+    }
+
+    pub fn item_types(&self) -> Vec<Type> {
+        self.item_type_nodes().into_iter().filter_map(Type::cast).collect()
+    }
+}
+
 ast_node!(TypeAtom, LSyntaxKind::TYPE_ATOM);
 
 impl TypeAtom {
@@ -1013,6 +1025,10 @@ impl TypeAtom {
 
     pub fn as_record_type(&self) -> Option<RecordType> {
         self.0.children().find(|n| n.kind() == LSyntaxKind::RECORD).and_then(RecordType::cast)
+    }
+
+    pub fn as_tuple_type(&self) -> Option<TupleType> {
+        self.0.children().find(|n| n.kind() == LSyntaxKind::TUPLE).and_then(TupleType::cast)
     }
 
     // Note: Ignores modifiers

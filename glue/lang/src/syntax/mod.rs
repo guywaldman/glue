@@ -4,7 +4,7 @@ mod parser;
 
 pub use ast::{
     AnonModel, AstNode, ConstAdd, ConstDef, ConstExpr, ConstExprType, ConstMul, ConstPrimary, ConstRef, Decorator, DecoratorArg, Endpoint, Enum, EnumVariant, Field, ImportNamedItem, ImportStmt,
-    Literal, LiteralExpr, Model, PrimitiveType, RootNode, Rpc, Service, Type, TypeAlias, TypeAtom,
+    Literal, LiteralExpr, Model, PrimitiveType, RootNode, Rpc, Service, TupleType, Type, TypeAlias, TypeAtom,
 };
 pub use ast_traversal::AstVisitor;
 pub use parser::{LNode, LNodeOrToken, LSyntaxKind, LToken, ParsedProgram, Parser, ParserError};

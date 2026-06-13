@@ -45,6 +45,7 @@ Prefer current public docs over memorized syntax when exact behavior matters:
 - Comments: `// line comment`; doc comments: `/// documentation`.
 - Primitive types: `string`, `int`, `bool`, `any`.
 - Arrays: `Type[]`.
+- Tuples: `(TypeA, TypeB)`.
 - Maps: `Record<KeyType, ValueType>`.
 - Optional fields: `field?: Type`.
 - Defaults: `field: Type = value`.

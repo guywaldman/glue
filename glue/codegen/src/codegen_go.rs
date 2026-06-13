@@ -27,9 +27,11 @@ struct GoGenerator<'a> {
     ctx: CodeGenContext<'a>,
     config: GlueConfigSchemaGenerationGo,
     output: String,
+    imports: std::collections::BTreeSet<&'static str>,
     postludes: Vec<String>,
     anon_namer: AnonymousTypeNamer,
     pending_anon_models: Vec<AnonymousModelDef>,
+    tuple_helper_arities: std::collections::BTreeSet<usize>,
 }
 
 #[derive(Clone)]
@@ -47,15 +49,16 @@ impl<'a> GoGenerator<'a> {
             ctx,
             config,
             output: String::new(),
+            imports: std::collections::BTreeSet::new(),
             postludes: Vec::new(),
             anon_namer,
             pending_anon_models: Vec::new(),
+            tuple_helper_arities: std::collections::BTreeSet::new(),
         }
     }
 
     fn generate(&mut self) -> CodeGenResult<String> {
-        let package_name = self.config.package_name.as_deref().unwrap_or("glue");
-        self.output.push_str(&format!("package {}\n\n", package_name));
+        let package_name = self.config.package_name.clone().unwrap_or_else(|| "glue".to_string());
 
         for (const_def, scope) in self.ctx.scoped_consts() {
             let code = self.emit_const(&const_def, scope)?;
@@ -77,7 +80,13 @@ impl<'a> GoGenerator<'a> {
         }
         self.emit_pending_anon_models()?;
 
-        Ok(self.output.clone())
+        let body = std::mem::take(&mut self.output);
+        let mut output = format!("package {}\n\n", package_name);
+        output.push_str(&self.emit_imports());
+        output.push_str(&self.emit_tuple_helpers());
+        output.push_str(&body);
+
+        Ok(output)
     }
 
     fn emit_const(&self, const_def: &ConstDef, scope: Option<SymId>) -> CodeGenResult<String> {
@@ -119,14 +128,7 @@ impl<'a> GoGenerator<'a> {
             let mut field_path = model_path.clone();
             field_path.push(field_name.clone());
 
-            let type_atoms = field_type.type_atoms();
-            let type_strs: Vec<String> = type_atoms.iter().map(|atom| self.emit_type_atom(atom, Some(scope_id), &field_path)).collect::<Result<Vec<_>, _>>()?;
-
-            let mut type_code = if type_strs.len() > 1 {
-                "interface{}".to_string()
-            } else {
-                type_strs.first().cloned().unwrap_or_else(|| "interface{}".to_string())
-            };
+            let mut type_code = self.emit_type(&field_type, Some(scope_id), &field_path)?;
 
             if field.is_optional() {
                 type_code = format!("*{}", type_code);
@@ -215,14 +217,7 @@ impl<'a> GoGenerator<'a> {
             let mut field_path = def.path.clone();
             field_path.push(field_name.clone());
 
-            let type_atoms = field_type.type_atoms();
-            let type_strs: Vec<String> = type_atoms.iter().map(|atom| self.emit_type_atom(atom, def.scope, &field_path)).collect::<Result<Vec<_>, _>>()?;
-
-            let mut type_code = if type_strs.len() > 1 {
-                "interface{}".to_string()
-            } else {
-                type_strs.first().cloned().unwrap_or_else(|| "interface{}".to_string())
-            };
+            let mut type_code = self.emit_type(&field_type, def.scope, &field_path)?;
 
             if field.is_optional() {
                 type_code = format!("*{}", type_code);
@@ -323,6 +318,14 @@ impl<'a> GoGenerator<'a> {
         if is_array { Ok(format!("[]{}", base_type)) } else { Ok(base_type) }
     }
 
+    fn emit_type(&mut self, ty: &Type, parent_scope: Option<SymId>, path: &[String]) -> CodeGenResult<String> {
+        let atoms = ty.type_atoms();
+        if atoms.len() > 1 {
+            return Ok("interface{}".to_string());
+        }
+        atoms.first().map(|atom| self.emit_type_atom(atom, parent_scope, path)).unwrap_or_else(|| Ok("interface{}".to_string()))
+    }
+
     fn emit_base_type(&mut self, atom: &TypeAtom, parent_scope: Option<SymId>, path: &[String]) -> CodeGenResult<String> {
         if let Some(primitive) = atom.as_primitive_type() {
             return Ok(TypeMapper::to_go(primitive).to_string());
@@ -352,6 +355,24 @@ impl<'a> GoGenerator<'a> {
                 .unwrap_or_else(|| "interface{}".to_string());
 
             return Ok(format!("map[{}]{}", src_str, dest_str));
+        }
+
+        if let Some(tuple_type) = atom.as_tuple_type() {
+            let item_types = tuple_type.item_types();
+            let mut item_codes = Vec::with_capacity(item_types.len());
+            for (index, item_type) in item_types.iter().enumerate() {
+                let mut item_path = path.to_vec();
+                item_path.push(format!("Item{}", index));
+                item_codes.push(self.emit_type(item_type, parent_scope, &item_path)?);
+            }
+            let arity = item_codes.len();
+            if (2..=4).contains(&arity) {
+                self.imports.insert("encoding/json");
+                self.imports.insert("fmt");
+                self.tuple_helper_arities.insert(arity);
+                return Ok(format!("Tuple{}[{}]", arity, item_codes.join(", ")));
+            }
+            return Ok(format!("[{}]interface{{}}", arity));
         }
 
         if let Some(ref_token) = atom.as_ref_token() {
@@ -386,6 +407,63 @@ impl<'a> GoGenerator<'a> {
         }
 
         Err(CodeGenContext::internal_error("Unknown type atom"))
+    }
+
+    fn emit_imports(&self) -> String {
+        if self.imports.is_empty() {
+            return String::new();
+        }
+
+        let mut output = String::from("import (\n");
+        for import in &self.imports {
+            output.push_str(&format!("\t\"{}\"\n", import));
+        }
+        output.push_str(")\n\n");
+        output
+    }
+
+    fn emit_tuple_helpers(&self) -> String {
+        let mut output = String::new();
+        for arity in &self.tuple_helper_arities {
+            output.push_str(&Self::emit_tuple_helper(*arity));
+        }
+        output
+    }
+
+    fn emit_tuple_helper(arity: usize) -> String {
+        let params = (0..arity).map(|index| format!("T{}", index)).collect::<Vec<_>>();
+        let param_decl = format!("{} any", params.join(", "));
+        let type_args = params.join(", ");
+
+        let mut output = format!("type Tuple{}[{}] struct {{\n", arity, param_decl);
+        for param in &params {
+            output.push_str(&format!("\tV{} {}\n", &param[1..], param));
+        }
+        output.push_str("}\n\n");
+
+        output.push_str(&format!("func (t Tuple{}[{}]) MarshalJSON() ([]byte, error) {{\n", arity, type_args));
+        output.push_str("\treturn json.Marshal([]interface{}{");
+        output.push_str(&(0..arity).map(|index| format!("t.V{}", index)).collect::<Vec<_>>().join(", "));
+        output.push_str("})\n");
+        output.push_str("}\n\n");
+
+        output.push_str(&format!("func (t *Tuple{}[{}]) UnmarshalJSON(data []byte) error {{\n", arity, type_args));
+        output.push_str("\tvar values []json.RawMessage\n");
+        output.push_str("\tif err := json.Unmarshal(data, &values); err != nil {\n");
+        output.push_str("\t\treturn err\n");
+        output.push_str("\t}\n");
+        output.push_str(&format!("\tif len(values) != {} {{\n", arity));
+        output.push_str(&format!("\t\treturn fmt.Errorf(\"expected tuple of length {}, got %d\", len(values))\n", arity));
+        output.push_str("\t}\n");
+        for index in 0..arity {
+            output.push_str(&format!("\tif err := json.Unmarshal(values[{}], &t.V{}); err != nil {{\n", index, index));
+            output.push_str("\t\treturn err\n");
+            output.push_str("\t}\n");
+        }
+        output.push_str("\treturn nil\n");
+        output.push_str("}\n\n");
+
+        output
     }
 
     fn emit_go_docs(docs: &[String], name: &str) -> String {
@@ -561,6 +639,26 @@ mod tests {
             }
         "#};
         assert_snapshot!(gen_go(src));
+    }
+
+    #[test]
+    fn test_tuple_types() {
+        let src = indoc! {r#"
+            model Event {
+                pair: (string, int)
+                quad: (string, int, bool, string)
+                large: (string, int, bool, string, int)
+            }
+        "#};
+
+        let output = gen_go(src);
+        assert!(output.contains("\"encoding/json\""), "Expected tuple JSON helper import:\n{}", output);
+        assert!(output.contains("\"fmt\""), "Expected tuple length error import:\n{}", output);
+        assert!(output.contains("type Tuple2[T0, T1 any] struct"), "Expected Tuple2 helper:\n{}", output);
+        assert!(output.contains("type Tuple4[T0, T1, T2, T3 any] struct"), "Expected Tuple4 helper:\n{}", output);
+        assert!(output.contains("Pair  Tuple2[string, int64]"), "Expected typed Tuple2 field:\n{}", output);
+        assert!(output.contains("Quad  Tuple4[string, int64, bool, string]"), "Expected typed Tuple4 field:\n{}", output);
+        assert!(output.contains("Large [5]interface{}"), "Expected large tuple fallback:\n{}", output);
     }
 
     #[test]

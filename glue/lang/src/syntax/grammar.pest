@@ -27,13 +27,14 @@ const_mul = { const_primary ~ (SPACE* ~ "*" ~ SPACE* ~ const_primary)* }
 const_add = { const_mul ~ (SPACE* ~ "+" ~ SPACE* ~ const_mul)* }
 const_expr = { const_add }
 record = ${ "Record" ~ "<" ~ type_expr ~ "," ~ SPACE* ~ type_expr ~ SPACE* ~ ">" }
+tuple = ${ "(" ~ SPACE* ~ type_expr ~ (SPACE* ~ "," ~ SPACE* ~ type_expr)+ ~ SPACE* ~ ","? ~ SPACE* ~ ")" }
 optional_modifier = { "?" }
 literal = { string_literal | bool_literal | int_literal | list_literal }
 
 builtin_type = { "any" | "int" | "string" | "bool" }
 type_atom_modifiers = { "[]"? ~ "?"? }
 type_ref = ${ ident ~ ("." ~ ident)* }
-type_atom = ${ (builtin_type | record | type_ref | anon_model) ~ type_atom_modifiers }
+type_atom = ${ (builtin_type | record | tuple | type_ref | anon_model) ~ type_atom_modifiers }
 type_expr = { type_atom ~ (WHITESPACE* ~ "|" ~ WHITESPACE* ~ type_atom)* }
 
 import_named_item = { ident ~ ("as" ~ ident)? }

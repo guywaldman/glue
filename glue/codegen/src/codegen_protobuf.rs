@@ -209,6 +209,9 @@ impl<'a> ProtobufGenerator<'a> {
             if atom.as_record_type().is_some() {
                 return Err(self.ctx.error(atom.syntax(), "Protobuf oneof union members cannot be maps; map fields are not allowed in oneof"));
             }
+            if atom.as_tuple_type().is_some() {
+                return Err(self.ctx.error(atom.syntax(), "Protobuf oneof union members cannot be tuples; repeated fields are not allowed in oneof"));
+            }
             if atom.is_optional() {
                 return Err(self.ctx.error(atom.syntax(), "Protobuf oneof union members cannot be optional; oneof already tracks presence"));
             }
@@ -290,7 +293,7 @@ impl<'a> ProtobufGenerator<'a> {
         if atom.is_optional() || atom.is_array() {
             return Err(self.ctx.error(atom.syntax(), "Protobuf RPC body and returns must be non-optional, non-repeated message types"));
         }
-        if atom.as_primitive_type().is_some() || atom.as_record_type().is_some() {
+        if atom.as_primitive_type().is_some() || atom.as_record_type().is_some() || atom.as_tuple_type().is_some() {
             return Err(self.ctx.error(atom.syntax(), "Protobuf RPC body and returns must be message types"));
         }
         if let Some(ref_token) = atom.as_ref_token() {
@@ -351,6 +354,8 @@ impl<'a> ProtobufGenerator<'a> {
             let mut value_path = path.to_vec();
             value_path.push("Value".to_string());
             format!("map<{}, {}>", self.emit_type(&src_type, scope, &key_path)?, self.emit_type(&dest_type, scope, &value_path)?)
+        } else if let Some(tuple) = atom.as_tuple_type() {
+            return self.emit_tuple_type(&tuple, atom, scope, path);
         } else if let Some(ref_token) = atom.as_ref_token() {
             let ref_name = ref_token.text().to_string();
             if let Some(alias_type) = self.ctx.resolve_type_alias(scope, &ref_name)? {
@@ -375,6 +380,37 @@ impl<'a> ProtobufGenerator<'a> {
 
         let proto_type = if atom.is_array() { format!("repeated {}", base) } else { base };
         Ok((proto_type, optional))
+    }
+
+    fn emit_tuple_type(&mut self, tuple: &lang::TupleType, atom: &TypeAtom, scope: Option<SymId>, path: &[String]) -> CodeGenResult<(String, bool)> {
+        let item_types = tuple.item_types();
+        let mut emitted_types = Vec::with_capacity(item_types.len());
+        for (index, item_type) in item_types.iter().enumerate() {
+            let item_atoms = item_type.type_atoms();
+            if item_atoms.len() != 1 {
+                return Err(self.ctx.error(atom.syntax(), "Protobuf tuples can only downcast homogeneous single-atom item types"));
+            }
+            let item_atom = &item_atoms[0];
+            if item_atom.is_optional() || item_atom.is_array() || item_atom.as_record_type().is_some() || item_atom.as_tuple_type().is_some() {
+                return Err(self.ctx.error(atom.syntax(), "Protobuf tuples can only downcast non-optional, non-repeated, non-map item types"));
+            }
+            let mut item_path = path.to_vec();
+            item_path.push(format!("Item{}", index));
+            let (item_proto_type, item_optional) = self.emit_type_inner(item_type, scope, &item_path, false)?;
+            if item_optional || item_proto_type.starts_with("repeated ") || item_proto_type.starts_with("map<") {
+                return Err(self.ctx.error(atom.syntax(), "Protobuf tuples can only downcast non-optional, non-repeated, non-map item types"));
+            }
+            emitted_types.push(item_proto_type);
+        }
+
+        let Some(first_type) = emitted_types.first() else {
+            return Err(CodeGenContext::internal_error("Tuple should have at least one item"));
+        };
+        if emitted_types.iter().any(|item_type| item_type != first_type) {
+            return Err(self.ctx.error(atom.syntax(), "Protobuf tuples can only downcast homogeneous item types"));
+        }
+
+        Ok((format!("repeated {}", first_type), false))
     }
 
     fn expanded_type_atoms(&self, ty: &Type, scope: Option<SymId>) -> CodeGenResult<Vec<TypeAtom>> {
@@ -407,6 +443,8 @@ impl<'a> ProtobufGenerator<'a> {
             ref_name
         } else if atom.anon_model().is_some() {
             "message".to_string()
+        } else if atom.as_tuple_type().is_some() {
+            "tuple".to_string()
         } else {
             "value".to_string()
         };
@@ -702,6 +740,33 @@ mod tests {
         let result = generate(src).unwrap();
         assert!(result.contains("map<string, string> metadata = 1;"));
         assert!(!result.contains("optional map"));
+    }
+
+    #[test]
+    fn test_homogeneous_tuple_downcasts_to_repeated() {
+        let src = indoc! {r#"
+            model User {
+                tags: (string, string)
+            }
+        "#};
+        let result = generate(src).unwrap();
+        assert!(result.contains("repeated string tags = 1;"), "Expected homogeneous tuple to downcast to repeated:\n{}", result);
+    }
+
+    #[test]
+    fn test_heterogeneous_tuple_fails_with_clear_error() {
+        let src = indoc! {r#"
+            model User {
+                pair: (string, int)
+            }
+        "#};
+        let err = generate(src).unwrap_err();
+        match err {
+            CodeGenError::GenerationError(report) => {
+                assert!(report.to_string().contains("homogeneous item types"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
     }
 
     #[test]

@@ -179,6 +179,7 @@ impl<'a> CodeGenContext<'a> {
             if !alias_atom.is_array()
                 && !alias_atom.is_optional()
                 && alias_atom.as_record_type().is_none()
+                && alias_atom.as_tuple_type().is_none()
                 && alias_atom.as_anon_model().is_none()
                 && let Some(next_ref) = alias_atom.as_ref_name()
                 && let Some(next_sym) = self.resolve(scope, &next_ref)

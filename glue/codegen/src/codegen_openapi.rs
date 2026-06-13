@@ -197,6 +197,28 @@ impl<'a> OpenAPIGenerator<'a> {
             return self.wrap_if_array(atom, openapi::SchemaOrReference::Item(base));
         }
 
+        if let Some(tuple) = atom.as_tuple_type() {
+            let item_schemas = tuple.item_types().iter().map(|item| self.type_to_schema(item)).collect::<Vec<_>>();
+            let arity = item_schemas.len();
+            let item_schema = if item_schemas.len() == 1 {
+                item_schemas.into_iter().next()
+            } else {
+                Some(openapi::SchemaOrReference::Item(openapi::Schema {
+                    one_of: Some(item_schemas),
+                    ..Default::default()
+                }))
+            };
+            let base = openapi::Schema {
+                schema_type: Some("array".to_string()),
+                items: item_schema.map(Box::new),
+                min_items: Some(arity),
+                max_items: Some(arity),
+                nullable,
+                ..Default::default()
+            };
+            return self.wrap_if_array(atom, openapi::SchemaOrReference::Item(base));
+        }
+
         if let Some(ref_token) = atom.as_ref_token() {
             let type_name = ref_token.text().to_string();
             if let Ok(Some(alias_type)) = self.ctx.resolve_type_alias(None, &type_name) {
@@ -494,6 +516,37 @@ mod tests {
         assert_eq!(any_of[0]["type"], "string");
         assert_eq!(any_of[1]["type"], "array");
         assert_eq!(any_of[1]["items"]["type"], "string");
+    }
+
+    #[test]
+    fn test_tuple_schema_downcasts_to_bounded_array() {
+        let src = indoc! {r#"
+            model Event {
+                pair: (string, int)
+            }
+        "#};
+
+        let (program, source) = analyze_test_glue_file(src);
+        let ir = GlueIr::from_analyzed(source.file_name, program);
+        let codegen = CodeGenOpenAPI;
+        let result = codegen
+            .generate(
+                ir,
+                &SourceCodeMetadata {
+                    file_name: source.file_name,
+                    file_contents: source.file_contents,
+                },
+                None,
+            )
+            .unwrap();
+
+        let json_value: Value = serde_json::from_str(&result).unwrap();
+        let pair = &json_value["components"]["schemas"]["Event"]["properties"]["pair"];
+        assert_eq!(pair["type"], "array");
+        assert_eq!(pair["minItems"], 2);
+        assert_eq!(pair["maxItems"], 2);
+        assert_eq!(pair["items"]["oneOf"][0]["type"], "string");
+        assert_eq!(pair["items"]["oneOf"][1]["type"], "integer");
     }
 
     #[test]

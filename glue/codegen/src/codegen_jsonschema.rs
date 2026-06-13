@@ -254,6 +254,19 @@ impl CodeGeneratorImpl {
                 type_obj = array_obj;
             }
             Ok(type_obj.into())
+        } else if let Some(tuple) = type_atom.as_tuple_type() {
+            let item_schemas = tuple
+                .item_type_nodes()
+                .into_iter()
+                .map(|item_type| self.visit_type(item_type, parent_sym))
+                .collect::<CodeGenResult<Vec<_>>>()?;
+            let arity = item_schemas.len();
+            let mut tuple_obj = json::object::Object::new();
+            tuple_obj.insert("type", "array".into());
+            tuple_obj.insert("prefixItems", json::JsonValue::Array(item_schemas));
+            tuple_obj.insert("minItems", arity.into());
+            tuple_obj.insert("maxItems", arity.into());
+            Ok(self.wrap_if_array(&type_atom, tuple_obj.into()))
         } else {
             let ref_name = type_atom
                 .as_ref_token()
@@ -437,6 +450,25 @@ mod tests {
 
         assert_eq!(schema["properties"]["entries"]["type"], "array");
         assert_eq!(schema["properties"]["entries"]["items"]["$ref"], "#/$defs/Entry");
+    }
+
+    #[test]
+    fn tuple_types_emit_prefix_items() {
+        let src = indoc! { r#"
+            @root
+            model Event {
+                pair: (string, int)
+            }
+        "# };
+
+        let output = gen_test(&CodeGenJsonSchema, src);
+        let schema: serde_json::Value = serde_json::from_str(&output).expect("schema should be valid JSON");
+        let pair = &schema["properties"]["pair"];
+        assert_eq!(pair["type"], "array");
+        assert_eq!(pair["minItems"], 2);
+        assert_eq!(pair["maxItems"], 2);
+        assert_eq!(pair["prefixItems"][0]["type"], "string");
+        assert_eq!(pair["prefixItems"][1]["type"], "integer");
     }
 
     #[test]

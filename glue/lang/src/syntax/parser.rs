@@ -28,6 +28,7 @@ pub enum LSyntaxKind {
     CONST_IDENT,
     BUILTIN_TYPE,
     RECORD,
+    TUPLE,
     OPTIONAL_MODIFIER,
     DOC_COMMENT,
 
@@ -193,6 +194,7 @@ impl Parser {
             Rule::ident => IDENT,
             Rule::builtin_type => BUILTIN_TYPE,
             Rule::record => RECORD,
+            Rule::tuple => TUPLE,
             Rule::optional_modifier => OPTIONAL_MODIFIER,
             Rule::literal => LITERAL,
             Rule::bool_literal => BOOL_LITERAL,

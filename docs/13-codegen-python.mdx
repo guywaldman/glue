@@ -75,4 +75,5 @@ class UserRole(StrEnum):
 
 - Nested Glue models are emitted as flattened class names (e.g. `Parent_Child`).
 - `@field(alias="...")` is applied in all supported Python model libraries.
+- Tuples are emitted as Python tuple annotations, e.g. `tuple[str, int]`.
 - Anonymous structs are emitted as generated classes named from the owning field path.

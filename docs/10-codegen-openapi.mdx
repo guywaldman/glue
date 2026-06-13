@@ -207,3 +207,4 @@ glue gen openapi -i api.glue -o ./openapi.json
 # Current limitations
 
 * Proper typing of query/path parameters, authentication/authorization schemes are not yet supported
+* Tuples are downcast to bounded arrays because OpenAPI 3.0 does not support positional tuple validation

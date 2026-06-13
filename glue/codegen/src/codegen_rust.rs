@@ -121,6 +121,22 @@ impl<'a> RustGenerator<'a> {
         }
     }
 
+    fn enum_derive_attr(&self) -> &'static str {
+        if self.serde_struct_derives {
+            "#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]\n"
+        } else {
+            "#[derive(Debug, Clone, PartialEq, Eq)]\n"
+        }
+    }
+
+    fn union_derive_attr(&self) -> &'static str {
+        if self.serde_struct_derives {
+            "#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]\n#[serde(untagged)]\n"
+        } else {
+            "#[derive(Debug, Clone)]\n"
+        }
+    }
+
     fn emit_const(&self, const_def: &ConstDef, scope: Option<SymId>) -> CodeGenResult<String> {
         let name = self.ctx.const_name(const_def, scope, Case::UpperSnake)?;
         let vis = if const_def.is_private() { "" } else { "pub " };
@@ -215,7 +231,7 @@ impl<'a> RustGenerator<'a> {
             output.push_str(&DocEmitter::rust_docs(&docs, 0));
         }
 
-        output.push_str("#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]\n");
+        output.push_str(self.enum_derive_attr());
         output.push_str(&format!("pub enum {} {{\n", qualified_name));
 
         for variant in enum_.variants() {
@@ -226,7 +242,9 @@ impl<'a> RustGenerator<'a> {
                 output.push_str(&DocEmitter::rust_docs(&docs, 1));
             }
 
-            output.push_str(&format!("    #[serde(rename = \"{}\")]\n", variant_value));
+            if self.serde_struct_derives {
+                output.push_str(&format!("    #[serde(rename = \"{}\")]\n", variant_value));
+            }
             output.push_str(&format!("    {},\n", variant_name));
         }
 
@@ -302,8 +320,7 @@ impl<'a> RustGenerator<'a> {
 
     fn emit_union_type(&mut self, def: &UnionTypeDef) -> CodeGenResult<String> {
         let mut output = String::new();
-        output.push_str("#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]\n");
-        output.push_str("#[serde(untagged)]\n");
+        output.push_str(self.union_derive_attr());
         output.push_str(&format!("pub enum {} {{\n", def.name));
 
         let mut variants = Vec::with_capacity(def.atoms.len());
@@ -392,6 +409,15 @@ impl<'a> RustGenerator<'a> {
             let dest_str = self.emit_type(&dest_type, parent_scope, &value_path)?;
 
             format!("HashMap<{}, {}>", src_str, dest_str)
+        } else if let Some(tuple_type) = atom.as_tuple_type() {
+            let item_types = tuple_type.item_types();
+            let mut item_codes = Vec::with_capacity(item_types.len());
+            for (index, item_type) in item_types.iter().enumerate() {
+                let mut item_path = path.to_vec();
+                item_path.push(format!("Item{}", index));
+                item_codes.push(self.emit_type(item_type, parent_scope, &item_path)?);
+            }
+            format!("({})", item_codes.join(", "))
         } else if let Some(ref_token) = atom.as_ref_token() {
             let ref_name = ref_token.text().trim();
             if let Some(alias_type) = self.ctx.resolve_type_alias(parent_scope, ref_name)? {
@@ -476,6 +502,7 @@ mod tests {
             model User {
                 @field(alias="user_id")
                 id?: string
+                value: string | int
             }
 
             enum Status: "active" | "inactive"
@@ -509,10 +536,12 @@ mod tests {
             output
         );
         assert!(
-            output.contains("#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]\npub enum Status"),
-            "Expected enum serde derives to remain unchanged:\n{}",
+            output.contains("#[derive(Debug, Clone, PartialEq, Eq)]\npub enum Status"),
+            "Expected non-serde enum derive:\n{}",
             output
         );
+        assert!(!output.contains("#[serde(rename = \"active\")]"), "Expected no serde enum rename without serde derives:\n{}", output);
+        assert!(!output.contains("#[serde(untagged)]"), "Expected no serde untagged union without serde derives:\n{}", output);
     }
 
     #[test]
@@ -695,6 +724,20 @@ mod tests {
         // Record<K,V>[] syntax may need Vec wrapping - check actual output
         assert!(output.contains("HashMap<String, i64>"), "Expected HashMap in output:\n{}", output);
         assert_snapshot!(output);
+    }
+
+    #[test]
+    fn test_tuple_types() {
+        let src = indoc! { r#"
+            model Event {
+                pair: (string, int)
+                history: (string, int)[]
+            }
+        "# };
+
+        let output = gen_rust(src);
+        assert!(output.contains("pub pair: (String, i64),"), "Expected native Rust tuple:\n{}", output);
+        assert!(output.contains("pub history: Vec<(String, i64)>,"), "Expected Vec of native Rust tuples:\n{}", output);
     }
 
     #[test]

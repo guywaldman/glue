@@ -159,6 +159,12 @@ pub struct Schema {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub items: Option<Box<SchemaOrReference<Schema>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "minItems")]
+    pub min_items: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "maxItems")]
+    pub max_items: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "additionalProperties")]
     pub additional_properties: Option<Box<SchemaOrReference<Schema>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
