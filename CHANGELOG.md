@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.0](https://github.com/guywaldman/glue/compare/v1.9.0...v1.10.0) (2026-06-13)
+
+
+### Features
+
+* **lang:** support comma-separated model fields ([f3fa4e2](https://github.com/guywaldman/glue/commit/f3fa4e2f969c9fd8b04822f864849ee3af181b26))
+
 ## [1.9.0](https://github.com/guywaldman/glue/compare/v1.8.0...v1.9.0) (2026-06-13)
 
 
