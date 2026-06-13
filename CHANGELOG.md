@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.0](https://github.com/guywaldman/glue/compare/v1.6.1...v1.7.0) (2026-06-13)
+
+
+### Features
+
+* **rust:** support disabling serde struct derives + lint suppressions ([82cf98b](https://github.com/guywaldman/glue/commit/82cf98b3588f3e62645d8c4bed989ff40aa7d6c4))
+
 ## [1.6.1](https://github.com/guywaldman/glue/compare/v1.6.0...v1.6.1) (2026-06-12)
 
 
