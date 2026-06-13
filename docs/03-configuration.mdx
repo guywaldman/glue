@@ -51,6 +51,7 @@ global:
       base_model: pydantic.BaseModel
     rust:
       include_yaml: true
+      serde_struct_derives: true
     go:
       package_name: glue
     protobuf:
@@ -90,3 +91,4 @@ gen:
 - `global.diagnostics.suppress_warnings` suppresses source diagnostics for both `glue check` and `glue gen`. Currently supported warning codes: `constant_case`.
 - `preserve_generated_identifiers` keeps user-provided identifiers exactly as written, such as model names and fields. Glue may still normalize identifiers it synthesizes from values, such as enum variant constants.
 - `python.data_model_library` supports `pydantic`, `dataclasses`, `attrs`, or `msgspec`.
+- `rust.serde_struct_derives` controls serde derives and serde field attributes on generated structs.

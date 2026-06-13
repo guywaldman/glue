@@ -671,6 +671,7 @@ impl GlueCli {
             (None, Some(overrides)) => Some(overrides),
             (Some(base), Some(overrides)) => Some(config::GlueConfigSchemaGenerationRust {
                 include_yaml: overrides.include_yaml.or(base.include_yaml),
+                serde_struct_derives: overrides.serde_struct_derives.or(base.serde_struct_derives),
             }),
         }
     }
@@ -988,6 +989,7 @@ mod tests {
             "lint_suppressions=false".to_string(),
             "typescript.zod=true".to_string(),
             "python.data_model_library=dataclasses".to_string(),
+            "rust.serde_struct_derives=false".to_string(),
             "watermark=none".to_string(),
             "go.package_name=myapi".to_string(),
         ];
@@ -999,6 +1001,7 @@ mod tests {
         assert_eq!(result.typescript.and_then(|ts| ts.zod), Some(true));
         assert_eq!(result.watermark, Some(GlueConfigSchemaGenerationWatermark::None));
         assert_eq!(result.python.and_then(|py| py.data_model_library), Some(GlueConfigSchemaGenerationPythonDataModelLibrary::Dataclasses));
+        assert_eq!(result.rust.and_then(|rust| rust.serde_struct_derives), Some(false));
         assert_eq!(result.go.and_then(|go| go.package_name), Some("myapi".to_string()));
     }
 

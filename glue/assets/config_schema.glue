@@ -96,6 +96,8 @@ model GlueConfigSchema {
 		model Rust {
 			/// Include serde_yaml support in generated output
 			include_yaml?: bool
+			/// Whether to derive serde Serialize/Deserialize and emit serde field attributes for generated structs. Defaults to true.
+			serde_struct_derives?: bool
 		}
 
 		/// Configurations for Go code generation

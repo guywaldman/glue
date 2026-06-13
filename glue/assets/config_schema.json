@@ -160,6 +160,10 @@
                 "include_yaml": {
                     "type": "boolean",
                     "description": "Include serde_yaml support in generated output"
+                },
+                "serde_struct_derives": {
+                    "type": "boolean",
+                    "description": "Whether to derive serde Serialize/Deserialize and emit serde field attributes for generated structs. Defaults to true."
                 }
             }
         },

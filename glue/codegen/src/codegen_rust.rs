@@ -16,8 +16,10 @@ impl CodeGenerator for CodeGenRust {
         let program = ir
             .into_analyzed_program()
             .ok_or_else(|| CodeGenError::InternalError("Glue IR does not contain an analyzed program".to_string()))?;
+        let lint_suppressions = config.as_ref().and_then(|g| g.lint_suppressions).unwrap_or(true);
+        let serde_struct_derives = config.as_ref().and_then(|g| g.rust.as_ref()).and_then(|r| r.serde_struct_derives).unwrap_or(true);
         let ctx = CodeGenContext::new(program.ast_root.clone(), program.symbols, source, config.as_ref());
-        let mut generator = RustGenerator::new(ctx);
+        let mut generator = RustGenerator::new(ctx, lint_suppressions, serde_struct_derives);
         generator.generate()
     }
 }
@@ -25,11 +27,14 @@ impl CodeGenerator for CodeGenRust {
 struct RustGenerator<'a> {
     ctx: CodeGenContext<'a>,
     output: String,
+    imports: std::collections::BTreeSet<&'static str>,
     postludes: Vec<String>,
     anon_namer: AnonymousTypeNamer,
     pending_anon_models: Vec<AnonymousModelDef>,
     pending_union_types: Vec<UnionTypeDef>,
     emitted_union_type_count: usize,
+    lint_suppressions: bool,
+    serde_struct_derives: bool,
 }
 
 #[derive(Clone)]
@@ -49,27 +54,24 @@ struct UnionTypeDef {
 }
 
 impl<'a> RustGenerator<'a> {
-    fn new(ctx: CodeGenContext<'a>) -> Self {
+    fn new(ctx: CodeGenContext<'a>, lint_suppressions: bool, serde_struct_derives: bool) -> Self {
         let anon_namer = AnonymousTypeNamer::new(&ctx, Case::Pascal);
         Self {
             ctx,
             output: String::new(),
+            imports: std::collections::BTreeSet::new(),
             postludes: Vec::new(),
             anon_namer,
             pending_anon_models: Vec::new(),
             pending_union_types: Vec::new(),
             emitted_union_type_count: 0,
+            lint_suppressions,
+            serde_struct_derives,
         }
     }
 
     fn generate(&mut self) -> CodeGenResult<String> {
         let include_yaml = self.ctx.config.and_then(|c| c.rust.as_ref()).and_then(|r| r.include_yaml).unwrap_or(false);
-
-        self.output.push_str("use std::collections::HashMap;\n");
-        if include_yaml {
-            self.output.push_str("use serde_yaml;\n");
-        }
-        self.output.push('\n');
 
         for (const_def, scope) in self.ctx.scoped_consts() {
             let code = self.emit_const(&const_def, scope)?;
@@ -94,7 +96,29 @@ impl<'a> RustGenerator<'a> {
         self.emit_pending_union_types()?;
         self.emit_pending_anon_models()?;
 
-        Ok(self.output.clone())
+        let body = std::mem::take(&mut self.output);
+        let mut output = String::new();
+        if self.lint_suppressions {
+            output.push_str("#![allow(clippy::all, clippy::pedantic, clippy::nursery)]\n\n");
+        }
+        for import in &self.imports {
+            output.push_str(import);
+            output.push('\n');
+        }
+        if !self.imports.is_empty() {
+            output.push('\n');
+        }
+        output.push_str(&body);
+
+        Ok(output)
+    }
+
+    fn struct_derive_attr(&self) -> &'static str {
+        if self.serde_struct_derives {
+            "#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]\n"
+        } else {
+            "#[derive(Debug, Clone, Default)]\n"
+        }
     }
 
     fn emit_const(&self, const_def: &ConstDef, scope: Option<SymId>) -> CodeGenResult<String> {
@@ -122,7 +146,7 @@ impl<'a> RustGenerator<'a> {
             output.push_str(&DocEmitter::rust_docs(&docs, 0));
         }
 
-        output.push_str("#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]\n");
+        output.push_str(self.struct_derive_attr());
         output.push_str(&format!("pub struct {} {{\n", qualified_name));
 
         for field in model.fields() {
@@ -170,7 +194,7 @@ impl<'a> RustGenerator<'a> {
 
     fn emit_anon_model(&mut self, def: &AnonymousModelDef) -> CodeGenResult<String> {
         let mut output = String::new();
-        output.push_str("#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]\n");
+        output.push_str(self.struct_derive_attr());
         output.push_str(&format!("pub struct {} {{\n", def.name));
 
         for field in def.model.fields() {
@@ -224,14 +248,16 @@ impl<'a> RustGenerator<'a> {
         }
 
         let alias = self.ctx.field_alias(field, parent_scope)?;
-        if let Some(ref alias_value) = alias {
+        if let (true, Some(alias_value)) = (self.serde_struct_derives, alias.as_ref()) {
             output.push_str(&format!("    #[serde(rename = \"{}\")]\n", alias_value));
         }
 
         let mut type_code = self.emit_type(&field_type, parent_scope, &field_path)?;
 
         if field.is_optional() {
-            output.push_str("    #[serde(skip_serializing_if = \"Option::is_none\")]\n");
+            if self.serde_struct_derives {
+                output.push_str("    #[serde(skip_serializing_if = \"Option::is_none\")]\n");
+            }
             type_code = format!("Option<{}>", type_code);
         }
 
@@ -253,7 +279,7 @@ impl<'a> RustGenerator<'a> {
     fn emit_model_yaml_impl(&self, model: &Model, parent_scope: Option<SymId>) -> CodeGenResult<String> {
         let qualified_name = model.qualified_name(&self.ctx, parent_scope, Case::Pascal)?;
         Ok(format!(
-            "impl {} {{\n    pub fn from_yaml(yaml: &str) -> Result<Self, serde_yaml::Error> {{\n        serde_yaml::from_str(yaml)\n    }}\n\n    pub fn to_yaml(&self) -> Result<String, serde_yaml::Error> {{\n        serde_yaml::to_string(self)\n    }}\n}}\n\n",
+            "impl {} {{\n    pub fn from_yaml(yaml: &str) -> Result<Self, serde_yaml::Error>\n    where\n        Self: serde::de::DeserializeOwned,\n    {{\n        serde_yaml::from_str(yaml)\n    }}\n\n    pub fn to_yaml(&self) -> Result<String, serde_yaml::Error>\n    where\n        Self: serde::Serialize,\n    {{\n        serde_yaml::to_string(self)\n    }}\n}}\n\n",
             qualified_name
         ))
     }
@@ -351,6 +377,7 @@ impl<'a> RustGenerator<'a> {
         let mut base = if let Some(primitive) = atom.as_primitive_type() {
             TypeMapper::to_rust(primitive).to_string()
         } else if let Some(record_type) = atom.as_record_type() {
+            self.imports.insert("use std::collections::HashMap;");
             let src_type = record_type.src_type_node().ok_or_else(|| CodeGenContext::internal_error("Record missing source type"))?;
             let dest_type = record_type.dest_type_node().ok_or_else(|| CodeGenContext::internal_error("Record missing destination type"))?;
             let src_type = Type::cast(src_type).ok_or_else(|| CodeGenContext::internal_error("Expected Type for record source"))?;
@@ -398,7 +425,7 @@ impl<'a> RustGenerator<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use config::GlueConfigSchemaGeneration;
+    use config::{GlueConfigSchemaGeneration, GlueConfigSchemaGenerationRust};
     use indoc::indoc;
     use insta::assert_snapshot;
 
@@ -410,6 +437,99 @@ mod tests {
 
     fn gen_rust_with_config(src: &str, config: GlueConfigSchemaGeneration) -> String {
         gen_test_with_config(&CodeGenRust, src, Some(config))
+    }
+
+    #[test]
+    fn test_lint_suppressions_default_enabled() {
+        let output = gen_rust("model User { id: string }");
+
+        assert!(
+            output.starts_with("#![allow(clippy::all, clippy::pedantic, clippy::nursery)]"),
+            "Expected clippy suppressions by default:\n{}",
+            output
+        );
+    }
+
+    #[test]
+    fn test_lint_suppressions_can_be_disabled() {
+        let output = gen_rust_with_config(
+            "model User { id: string }",
+            GlueConfigSchemaGeneration {
+                lint_suppressions: Some(false),
+                ..Default::default()
+            },
+        );
+
+        assert!(!output.contains("#![allow(clippy::"), "Expected no clippy suppressions:\n{}", output);
+    }
+
+    #[test]
+    fn test_omits_unused_imports_by_default() {
+        let output = gen_rust("model User { id: string }");
+
+        assert!(!output.contains("use std::collections::HashMap;"), "Expected unused HashMap import to be omitted:\n{}", output);
+    }
+
+    #[test]
+    fn test_serde_struct_derives_can_be_disabled() {
+        let src = indoc! { r#"
+            model User {
+                @field(alias="user_id")
+                id?: string
+            }
+
+            enum Status: "active" | "inactive"
+        "# };
+
+        let output = gen_rust_with_config(
+            src,
+            GlueConfigSchemaGeneration {
+                rust: Some(GlueConfigSchemaGenerationRust {
+                    serde_struct_derives: Some(false),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        );
+
+        assert!(output.contains("#[derive(Debug, Clone, Default)]\npub struct User"), "Expected non-serde struct derive:\n{}", output);
+        assert!(
+            !output.contains("#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]\npub struct User"),
+            "Expected no serde derives on structs:\n{}",
+            output
+        );
+        assert!(
+            !output.contains("#[serde(rename = \"user_id\")]"),
+            "Expected no serde field rename without struct serde derives:\n{}",
+            output
+        );
+        assert!(
+            !output.contains("#[serde(skip_serializing_if = \"Option::is_none\")]"),
+            "Expected no serde optional-field attribute without struct serde derives:\n{}",
+            output
+        );
+        assert!(
+            output.contains("#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]\npub enum Status"),
+            "Expected enum serde derives to remain unchanged:\n{}",
+            output
+        );
+    }
+
+    #[test]
+    fn test_yaml_helpers_with_disabled_struct_derives_use_explicit_bounds() {
+        let output = gen_rust_with_config(
+            "model User { id: string }",
+            GlueConfigSchemaGeneration {
+                rust: Some(GlueConfigSchemaGenerationRust {
+                    include_yaml: Some(true),
+                    serde_struct_derives: Some(false),
+                }),
+                ..Default::default()
+            },
+        );
+
+        assert!(output.contains("Self: serde::de::DeserializeOwned,"), "Expected from_yaml serde bound:\n{}", output);
+        assert!(output.contains("Self: serde::Serialize,"), "Expected to_yaml serde bound:\n{}", output);
     }
 
     #[test]

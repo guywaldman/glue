@@ -3,7 +3,7 @@
 // Source: ../../assets/config_schema.glue
 // ------------------------------------
 
-use std::collections::HashMap;
+#![allow(clippy::all, clippy::pedantic, clippy::nursery)]
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
 pub struct GlueConfigSchema {
@@ -115,6 +115,9 @@ pub struct GlueConfigSchemaGenerationRust {
     /// Include serde_yaml support in generated output
     #[serde(skip_serializing_if = "Option::is_none")]
     pub include_yaml: Option<bool>,
+    /// Whether to derive serde Serialize/Deserialize and emit serde field attributes for generated structs. Defaults to true.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub serde_struct_derives: Option<bool>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]

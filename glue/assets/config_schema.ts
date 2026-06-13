@@ -123,6 +123,10 @@ export type GlueConfigSchemaGenerationRust = {
    * Include serde_yaml support in generated output
    */
   include_yaml?: boolean;
+  /**
+   * Whether to derive serde Serialize/Deserialize and emit serde field attributes for generated structs. Defaults to true.
+   */
+  serde_struct_derives?: boolean;
 };
 
 export type GlueConfigSchemaGenerationGo = {

@@ -2,7 +2,7 @@
 source: cli/src/test/test.rs
 expression: generated_code
 ---
-use std::collections::HashMap;
+#![allow(clippy::all, clippy::pedantic, clippy::nursery)]
 
 /// Represents a todo entry.
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]

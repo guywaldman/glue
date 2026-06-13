@@ -20,9 +20,12 @@ global:
 	config:
 		rust:
 			include_yaml: true
+			serde_struct_derives: false
 ```
 
 When `include_yaml` is enabled, generated models include `from_yaml`/`to_yaml` helper methods.
+Set `serde_struct_derives: false` to omit serde `Serialize`/`Deserialize` derives and serde field attributes from generated structs.
+If both options are combined, provide serde impls yourself before using the YAML helpers.
 
 ## Example
 

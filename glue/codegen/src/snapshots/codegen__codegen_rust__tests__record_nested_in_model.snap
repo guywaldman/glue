@@ -2,6 +2,8 @@
 source: codegen/src/codegen_rust.rs
 expression: output
 ---
+#![allow(clippy::all, clippy::pedantic, clippy::nursery)]
+
 use std::collections::HashMap;
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
