@@ -61,14 +61,17 @@ enum_variant = { doc_block? ~ decorator* ~ string_literal }
 enum_variants = { enum_variant ~ ("|" ~ enum_variant)* }
 enum_def = { doc_block? ~ decorator* ~ "enum" ~ ident ~ ":" ~ enum_variants }
 
-model_body = !{ (field | const_def | type_alias | model | enum_def)* }
+model_body_item = _{ field | const_def | type_alias | model | enum_def }
+model_body = !{ (model_body_item ~ (","? ~ model_body_item)*)? }
 model = { doc_block? ~ decorator* ~ "model" ~ ident ~ "{" ~ model_body ~ "}" }
 anon_model = { "{" ~ model_body ~ "}" }
 type_alias = { doc_block? ~ "type" ~ ident ~ "=" ~ type_expr }
 const_def = { doc_block? ~ "const" ~ const_ident ~ (":" ~ type_expr)? ~ "=" ~ const_expr }
 
 endpoint = { doc_block? ~ decorator* ~ "endpoint" ~ string_literal ~ ident? ~ "{" ~ model_body ~ "}" }
-rpc = { doc_block? ~ "rpc" ~ ident ~ "{" ~ field* ~ "}" }
-service = { doc_block? ~ "service" ~ ident ~ "{" ~ rpc* ~ "}" }
+rpc_fields = _{ (field ~ (","? ~ field)*)? }
+service_rpcs = _{ (rpc ~ (","? ~ rpc)*)? }
+rpc = { doc_block? ~ "rpc" ~ ident ~ "{" ~ rpc_fields ~ "}" }
+service = { doc_block? ~ "service" ~ ident ~ "{" ~ service_rpcs ~ "}" }
 
 program = _{ SOI ~ (import_stmt | const_def | type_alias | model | endpoint | service | enum_def)+ ~ EOI }

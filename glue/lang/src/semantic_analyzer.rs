@@ -1609,8 +1609,11 @@ mod tests {
             file_name: "test.glue",
             file_contents: src,
         };
-        let parsed = Parser::new().parse(&metadata);
-        assert!(parsed.is_err());
+        let parsed = Parser::new().parse(&metadata).expect("Expected parser to accept anonymous struct syntax");
+        let analyzed = SemanticAnalyzer::new().analyze(&parsed, &metadata);
+        assert!(analyzed.is_err());
+        let errors = analyzed.err().unwrap();
+        assert!(errors.iter().any(|e| e.report().to_string().contains("Anonymous structs cannot contain nested declarations")));
     }
 
     #[test]
@@ -1726,6 +1729,22 @@ mod tests {
 
         let result = analyze_source(src);
         assert!(result.is_ok(), "Expected analysis to pass for valid service rpc");
+    }
+
+    #[test]
+    fn test_comma_separated_members_analyze() {
+        let src = indoc! { r#"
+            model User { id: string, profile: { bio: string, age?: u8 }, tags: string[] }
+            model GetUserRequest { id: string }
+            model ApiError { code: string, message: string }
+
+            endpoint "GET /users/{id}" GetUser { headers: { "X-Request-ID"?: string }, responses: { 200: User, 404: ApiError } }
+
+            service UserService { rpc GetUser { body: GetUserRequest, returns: User }, rpc EchoUser { body: GetUserRequest, returns: User } }
+        "# };
+
+        let result = analyze_source(src);
+        assert!(result.is_ok(), "Expected comma-separated members to analyze");
     }
 
     #[test]

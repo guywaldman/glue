@@ -1308,4 +1308,51 @@ mod tests {
         assert_eq!(nested_aliases[0].ident().as_deref(), Some("UserId"));
         assert!(nested_aliases[0].type_node().is_some());
     }
+
+    #[test]
+    fn test_comma_separated_block_members_parse() {
+        let src = indoc! { r#"
+            model User { const DEFAULT_LABEL = "user", type Label = string, id: string, profile: { bio: string, age?: u8 }, model Settings { enabled: bool, label: Label = DEFAULT_LABEL }, enum Status: "active" | "disabled" }
+            model GetUserRequest { id: string }
+            endpoint "GET /users/{id}" GetUser { headers: { "X-Request-ID"?: string, "X-Trace-ID"?: string }, responses: { 200: User, 404: { code: string, message: string } } }
+            service UserService { rpc GetUser { body: GetUserRequest, returns: User }, rpc EchoUser { body: GetUserRequest, returns: User } }
+        "# };
+
+        let metadata = SourceCodeMetadata {
+            file_name: "test.glue",
+            file_contents: src,
+        };
+
+        let parsed = Parser::new().parse(&metadata).expect("expected parser to accept comma-separated members");
+        let root = RootNode::cast(parsed.ast_root).expect("expected RootNode");
+
+        let models = root.top_level_models();
+        assert_eq!(models.len(), 2);
+        let user = &models[0];
+        assert_eq!(user.nested_consts().len(), 1);
+        assert_eq!(user.nested_type_aliases().len(), 1);
+        assert_eq!(user.nested_models().len(), 1);
+        assert_eq!(user.nested_enums().len(), 1);
+        assert_eq!(user.fields().iter().filter_map(Field::ident).collect::<Vec<_>>(), vec!["id", "profile"]);
+
+        let profile = user.fields()[1].ty().unwrap().type_atoms()[0].anon_model().expect("expected profile anonymous model");
+        assert_eq!(profile.fields().iter().filter_map(Field::ident).collect::<Vec<_>>(), vec!["bio", "age"]);
+
+        let endpoint = &root.top_level_endpoints()[0];
+        let headers = Field::cast(endpoint.field_nodes()[0].clone()).unwrap().ty().unwrap().type_atoms()[0]
+            .anon_model()
+            .expect("expected headers anonymous model");
+        assert_eq!(headers.fields().len(), 2);
+        let responses = Field::cast(endpoint.responses_field_node().unwrap()).unwrap().ty().unwrap().type_atoms()[0]
+            .anon_model()
+            .expect("expected responses anonymous model");
+        assert_eq!(responses.fields().iter().filter_map(Field::ident).collect::<Vec<_>>(), vec!["200", "404"]);
+
+        let services = root.top_level_services();
+        assert_eq!(services.len(), 1);
+        let rpcs = services[0].rpcs();
+        assert_eq!(rpcs.len(), 2);
+        let rpc = &rpcs[0];
+        assert_eq!(rpc.fields().iter().filter_map(Field::ident).collect::<Vec<_>>(), vec!["body", "returns"]);
+    }
 }

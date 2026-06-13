@@ -32,6 +32,17 @@ Glue supports the following primitive types:
 - `endpoint` (an API endpoint definition with method, path, parameters, and responses)
 - `service` (a Protobuf service definition with RPC methods)
 
+# Block member separators
+
+Model, anonymous model, endpoint, service, and RPC blocks accept either whitespace/newlines or commas between members.
+Commas are useful for compact one-line shapes:
+
+```glue
+model User { id: string, email?: string, profile: { name: string, age?: u8 } }
+
+endpoint "GET /users/{id}" GetUser { responses: { 200: User, 4XX: ApiError } }
+```
+
 # Type aliases
 
 Glue supports type aliases, which let you define reusable names for existing types.

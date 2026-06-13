@@ -458,6 +458,29 @@ mod tests {
     }
 
     #[test]
+    fn test_comma_separated_members_generate() {
+        let src = indoc! { r#"
+            model User { id: string, profile: { bio: string, age?: u8 }, tags: string[] }
+        "# };
+
+        let output = gen_typescript(src);
+        assert!(output.contains("id: string;"), "Expected top-level field:\n{}", output);
+        assert!(
+            output.contains("profile: { bio: string; age?: number };"),
+            "Expected comma-separated anonymous model fields:\n{}",
+            output
+        );
+        assert!(output.contains("tags: string[];"), "Expected comma-separated field:\n{}", output);
+
+        let zod_output = gen_typescript_with_zod(src, true);
+        assert!(
+            zod_output.contains("profile: z.object({ bio: z.string(), age: z.number().optional() })"),
+            "Expected zod anonymous object:\n{}",
+            zod_output
+        );
+    }
+
+    #[test]
     fn test_integer_primitive_mappings_downcast_to_number() {
         let src = indoc! { r#"
             model Numbers {

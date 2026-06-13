@@ -55,6 +55,7 @@ Prefer current public docs over memorized syntax when exact behavior matters:
 - Model-scoped constants: public constants can be referenced as `Model.CONSTANT` or `Outer.Inner.CONSTANT`; leading `_` constants cannot be referenced from outside their owning model.
 - Constant expressions support int `+`/`*`, string `+`, parentheses, bool literals, and references to other constants, including qualified model constants.
 - Models: `model User { id: UserId }`.
+- Model, anonymous model, endpoint, service, and RPC block members may be separated with commas for compact one-line shapes, e.g. `model User { id: string, email?: string }`.
 - Enums: `enum Status: "pending" | "paid" | "cancelled"`.
 - Imports must appear before declarations:
   - `import * from "common.glue"`
