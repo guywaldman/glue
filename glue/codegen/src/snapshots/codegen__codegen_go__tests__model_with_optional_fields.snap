@@ -7,5 +7,5 @@ package glue
 type Config struct {
 	Name        string  `json:"name"`                  // Required field
 	Description *string `json:"description,omitempty"` // Optional description
-	Count       *int64  `json:"count,omitempty"`       // Optional count
+	Count       *int    `json:"count,omitempty"`       // Optional count
 }

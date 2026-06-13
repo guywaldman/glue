@@ -10,7 +10,7 @@ type User struct {
 
 type UserProfile struct {
 	Bio      string                              `json:"bio"`
-	Age      *int64                              `json:"age,omitempty"`
+	Age      *int                                `json:"age,omitempty"`
 	Settings map[string]UserProfileSettingsValue `json:"settings"`
 }
 

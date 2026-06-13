@@ -12,6 +12,10 @@ The Glue IDL is designed to be simple and intuitive, with a syntax that is easy 
 Glue supports the following primitive types:
 - `string`
 - `int`
+- `uint`
+- `i8`, `i16`, `i32`, `i64`
+- `u8`, `u16`, `u32`, `u64`
+- `float`
 - `any`
 - `bool`
 
@@ -78,7 +82,7 @@ model User {
 
 Notes:
 
-- Constant types are inferred from folded values. Optional annotations can be `int`, `string`, or `bool`.
+- Constant types are inferred from folded values. Optional annotations can be integer primitives, `string`, or `bool`.
 - Int expressions support `+`, `*`, parentheses, and references to int constants.
 - String expressions support `+`, parentheses, and references to string constants.
 - Bool expressions support literals and references only.

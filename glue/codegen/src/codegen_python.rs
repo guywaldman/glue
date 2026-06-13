@@ -642,6 +642,45 @@ mod tests {
     }
 
     #[test]
+    fn test_integer_primitive_mappings_downcast_to_int() {
+        let src = indoc! { r#"
+            model Numbers {
+                int_value: int
+                uint_value: uint
+                i8_value: i8
+                i16_value: i16
+                i32_value: i32
+                i64_value: i64
+                u8_value: u8
+                u16_value: u16
+                u32_value: u32
+                u64_value: u64
+            }
+        "# };
+
+        let output = gen_python(src);
+        for (python_field, glue_field) in [
+            ("int_value", "int_value"),
+            ("uint_value", "uint_value"),
+            ("i_8_value", "i8_value"),
+            ("i_16_value", "i16_value"),
+            ("i_32_value", "i32_value"),
+            ("i_64_value", "i64_value"),
+            ("u_8_value", "u8_value"),
+            ("u_16_value", "u16_value"),
+            ("u_32_value", "u32_value"),
+            ("u_64_value", "u64_value"),
+        ] {
+            assert!(
+                output.contains(&format!("{}: Annotated[int, Field", python_field)),
+                "Expected {} to downcast to int:\n{}",
+                glue_field,
+                output
+            );
+        }
+    }
+
+    #[test]
     fn test_dataclasses_alias() {
         assert_snapshot!(gen_python_with_data_model_lib(ALIAS_MODEL, GlueConfigSchemaGenerationPythonDataModelLibrary::Dataclasses));
     }

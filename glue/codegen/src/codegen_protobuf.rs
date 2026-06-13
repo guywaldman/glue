@@ -770,6 +770,35 @@ mod tests {
     }
 
     #[test]
+    fn test_integer_primitive_mappings() {
+        let src = indoc! {r#"
+            model Numbers {
+                int_value: int
+                uint_value: uint
+                i8_value: i8
+                i16_value: i16
+                i32_value: i32
+                i64_value: i64
+                u8_value: u8
+                u16_value: u16
+                u32_value: u32
+                u64_value: u64
+            }
+        "#};
+        let result = generate(src).unwrap();
+        assert!(result.contains("int32 int_value = 1;"), "Expected int -> int32:\n{}", result);
+        assert!(result.contains("uint32 uint_value = 2;"), "Expected uint -> uint32:\n{}", result);
+        assert!(result.contains("int32 i8_value = 3;"), "Expected i8 -> int32:\n{}", result);
+        assert!(result.contains("int32 i16_value = 4;"), "Expected i16 -> int32:\n{}", result);
+        assert!(result.contains("int32 i32_value = 5;"), "Expected i32 -> int32:\n{}", result);
+        assert!(result.contains("int64 i64_value = 6;"), "Expected i64 -> int64:\n{}", result);
+        assert!(result.contains("uint32 u8_value = 7;"), "Expected u8 -> uint32:\n{}", result);
+        assert!(result.contains("uint32 u16_value = 8;"), "Expected u16 -> uint32:\n{}", result);
+        assert!(result.contains("uint32 u32_value = 9;"), "Expected u32 -> uint32:\n{}", result);
+        assert!(result.contains("uint64 u64_value = 10;"), "Expected u64 -> uint64:\n{}", result);
+    }
+
+    #[test]
     fn test_scalar_union_field_emits_oneof() {
         let src = indoc! {r#"
             model Event {

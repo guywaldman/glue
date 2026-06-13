@@ -13,7 +13,7 @@ pub struct Movie {
     pub title: String,
     /// Year the movie was released.
     #[serde(rename = "releaseYear")]
-    pub release_year: i64,
+    pub release_year: isize,
     /// List of tags associated with the movie.
     pub tags: Vec<String>,
 }
@@ -25,5 +25,5 @@ pub struct Error {
     pub message: String,
     /// Error code.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub code: Option<i64>,
+    pub code: Option<isize>,
 }

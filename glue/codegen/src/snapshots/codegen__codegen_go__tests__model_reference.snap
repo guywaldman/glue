@@ -16,5 +16,5 @@ type User struct {
 
 type Item struct {
 	Sku      string `json:"sku"`
-	Quantity int64  `json:"quantity"`
+	Quantity int    `json:"quantity"`
 }

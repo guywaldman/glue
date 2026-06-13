@@ -11,7 +11,7 @@ type Product struct {
 	Description    *string           `json:"description,omitempty"` // Optional detailed description displayed on PDP pages.
 	Category       Category          `json:"category"`              // Product category metadata.
 	Price          Money             `json:"price"`                 // Unit price in the store default currency.
-	AvailableUnits int64             `json:"available_units"`       // Number of units currently available for purchase.
+	AvailableUnits int               `json:"available_units"`       // Number of units currently available for purchase.
 	Status         ProductStatus     `json:"status"`                // Product lifecycle state.
 	Tags           []string          `json:"tags"`                  // Search and merchandising tags.
 	Attributes     map[string]string `json:"attributes"`            // Flexible key/value attributes such as material or season.
@@ -27,7 +27,7 @@ type Category struct {
 // Money Monetary amount represented by currency code and minor units.
 type Money struct {
 	Currency    string `json:"currency"`     // ISO-4217 currency code.
-	AmountMinor int64  `json:"amount_minor"` // Amount in minor units (e.g. cents).
+	AmountMinor int    `json:"amount_minor"` // Amount in minor units (e.g. cents).
 }
 
 // Customer Customer profile used for checkout and order ownership.
@@ -52,7 +52,7 @@ type Address struct {
 // OrderItem A single purchased item in an order.
 type OrderItem struct {
 	Product   Product `json:"product"`    // Purchased product snapshot.
-	Quantity  int64   `json:"quantity"`   // Ordered quantity.
+	Quantity  int     `json:"quantity"`   // Ordered quantity.
 	LineTotal Money   `json:"line_total"` // Total line amount for quantity and applied discounts.
 }
 
@@ -78,7 +78,7 @@ type ProductResponse struct {
 // ProductListResponse Envelope for a product list response.
 type ProductListResponse struct {
 	Products []Product `json:"products"`
-	Total    int64     `json:"total"`
+	Total    int       `json:"total"`
 }
 
 // OrderResponse Envelope for a single order response.
@@ -90,7 +90,7 @@ type OrderResponse struct {
 // OrderListResponse Envelope for an order list response.
 type OrderListResponse struct {
 	Orders []Order `json:"orders"`
-	Total  int64   `json:"total"`
+	Total  int     `json:"total"`
 }
 
 // ApiError Standard API error payload.

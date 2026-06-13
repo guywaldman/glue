@@ -94,9 +94,9 @@ impl<'a> GoGenerator<'a> {
         let value = self.ctx.eval_const_def_in_scope(const_def, scope)?;
         let (ty, literal) = match value {
             ConstValue::String(value) => ("string", serde_json::to_string(&value).map_err(|e| CodeGenContext::internal_error(e.to_string()))?),
-            ConstValue::Int(value) => ("int", value.to_string()),
+            ConstValue::Int(value) => (TypeMapper::to_go(TypeMapper::const_integer_primitive(const_def)), value.to_string()),
             ConstValue::Bool(value) => ("bool", value.to_string()),
-            ConstValue::List(_) => return Err(self.ctx.error(const_def.syntax(), "Constants can only be int, string, or bool")),
+            ConstValue::List(_) => return Err(self.ctx.error(const_def.syntax(), "Constants can only be integer, string, or bool")),
         };
         let docs = const_def.docs().map(|docs| Self::emit_go_docs(&docs, &name)).unwrap_or_default();
         Ok(format!("{}const {} {} = {}\n\n", docs, name, ty, literal))
@@ -535,6 +535,47 @@ mod tests {
     }
 
     #[test]
+    fn test_integer_primitive_mappings() {
+        let src = indoc! {r#"
+            const DEFAULT_COUNT: u16 = 3
+
+            model Numbers {
+                int_value: int
+                uint_value: uint
+                i8_value: i8
+                i16_value: i16
+                i32_value: i32
+                i64_value: i64
+                u8_value: u8
+                u16_value: u16
+                u32_value: u32
+                u64_value: u64
+            }
+        "#};
+
+        let output = gen_go(src);
+        let has_field = |name: &str, ty: &str, json_name: &str| {
+            let json_tag = format!("`json:\"{}\"`", json_name);
+            output.lines().any(|line| {
+                let parts = line.split_whitespace().collect::<Vec<_>>();
+                parts.len() >= 3 && parts[0] == name && parts[1] == ty && parts[2] == json_tag
+            })
+        };
+
+        assert!(output.contains("const DEFAULT_COUNT uint16 = 3"), "Expected annotated integer const type:\n{}", output);
+        assert!(has_field("IntValue", "int", "int_value"), "Expected int -> int:\n{}", output);
+        assert!(has_field("UintValue", "uint", "uint_value"), "Expected uint -> uint:\n{}", output);
+        assert!(has_field("I8Value", "int8", "i8_value"), "Expected i8 -> int8:\n{}", output);
+        assert!(has_field("I16Value", "int16", "i16_value"), "Expected i16 -> int16:\n{}", output);
+        assert!(has_field("I32Value", "int32", "i32_value"), "Expected i32 -> int32:\n{}", output);
+        assert!(has_field("I64Value", "int64", "i64_value"), "Expected i64 -> int64:\n{}", output);
+        assert!(has_field("U8Value", "uint8", "u8_value"), "Expected u8 -> uint8:\n{}", output);
+        assert!(has_field("U16Value", "uint16", "u16_value"), "Expected u16 -> uint16:\n{}", output);
+        assert!(has_field("U32Value", "uint32", "u32_value"), "Expected u32 -> uint32:\n{}", output);
+        assert!(has_field("U64Value", "uint64", "u64_value"), "Expected u64 -> uint64:\n{}", output);
+    }
+
+    #[test]
     fn test_model_scoped_constants_emit_and_aliases_fold() {
         let src = indoc! {r#"
             model Aliases {
@@ -656,8 +697,8 @@ mod tests {
         assert!(output.contains("\"fmt\""), "Expected tuple length error import:\n{}", output);
         assert!(output.contains("type Tuple2[T0, T1 any] struct"), "Expected Tuple2 helper:\n{}", output);
         assert!(output.contains("type Tuple4[T0, T1, T2, T3 any] struct"), "Expected Tuple4 helper:\n{}", output);
-        assert!(output.contains("Pair  Tuple2[string, int64]"), "Expected typed Tuple2 field:\n{}", output);
-        assert!(output.contains("Quad  Tuple4[string, int64, bool, string]"), "Expected typed Tuple4 field:\n{}", output);
+        assert!(output.contains("Pair  Tuple2[string, int]"), "Expected typed Tuple2 field:\n{}", output);
+        assert!(output.contains("Quad  Tuple4[string, int, bool, string]"), "Expected typed Tuple4 field:\n{}", output);
         assert!(output.contains("Large [5]interface{}"), "Expected large tuple fallback:\n{}", output);
     }
 

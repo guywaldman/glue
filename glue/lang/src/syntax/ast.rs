@@ -904,8 +904,41 @@ pub enum PrimitiveType {
     Any,
     String,
     Int,
+    UInt,
+    I8,
+    I16,
+    I32,
+    I64,
+    U8,
+    U16,
+    U32,
+    U64,
     Float,
     Bool,
+}
+
+impl PrimitiveType {
+    pub const NAMES: &'static [&'static str] = &["string", "int", "uint", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "float", "bool", "any"];
+
+    pub fn is_integer(self) -> bool {
+        matches!(
+            self,
+            PrimitiveType::Int
+                | PrimitiveType::UInt
+                | PrimitiveType::I8
+                | PrimitiveType::I16
+                | PrimitiveType::I32
+                | PrimitiveType::I64
+                | PrimitiveType::U8
+                | PrimitiveType::U16
+                | PrimitiveType::U32
+                | PrimitiveType::U64
+        )
+    }
+
+    pub fn is_unsigned_integer(self) -> bool {
+        matches!(self, PrimitiveType::UInt | PrimitiveType::U8 | PrimitiveType::U16 | PrimitiveType::U32 | PrimitiveType::U64)
+    }
 }
 
 impl std::fmt::Display for PrimitiveType {
@@ -914,6 +947,15 @@ impl std::fmt::Display for PrimitiveType {
             PrimitiveType::Any => "any",
             PrimitiveType::String => "string",
             PrimitiveType::Int => "int",
+            PrimitiveType::UInt => "uint",
+            PrimitiveType::I8 => "i8",
+            PrimitiveType::I16 => "i16",
+            PrimitiveType::I32 => "i32",
+            PrimitiveType::I64 => "i64",
+            PrimitiveType::U8 => "u8",
+            PrimitiveType::U16 => "u16",
+            PrimitiveType::U32 => "u32",
+            PrimitiveType::U64 => "u64",
             PrimitiveType::Float => "float",
             PrimitiveType::Bool => "bool",
         };
@@ -928,6 +970,15 @@ impl TryFrom<&str> for PrimitiveType {
             "any" => Ok(PrimitiveType::Any),
             "string" => Ok(PrimitiveType::String),
             "int" => Ok(PrimitiveType::Int),
+            "uint" => Ok(PrimitiveType::UInt),
+            "i8" => Ok(PrimitiveType::I8),
+            "i16" => Ok(PrimitiveType::I16),
+            "i32" => Ok(PrimitiveType::I32),
+            "i64" => Ok(PrimitiveType::I64),
+            "u8" => Ok(PrimitiveType::U8),
+            "u16" => Ok(PrimitiveType::U16),
+            "u32" => Ok(PrimitiveType::U32),
+            "u64" => Ok(PrimitiveType::U64),
             "float" => Ok(PrimitiveType::Float),
             "bool" => Ok(PrimitiveType::Bool),
             _ => Err(()),

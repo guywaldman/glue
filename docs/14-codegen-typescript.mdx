@@ -75,6 +75,7 @@ export type User = z.infer<typeof UserSchema>;
 ## Notes
 
 - Nested Glue models are emitted as flattened names (e.g. `Parent_Child`).
+- All integer primitives emit `number` (or `z.number()` in Zod mode).
 - `Record<K, V>` is emitted as `Record<K, V>` (or `z.record(...)` in Zod mode).
 - Tuples are emitted as TypeScript tuple types, e.g. `[string, number]` (or `z.tuple(...)` in Zod mode).
 - Anonymous structs are emitted inline in both types-only and Zod output.

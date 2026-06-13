@@ -12,6 +12,8 @@ Simply run:
 glue gen openapi -i api.glue -o ./openapi.json
 ```
 
+All integer primitive variants emit OpenAPI `"type": "integer"`. `i32`/`u32` use `format: int32`, and `i64`/`u64` use `format: int64`.
+
 ## Example
 
 For this Glue spec:

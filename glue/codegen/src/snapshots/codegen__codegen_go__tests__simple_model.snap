@@ -8,5 +8,5 @@ package glue
 type User struct {
 	Id   string `json:"id"`   // User's unique identifier
 	Name string `json:"name"` // User's display name
-	Age  int64  `json:"age"`  // User's age
+	Age  int    `json:"age"`  // User's age
 }

@@ -10,5 +10,5 @@ type Parent struct {
 }
 
 type ParentChild struct {
-	Value int64 `json:"value"`
+	Value int `json:"value"`
 }

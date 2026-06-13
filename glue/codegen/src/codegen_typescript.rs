@@ -292,11 +292,12 @@ impl<'a> TypeScriptGenerator<'a> {
 
     fn zod_for_primitive(&self, primitive: lang::PrimitiveType) -> String {
         match primitive {
+            primitive if primitive.is_integer() => "z.number()".to_string(),
             lang::PrimitiveType::String => "z.string()".to_string(),
-            lang::PrimitiveType::Int => "z.number()".to_string(),
             lang::PrimitiveType::Float => "z.number()".to_string(),
             lang::PrimitiveType::Bool => "z.boolean()".to_string(),
             lang::PrimitiveType::Any => "z.any()".to_string(),
+            _ => unreachable!("integer primitive handled above"),
         }
     }
 }
@@ -326,11 +327,12 @@ trait TypeScriptTypeMapper {
 impl TypeScriptTypeMapper for TypeMapper {
     fn to_typescript(primitive: lang::PrimitiveType) -> &'static str {
         match primitive {
+            primitive if primitive.is_integer() => "number",
             lang::PrimitiveType::String => "string",
-            lang::PrimitiveType::Int => "number",
             lang::PrimitiveType::Float => "number",
             lang::PrimitiveType::Bool => "boolean",
             lang::PrimitiveType::Any => "any",
+            _ => unreachable!("integer primitive handled above"),
         }
     }
 }
@@ -459,6 +461,56 @@ mod tests {
         "# };
 
         assert_snapshot!(gen_typescript_with_zod(src, true));
+    }
+
+    #[test]
+    fn test_integer_primitive_mappings_downcast_to_number() {
+        let src = indoc! { r#"
+            model Numbers {
+                int_value: int
+                uint_value: uint
+                i8_value: i8
+                i16_value: i16
+                i32_value: i32
+                i64_value: i64
+                u8_value: u8
+                u16_value: u16
+                u32_value: u32
+                u64_value: u64
+            }
+        "# };
+
+        let output = gen_typescript(src);
+        for field in [
+            "int_value",
+            "uint_value",
+            "i8_value",
+            "i16_value",
+            "i32_value",
+            "i64_value",
+            "u8_value",
+            "u16_value",
+            "u32_value",
+            "u64_value",
+        ] {
+            assert!(output.contains(&format!("{}: number;", field)), "Expected {} to downcast to number:\n{}", field, output);
+        }
+
+        let zod_output = gen_typescript_with_zod(src, true);
+        for field in [
+            "int_value",
+            "uint_value",
+            "i8_value",
+            "i16_value",
+            "i32_value",
+            "i64_value",
+            "u8_value",
+            "u16_value",
+            "u32_value",
+            "u64_value",
+        ] {
+            assert!(zod_output.contains(&format!("{}: z.number()", field)), "Expected {} to downcast to z.number():\n{}", field, zod_output);
+        }
     }
 
     #[test]

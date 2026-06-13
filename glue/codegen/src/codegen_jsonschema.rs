@@ -228,11 +228,12 @@ impl CodeGeneratorImpl {
 
         if let Some(primitive_type) = type_atom.as_primitive_type() {
             let primitive_type = match primitive_type {
+                primitive if primitive.is_integer() => Ok("integer".into()),
                 PrimitiveType::Any => Ok("object".into()),
                 PrimitiveType::String => Ok("string".into()),
-                PrimitiveType::Int => Ok("integer".into()),
                 PrimitiveType::Float => Ok("number".into()),
                 PrimitiveType::Bool => Ok("boolean".into()),
+                _ => unreachable!("integer primitive handled above"),
             };
 
             let mut type_obj = json::object::Object::new();
@@ -469,6 +470,42 @@ mod tests {
         assert_eq!(pair["maxItems"], 2);
         assert_eq!(pair["prefixItems"][0]["type"], "string");
         assert_eq!(pair["prefixItems"][1]["type"], "integer");
+    }
+
+    #[test]
+    fn integer_primitive_mappings_downcast_to_integer() {
+        let src = indoc! { r#"
+            @root
+            model Numbers {
+                int_value: int
+                uint_value: uint
+                i8_value: i8
+                i16_value: i16
+                i32_value: i32
+                i64_value: i64
+                u8_value: u8
+                u16_value: u16
+                u32_value: u32
+                u64_value: u64
+            }
+        "# };
+
+        let output = gen_test(&CodeGenJsonSchema, src);
+        let schema: serde_json::Value = serde_json::from_str(&output).expect("schema should be valid JSON");
+        for field in [
+            "int_value",
+            "uint_value",
+            "i8_value",
+            "i16_value",
+            "i32_value",
+            "i64_value",
+            "u8_value",
+            "u16_value",
+            "u32_value",
+            "u64_value",
+        ] {
+            assert_eq!(schema["properties"][field]["type"], "integer", "Expected {field} to downcast to integer");
+        }
     }
 
     #[test]

@@ -65,6 +65,7 @@ const (
 ## Notes
 
 - Optional fields are emitted as pointers and include `,omitempty` in JSON tags.
+- `int`/`uint` and fixed-width integer primitives emit their Go equivalents (`int`, `uint`, `int8`, `uint64`, etc.).
 - Unions are emitted as `interface{}`.
 - `Record<K, V>` is emitted as `map[K]V`.
 - Tuples with arity 2 through 4 are emitted as generated `TupleN[...]` helper types that marshal as JSON arrays; larger tuples fall back to fixed `[N]interface{}` arrays.

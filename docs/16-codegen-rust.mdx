@@ -56,7 +56,7 @@ use std::collections::HashMap;
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
 pub struct User {
-		pub id: i64,
+		pub id: isize,
 		#[serde(rename = "first_name")]
 		pub firstName: String,
 		#[serde(skip_serializing_if = "Option::is_none")]
@@ -77,7 +77,8 @@ pub enum Status {
 
 - Optional fields are emitted as `Option<T>`.
 - Arrays are emitted as `Vec<T>`.
-- Tuples are emitted as native Rust tuples, e.g. `(String, i64)`.
+- `int` emits `isize`, `uint` emits `usize`, and fixed-width integers emit their Rust equivalents (`i8`, `u64`, etc.).
+- Tuples are emitted as native Rust tuples, e.g. `(String, isize)`.
 - `Record<K, V>` is emitted as `HashMap<K, V>`.
 - By default, unions are emitted as generated `#[serde(untagged)]` enums.
 - Anonymous structs are emitted as generated structs named from the owning field path.

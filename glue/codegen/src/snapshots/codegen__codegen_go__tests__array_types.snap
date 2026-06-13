@@ -6,7 +6,7 @@ package glue
 
 type User struct {
 	Tags      []string  `json:"tags"`                // List of tags
-	Scores    []int64   `json:"scores"`              // List of scores
+	Scores    []int     `json:"scores"`              // List of scores
 	Addresses []Address `json:"addresses"`           // List of addresses
 	Nicknames *[]string `json:"nicknames,omitempty"` // Optional list of nicknames
 }

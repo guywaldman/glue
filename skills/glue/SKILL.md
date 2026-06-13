@@ -43,7 +43,7 @@ Prefer current public docs over memorized syntax when exact behavior matters:
 ## Core Syntax
 
 - Comments: `// line comment`; doc comments: `/// documentation`.
-- Primitive types: `string`, `int`, `bool`, `any`.
+- Primitive types: `string`, `int`, `uint`, `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `float`, `bool`, `any`.
 - Arrays: `Type[]`.
 - Tuples: `(TypeA, TypeB)`.
 - Maps: `Record<KeyType, ValueType>`.

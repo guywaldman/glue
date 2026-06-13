@@ -143,9 +143,9 @@ impl<'a> RustGenerator<'a> {
         let value = self.ctx.eval_const_def_in_scope(const_def, scope)?;
         let (ty, literal) = match value {
             ConstValue::String(value) => ("&str", format!("{:?}", value)),
-            ConstValue::Int(value) => ("i64", value.to_string()),
+            ConstValue::Int(value) => (TypeMapper::to_rust(TypeMapper::const_integer_primitive(const_def)), value.to_string()),
             ConstValue::Bool(value) => ("bool", value.to_string()),
-            ConstValue::List(_) => return Err(self.ctx.error(const_def.syntax(), "Constants can only be int, string, or bool")),
+            ConstValue::List(_) => return Err(self.ctx.error(const_def.syntax(), "Constants can only be integer, string, or bool")),
         };
         let docs = const_def.docs().map(|docs| DocEmitter::rust_docs(&docs, 0)).unwrap_or_default();
         Ok(format!("{}{}const {}: {} = {};\n\n", docs, vis, name, ty, literal))
@@ -360,13 +360,7 @@ impl<'a> RustGenerator<'a> {
 
     fn union_variant_name(&self, atom: &TypeAtom, parent_scope: Option<SymId>) -> CodeGenResult<String> {
         let base = if let Some(primitive) = atom.as_primitive_type() {
-            match primitive {
-                lang::PrimitiveType::Any => "Any".to_string(),
-                lang::PrimitiveType::String => "String".to_string(),
-                lang::PrimitiveType::Int => "Int".to_string(),
-                lang::PrimitiveType::Float => "Float".to_string(),
-                lang::PrimitiveType::Bool => "Bool".to_string(),
-            }
+            convert_generated_identifier_case(&primitive.to_string(), Case::Pascal)
         } else if atom.as_record_type().is_some() {
             "Record".to_string()
         } else if let Some(ref_token) = atom.as_ref_token() {
@@ -617,9 +611,42 @@ mod tests {
         let output = gen_rust(src);
         assert!(output.contains("/// Alias used for user IDs.\npub const USER_ALIAS"), "Expected constant docs:\n{}", output);
         assert!(output.contains("pub const USER_ALIAS: &str = \"user_id\";"), "Expected folded string constant:\n{}", output);
-        assert!(output.contains("pub const DEFAULT_LIMIT: i64 = 200;"), "Expected folded int constant:\n{}", output);
+        assert!(output.contains("pub const DEFAULT_LIMIT: isize = 200;"), "Expected folded int constant:\n{}", output);
         assert!(output.contains("const _PRIVATE_FLAG: bool = true;"), "Expected private constant:\n{}", output);
         assert!(output.contains("#[serde(rename = \"user_id\")]"), "Expected folded alias:\n{}", output);
+    }
+
+    #[test]
+    fn test_integer_primitive_mappings() {
+        let src = indoc! { r#"
+            const DEFAULT_COUNT: u16 = 3
+
+            model Numbers {
+                int_value: int
+                uint_value: uint
+                i8_value: i8
+                i16_value: i16
+                i32_value: i32
+                i64_value: i64
+                u8_value: u8
+                u16_value: u16
+                u32_value: u32
+                u64_value: u64
+            }
+        "# };
+
+        let output = gen_rust(src);
+        assert!(output.contains("pub const DEFAULT_COUNT: u16 = 3;"), "Expected annotated integer const type:\n{}", output);
+        assert!(output.contains("pub int_value: isize,"), "Expected int -> isize:\n{}", output);
+        assert!(output.contains("pub uint_value: usize,"), "Expected uint -> usize:\n{}", output);
+        assert!(output.contains("pub i8_value: i8,"), "Expected i8:\n{}", output);
+        assert!(output.contains("pub i16_value: i16,"), "Expected i16:\n{}", output);
+        assert!(output.contains("pub i32_value: i32,"), "Expected i32:\n{}", output);
+        assert!(output.contains("pub i64_value: i64,"), "Expected i64:\n{}", output);
+        assert!(output.contains("pub u8_value: u8,"), "Expected u8:\n{}", output);
+        assert!(output.contains("pub u16_value: u16,"), "Expected u16:\n{}", output);
+        assert!(output.contains("pub u32_value: u32,"), "Expected u32:\n{}", output);
+        assert!(output.contains("pub u64_value: u64,"), "Expected u64:\n{}", output);
     }
 
     #[test]
@@ -675,7 +702,7 @@ mod tests {
         "# };
 
         let output = gen_rust(src);
-        assert!(output.contains("HashMap<String, i64>"), "Expected HashMap<String, i64> in output:\n{}", output);
+        assert!(output.contains("HashMap<String, isize>"), "Expected HashMap<String, isize> in output:\n{}", output);
         assert_snapshot!(output);
     }
 
@@ -722,7 +749,7 @@ mod tests {
 
         let output = gen_rust(src);
         // Record<K,V>[] syntax may need Vec wrapping - check actual output
-        assert!(output.contains("HashMap<String, i64>"), "Expected HashMap in output:\n{}", output);
+        assert!(output.contains("HashMap<String, isize>"), "Expected HashMap in output:\n{}", output);
         assert_snapshot!(output);
     }
 
@@ -736,8 +763,8 @@ mod tests {
         "# };
 
         let output = gen_rust(src);
-        assert!(output.contains("pub pair: (String, i64),"), "Expected native Rust tuple:\n{}", output);
-        assert!(output.contains("pub history: Vec<(String, i64)>,"), "Expected Vec of native Rust tuples:\n{}", output);
+        assert!(output.contains("pub pair: (String, isize),"), "Expected native Rust tuple:\n{}", output);
+        assert!(output.contains("pub history: Vec<(String, isize)>,"), "Expected Vec of native Rust tuples:\n{}", output);
     }
 
     #[test]

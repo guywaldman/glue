@@ -9,5 +9,5 @@ use std::collections::HashMap;
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
 pub struct Scores {
     /// Player scores by name
-    pub scores: HashMap<String, i64>,
+    pub scores: HashMap<String, isize>,
 }

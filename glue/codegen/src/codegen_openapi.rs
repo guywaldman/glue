@@ -428,6 +428,51 @@ mod tests {
     }
 
     #[test]
+    fn test_integer_primitive_mappings() {
+        let src = indoc! {r#"
+            model Numbers {
+                int_value: int
+                uint_value: uint
+                i8_value: i8
+                i16_value: i16
+                i32_value: i32
+                i64_value: i64
+                u8_value: u8
+                u16_value: u16
+                u32_value: u32
+                u64_value: u64
+            }
+        "#};
+        let (program, source) = analyze_test_glue_file(src);
+        let ir = GlueIr::from_analyzed(source.file_name, program);
+        let result = CodeGenOpenAPI
+            .generate(
+                ir,
+                &SourceCodeMetadata {
+                    file_name: source.file_name,
+                    file_contents: source.file_contents,
+                },
+                None,
+            )
+            .unwrap();
+        let json_value: Value = serde_json::from_str(&result).unwrap();
+        let props = &json_value["components"]["schemas"]["Numbers"]["properties"];
+
+        for field in ["int_value", "uint_value", "i8_value", "i16_value", "u8_value", "u16_value"] {
+            assert_eq!(props[field]["type"], "integer", "Expected {field} to downcast to integer");
+            assert!(props[field]["format"].is_null(), "Expected {field} to omit integer format");
+        }
+        for field in ["i32_value", "u32_value"] {
+            assert_eq!(props[field]["type"], "integer", "Expected {field} to be integer");
+            assert_eq!(props[field]["format"], "int32", "Expected {field} to use int32 format");
+        }
+        for field in ["i64_value", "u64_value"] {
+            assert_eq!(props[field]["type"], "integer", "Expected {field} to be integer");
+            assert_eq!(props[field]["format"], "int64", "Expected {field} to use int64 format");
+        }
+    }
+
+    #[test]
     fn test_record_string_to_model() {
         let src = indoc! {r#"
             model Container {

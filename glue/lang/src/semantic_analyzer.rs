@@ -230,7 +230,7 @@ impl SemanticAnalyzer {
 
             if matches!(value, ConstValue::List(_)) {
                 let span = const_def.expr_node().map(|n| n.text_range()).unwrap_or_else(|| const_def.syntax().text_range());
-                let report = diag.error(span, "Constants must fold to int, string, or bool");
+                let report = diag.error(span, "Constants must fold to integer, string, or bool");
                 errors.push(SemanticAnalyzerError::ConstantError(report));
                 continue;
             }
@@ -305,21 +305,21 @@ impl SemanticAnalyzer {
         let atoms = type_expr.type_atoms();
         let atom = atoms.first()?;
         if atoms.len() != 1 || atom.is_array() || atom.is_optional() {
-            let report = diag.error(type_node.text_range(), "Constants must be declared as int, string, or bool");
+            let report = diag.error(type_node.text_range(), "Constants must be declared as integer, string, or bool");
             errors.push(SemanticAnalyzerError::ConstantError(report));
             return None;
         }
         let Some(primitive) = atom.as_primitive_type() else {
-            let report = diag.error(type_node.text_range(), "Constants must be declared as int, string, or bool");
+            let report = diag.error(type_node.text_range(), "Constants must be declared as integer, string, or bool");
             errors.push(SemanticAnalyzerError::ConstantError(report));
             return None;
         };
         match primitive {
-            PrimitiveType::Int => Some(ConstExprType::Int),
+            primitive if primitive.is_integer() => Some(ConstExprType::Int),
             PrimitiveType::String => Some(ConstExprType::String),
             PrimitiveType::Bool => Some(ConstExprType::Bool),
             _ => {
-                let report = diag.error(type_node.text_range(), "Constants must be declared as int, string, or bool");
+                let report = diag.error(type_node.text_range(), "Constants must be declared as integer, string, or bool");
                 errors.push(SemanticAnalyzerError::ConstantError(report));
                 None
             }
@@ -646,10 +646,8 @@ impl SemanticAnalyzer {
 
                 if let Some(primitive_type) = type_atom.as_primitive_type() {
                     let value_matches_primitive = |literal: &ConstValue| {
-                        matches!(
-                            (primitive_type, literal),
-                            (PrimitiveType::Bool, ConstValue::Bool(_)) | (PrimitiveType::Int, ConstValue::Int(_)) | (PrimitiveType::String, ConstValue::String(_))
-                        )
+                        matches!((primitive_type, literal), (PrimitiveType::Bool, ConstValue::Bool(_)) | (PrimitiveType::String, ConstValue::String(_)))
+                            || (primitive_type.is_integer() && matches!(literal, ConstValue::Int(_)))
                     };
 
                     if type_atom.is_array() {
@@ -726,7 +724,7 @@ impl SemanticAnalyzer {
                 if let Some(scope) = scope
                     && symbols.resolve_id(Some(scope), &type_name).is_none()
                 {
-                    let mut candidates = vec!["string", "int", "float", "bool", "any"];
+                    let mut candidates = PrimitiveType::NAMES.to_vec();
                     let symbol_entries = symbols.entries(Some(scope));
                     candidates.extend(symbol_entries.iter().map(|entry| entry.name.rsplit("::").nth(0).unwrap()));
                     let suggested_names = fuzzy_match(&type_name, &candidates, 1);
@@ -1451,7 +1449,29 @@ mod tests {
         let result = analyze_source(src);
         assert!(result.is_err(), "Expected list constant to fail");
         let errors = result.err().unwrap();
-        assert!(errors.iter().any(|e| e.report().to_string().contains("Constants must fold to int, string, or bool")));
+        assert!(errors.iter().any(|e| e.report().to_string().contains("Constants must fold to integer, string, or bool")));
+    }
+
+    #[test]
+    fn test_integer_primitive_variants_parse_and_validate_defaults() {
+        let src = indoc! { r#"
+            const LIMIT: u32 = 10
+
+            model Numbers {
+                int_value: int = LIMIT
+                uint_value: uint = 1
+                i8_value: i8 = 1
+                i16_value: i16 = 1
+                i32_value: i32 = 1
+                i64_value: i64 = 1
+                u8_value: u8 = 1
+                u16_value: u16 = 1
+                u32_value: u32 = 1
+                u64_value: u64 = 1
+            }
+        "# };
+
+        assert!(analyze_source(src).is_ok(), "Expected integer primitive variants to analyze");
     }
 
     #[test]

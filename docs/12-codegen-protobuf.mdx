@@ -66,6 +66,8 @@ enum Role {
 Enum constants are generated in `CONSTANT_CASE` from the Glue string values.
 Values that normalize to the same Protobuf identifier are rejected because Protobuf enum value names share the package scope.
 
+Integer primitives map to Protobuf scalar integer types where available. `i64` and `u64` emit `int64` and `uint64`; `uint`, `u8`, `u16`, and `u32` emit `uint32`; other signed integer primitives emit `int32`.
+
 ## Field tags
 
 By default, Glue assigns Protobuf field tags from field declaration order, starting at `1`. You do not need to annotate fields for simple or early schemas.
