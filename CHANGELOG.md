@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.0](https://github.com/guywaldman/glue/compare/v1.7.0...v1.8.0) (2026-06-13)
+
+
+### Features
+
+* add support for tuples ([24ec89a](https://github.com/guywaldman/glue/commit/24ec89a0f03eaeab6166c4ec758d472d9cf1aaeb))
+
 ## [1.7.0](https://github.com/guywaldman/glue/compare/v1.6.1...v1.7.0) (2026-06-13)
 
 
