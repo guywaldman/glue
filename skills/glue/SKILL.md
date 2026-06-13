@@ -51,6 +51,7 @@ Prefer current public docs over memorized syntax when exact behavior matters:
 - Defaults: `field: Type = value`.
 - Union types: `string | string[]`.
 - Type aliases: `type UserId = string`.
+- Codegen emits public type aliases in targets with native alias support: TypeScript `export type`, Rust `pub type`, Go `type Name = ...`, and Python `TypeAlias`. Aliases starting with `_` are private and inlined.
 - Constants: `const MAX_PAGE_SIZE = 100`; optional annotations use `const MAX_PAGE_SIZE: int = 100`. Constants can be top-level or declared inside models.
 - Model-scoped constants: public constants can be referenced as `Model.CONSTANT` or `Outer.Inner.CONSTANT`; leading `_` constants cannot be referenced from outside their owning model.
 - Constant expressions support int `+`/`*`, string `+`, parentheses, bool literals, and references to other constants, including qualified model constants.

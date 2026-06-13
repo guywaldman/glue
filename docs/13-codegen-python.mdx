@@ -77,4 +77,5 @@ class UserRole(StrEnum):
 - `@field(alias="...")` is applied in all supported Python model libraries.
 - All integer primitives emit Python `int`.
 - Tuples are emitted as Python tuple annotations, e.g. `tuple[str, int]`.
+- Glue `type` aliases are emitted as public `TypeAlias` declarations; model fields still use the concrete resolved annotations. Aliases starting with `_` are inlined instead.
 - Anonymous structs are emitted as generated classes named from the owning field path.

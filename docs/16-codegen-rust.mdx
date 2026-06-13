@@ -85,6 +85,7 @@ pub enum Status {
 - `int` emits `isize`, `uint` emits `usize`, and fixed-width integers emit their Rust equivalents (`i8`, `u64`, etc.).
 - Tuples are emitted as native Rust tuples, e.g. `(String, isize)`.
 - `Record<K, V>` is emitted as `HashMap<K, V>`.
+- Glue `type` aliases are emitted as public Rust type aliases. Aliases starting with `_` are inlined instead.
 - Regular enums derive `Copy` and `Hash` by default.
 - By default, unions are emitted as generated `#[serde(untagged)]` enums.
 - Anonymous structs are emitted as generated structs named from the owning field path.

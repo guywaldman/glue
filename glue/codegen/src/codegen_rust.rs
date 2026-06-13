@@ -1,6 +1,6 @@
 use config::{GlueConfigSchemaGeneration, GlueConfigSchemaGenerationRustExtraDerives};
 use convert_case::Case;
-use lang::{AnonModel, AstNode, ConstDef, ConstValue, Enum, Field, GlueIr, Model, PrimitiveType, SourceCodeMetadata, SymId, Type, TypeAtom};
+use lang::{AnonModel, AstNode, ConstDef, ConstValue, Enum, Field, GlueIr, Model, PrimitiveType, SourceCodeMetadata, SymId, Type, TypeAlias, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
@@ -81,6 +81,12 @@ impl<'a> RustGenerator<'a> {
             let code = self.emit_const(&const_def, scope)?;
             self.output.push_str(&code);
         }
+        for (type_alias, scope) in self.ctx.scoped_type_aliases() {
+            if !type_alias.is_private() {
+                let code = self.emit_type_alias(&type_alias, scope)?;
+                self.output.push_str(&code);
+            }
+        }
         for model in self.ctx.top_level_models().collect::<Vec<_>>() {
             let code = self.emit_model(&model, None)?;
             self.output.push_str(&code);
@@ -160,6 +166,18 @@ impl<'a> RustGenerator<'a> {
         };
         let docs = const_def.docs().map(|docs| DocEmitter::rust_docs(&docs, 0)).unwrap_or_default();
         Ok(format!("{}{}const {}: {} = {};\n\n", docs, vis, name, ty, literal))
+    }
+
+    fn emit_type_alias(&mut self, type_alias: &TypeAlias, parent_scope: Option<SymId>) -> CodeGenResult<String> {
+        let name = type_alias.qualified_name(&self.ctx, parent_scope, Case::Pascal)?;
+        let type_node = type_alias
+            .type_node()
+            .ok_or_else(|| CodeGenContext::internal_error(format!("Type alias '{}' missing type expression", name)))?;
+        let alias_type = Type::cast(type_node).ok_or_else(|| CodeGenContext::internal_error("Expected Type node in type alias"))?;
+        let alias_scope_id = type_alias.scope_id(&self.ctx, parent_scope)?;
+        let alias_path = self.ctx.symbol_path(alias_scope_id);
+        let docs = type_alias.docs().map(|docs| DocEmitter::rust_docs(&docs, 0)).unwrap_or_default();
+        Ok(format!("{}pub type {} = {};\n\n", docs, name, self.emit_type(&alias_type, parent_scope, &alias_path)?))
     }
 
     fn emit_model(&mut self, model: &Model, parent_scope: Option<SymId>) -> CodeGenResult<String> {
@@ -376,15 +394,28 @@ impl<'a> RustGenerator<'a> {
             "Record".to_string()
         } else if let Some(ref_token) = atom.as_ref_token() {
             let ref_name = ref_token.text().trim();
-            if let Some(alias_type) = self.ctx.resolve_type_alias(parent_scope, ref_name)? {
-                let alias_atoms = alias_type.type_atoms();
-                if alias_atoms.len() == 1 {
-                    self.union_variant_name(&alias_atoms[0], parent_scope)?
+            let sym = self
+                .ctx
+                .resolve(parent_scope, ref_name)
+                .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved type: {}", ref_name)))?;
+            if sym.data.kind() == lang::LSyntaxKind::TYPE_ALIAS {
+                let alias = TypeAlias::cast(sym.data).ok_or_else(|| CodeGenContext::internal_error("Expected type alias node"))?;
+                if alias.is_private() {
+                    let alias_type = self
+                        .ctx
+                        .resolve_type_alias(parent_scope, ref_name)?
+                        .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved type alias: {}", ref_name)))?;
+                    let alias_atoms = alias_type.type_atoms();
+                    if alias_atoms.len() == 1 {
+                        self.union_variant_name(&alias_atoms[0], parent_scope)?
+                    } else {
+                        self.ctx.symbol_name(&sym.name, Case::Pascal)
+                    }
                 } else {
-                    self.ctx.symbol_name(ref_name, Case::Pascal)
+                    self.ctx.symbol_name(&sym.name, Case::Pascal)
                 }
             } else {
-                self.ctx.symbol_name(ref_name, Case::Pascal)
+                self.ctx.symbol_name(&sym.name, Case::Pascal)
             }
         } else if atom.anon_model().is_some() {
             "Object".to_string()
@@ -425,12 +456,23 @@ impl<'a> RustGenerator<'a> {
             format!("({})", item_codes.join(", "))
         } else if let Some(ref_token) = atom.as_ref_token() {
             let ref_name = ref_token.text().trim();
-            if let Some(alias_type) = self.ctx.resolve_type_alias(parent_scope, ref_name)? {
-                self.emit_type(&alias_type, parent_scope, path)?
+            let sym = self
+                .ctx
+                .resolve(parent_scope, ref_name)
+                .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved type: {}", ref_name)))?;
+            if sym.data.kind() == lang::LSyntaxKind::TYPE_ALIAS {
+                let alias = TypeAlias::cast(sym.data).ok_or_else(|| CodeGenContext::internal_error("Expected type alias node"))?;
+                if alias.is_private() {
+                    let alias_type = self
+                        .ctx
+                        .resolve_type_alias(parent_scope, ref_name)?
+                        .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved type alias: {}", ref_name)))?;
+                    self.emit_type(&alias_type, parent_scope, path)?
+                } else {
+                    self.ctx.symbol_name(&sym.name, Case::Pascal)
+                }
             } else {
-                self.ctx
-                    .qualified_name(parent_scope, ref_name, Case::Pascal)
-                    .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved type: {}", ref_name)))?
+                self.ctx.symbol_name(&sym.name, Case::Pascal)
             }
         } else if let Some(anon_model) = atom.anon_model() {
             let name = self.anon_namer.allocate(&self.ctx, path, Case::Pascal);
@@ -822,6 +864,65 @@ mod tests {
         assert!(output.contains("pub const DEFAULT_LIMIT: isize = 200;"), "Expected folded int constant:\n{}", output);
         assert!(output.contains("const _PRIVATE_FLAG: bool = true;"), "Expected private constant:\n{}", output);
         assert!(output.contains("#[serde(rename = \"user_id\")]"), "Expected folded alias:\n{}", output);
+    }
+
+    #[test]
+    fn test_type_aliases_export_and_references_are_preserved() {
+        let src = indoc! { r#"
+            /// Stable user identifier.
+            type UserId = string
+            type UserIds = UserId[]
+            type _InternalId = string
+            type PublicInternalIds = _InternalId[]
+            type Profile = { nickname: string }
+            type Value = string | int
+
+            model Account {
+                type LocalId = uint
+                type _LocalSecret = string
+
+                id: UserId
+                related: UserIds
+                internal: _InternalId
+                public_internal_ids: PublicInternalIds
+                profile: Profile
+                value: Value
+                local: LocalId
+                secret: _LocalSecret
+            }
+        "# };
+
+        let output = gen_rust(src);
+        assert!(output.contains("/// Stable user identifier.\npub type UserId = String;"), "Expected documented type alias:\n{}", output);
+        assert!(output.contains("pub type UserIds = Vec<UserId>;"), "Expected alias RHS to preserve alias refs:\n{}", output);
+        assert!(
+            !output.contains("pub type InternalId") && !output.contains("pub type _InternalId"),
+            "Expected private alias not to export:\n{}",
+            output
+        );
+        assert!(
+            !output.contains("pub type AccountLocalSecret") && !output.contains("pub type Account_LocalSecret"),
+            "Expected nested private alias not to export:\n{}",
+            output
+        );
+        assert!(
+            output.contains("pub type PublicInternalIds = Vec<String>;"),
+            "Expected public alias referencing private alias to inline RHS:\n{}",
+            output
+        );
+        assert!(output.contains("pub type Profile = ProfileAnon;"), "Expected anonymous model alias:\n{}", output);
+        assert!(output.contains("pub type Value = ValueAnon;"), "Expected union alias backing type:\n{}", output);
+        assert!(output.contains("pub type AccountLocalId = usize;"), "Expected nested alias to be exported:\n{}", output);
+        assert!(output.contains("pub id: UserId,"), "Expected field to use alias:\n{}", output);
+        assert!(output.contains("pub related: UserIds,"), "Expected field to use array alias:\n{}", output);
+        assert!(output.contains("pub internal: String,"), "Expected private alias field to inline:\n{}", output);
+        assert!(output.contains("pub public_internal_ids: PublicInternalIds,"), "Expected public alias field to use alias:\n{}", output);
+        assert!(output.contains("pub profile: Profile,"), "Expected field to use anonymous model alias:\n{}", output);
+        assert!(output.contains("pub value: Value,"), "Expected field to use union alias:\n{}", output);
+        assert!(output.contains("pub local: AccountLocalId,"), "Expected field to use nested alias:\n{}", output);
+        assert!(output.contains("pub secret: String,"), "Expected nested private alias field to inline:\n{}", output);
+        assert!(output.contains("pub enum ValueAnon"), "Expected backing union enum:\n{}", output);
+        assert!(output.contains("pub struct ProfileAnon"), "Expected backing anonymous struct:\n{}", output);
     }
 
     #[test]

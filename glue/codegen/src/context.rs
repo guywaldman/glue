@@ -84,6 +84,37 @@ impl<'a> CodeGenContext<'a> {
         self.ast.children().filter(|n| n.kind() == LSyntaxKind::CONST_DEF).filter_map(ConstDef::cast)
     }
 
+    pub fn top_level_type_aliases(&self) -> impl Iterator<Item = TypeAlias> + '_ {
+        self.ast.children().filter(|n| n.kind() == LSyntaxKind::TYPE_ALIAS).filter_map(TypeAlias::cast)
+    }
+
+    pub fn scoped_type_aliases(&self) -> Vec<(TypeAlias, Option<SymId>)> {
+        let mut aliases = Vec::new();
+        for type_alias in self.top_level_type_aliases() {
+            aliases.push((type_alias, None));
+        }
+        for model in self.top_level_models() {
+            self.collect_model_type_aliases(&model, None, &mut aliases);
+        }
+        aliases
+    }
+
+    fn collect_model_type_aliases(&self, model: &Model, parent_scope: Option<SymId>, out: &mut Vec<(TypeAlias, Option<SymId>)>) {
+        let Some(model_name) = model.ident() else {
+            return;
+        };
+        let Some(model_scope) = self.resolve_id(parent_scope, &model_name) else {
+            return;
+        };
+
+        for type_alias in model.nested_type_aliases() {
+            out.push((type_alias, Some(model_scope)));
+        }
+        for nested_model in model.nested_models() {
+            self.collect_model_type_aliases(&nested_model, Some(model_scope), out);
+        }
+    }
+
     pub fn scoped_consts(&self) -> Vec<(ConstDef, Option<SymId>)> {
         let mut consts = Vec::new();
         for const_def in self.top_level_consts() {
@@ -315,7 +346,7 @@ impl AnonymousTypeNamer {
             .symbols
             .all_entries()
             .into_iter()
-            .filter(|entry| matches!(entry.data.kind(), LSyntaxKind::MODEL | LSyntaxKind::ENUM))
+            .filter(|entry| matches!(entry.data.kind(), LSyntaxKind::MODEL | LSyntaxKind::ENUM | LSyntaxKind::TYPE_ALIAS))
             .map(|entry| ctx.symbol_name(&entry.name, case))
             .collect();
         Self { used_names }
@@ -412,6 +443,15 @@ impl NamedExt for ConstDef {
     }
     fn label() -> &'static str {
         "Constant"
+    }
+}
+
+impl NamedExt for TypeAlias {
+    fn ident(&self) -> Option<String> {
+        TypeAlias::ident(self)
+    }
+    fn label() -> &'static str {
+        "Type alias"
     }
 }
 

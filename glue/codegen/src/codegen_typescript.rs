@@ -1,6 +1,6 @@
 use config::GlueConfigSchemaGeneration;
 use convert_case::Case;
-use lang::{AnonModel, AstNode, ConstDef, ConstValue, Enum, Field, GlueIr, Model, PrimitiveType, SourceCodeMetadata, SymId, Type, TypeAtom};
+use lang::{AnonModel, AstNode, ConstDef, ConstValue, Enum, Field, GlueIr, Model, PrimitiveType, SourceCodeMetadata, SymId, Type, TypeAlias, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
@@ -47,6 +47,11 @@ impl<'a> TypeScriptGenerator<'a> {
         for (const_def, scope) in self.ctx.scoped_consts() {
             self.emit_const(&const_def, scope)?;
         }
+        for (type_alias, scope) in self.ctx.scoped_type_aliases() {
+            if !type_alias.is_private() {
+                self.emit_type_alias(&type_alias, scope)?;
+            }
+        }
         for model in self.ctx.top_level_models().collect::<Vec<_>>() {
             self.emit_model(&model, None)?;
         }
@@ -71,6 +76,20 @@ impl<'a> TypeScriptGenerator<'a> {
             self.output.push_str(&DocEmitter::ts_docstring(&docs));
         }
         self.output.push_str(&format!("{}const {}: {} = {};\n\n", export, name, ty, literal));
+        Ok(())
+    }
+
+    fn emit_type_alias(&mut self, type_alias: &TypeAlias, scope: Option<SymId>) -> CodeGenResult<()> {
+        let name = type_alias.qualified_name(&self.ctx, scope, Case::Pascal)?;
+        let type_node = type_alias
+            .type_node()
+            .ok_or_else(|| CodeGenContext::internal_error(format!("Type alias '{}' missing type expression", name)))?;
+        let alias_type = Type::cast(type_node).ok_or_else(|| CodeGenContext::internal_error("Expected Type node in type alias"))?;
+
+        if let Some(docs) = type_alias.docs() {
+            self.output.push_str(&DocEmitter::ts_docstring(&docs));
+        }
+        self.output.push_str(&format!("export type {} = {};\n\n", name, self.emit_type(&alias_type, scope)?));
         Ok(())
     }
 
@@ -186,13 +205,22 @@ impl<'a> TypeScriptGenerator<'a> {
             format!("[{}]", item_codes.join(", "))
         } else if let Some(ref_token) = atom.as_ref_token() {
             let type_name = ref_token.text().to_string();
-            if let Some(alias_type) = self.ctx.resolve_type_alias(scope, &type_name)? {
-                self.emit_type(&alias_type, scope)?
+            let sym = self
+                .ctx
+                .resolve(scope, &type_name)
+                .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved type: {}", type_name)))?;
+            if sym.data.kind() == lang::LSyntaxKind::TYPE_ALIAS {
+                let alias = TypeAlias::cast(sym.data).ok_or_else(|| CodeGenContext::internal_error("Expected type alias node"))?;
+                if alias.is_private() {
+                    let alias_type = self
+                        .ctx
+                        .resolve_type_alias(scope, &type_name)?
+                        .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved type alias: {}", type_name)))?;
+                    self.emit_type(&alias_type, scope)?
+                } else {
+                    self.ctx.symbol_name(&sym.name, Case::Pascal)
+                }
             } else {
-                let sym = self
-                    .ctx
-                    .resolve(scope, &type_name)
-                    .ok_or_else(|| CodeGenContext::internal_error(format!("Unresolved type: {}", type_name)))?;
                 self.ctx.symbol_name(&sym.name, Case::Pascal)
             }
         } else if let Some(anon_model) = atom.anon_model() {
@@ -393,6 +421,82 @@ mod tests {
         assert!(output.contains("export const MAX_PAGE_SIZE: number = 100;"), "Expected int constant:\n{}", output);
         assert!(output.contains("const _RETRY_MS: number = 300;"), "Expected private constant without export:\n{}", output);
         assert!(output.find("USER_ALIAS").unwrap() < output.find("export type Request").unwrap());
+    }
+
+    #[test]
+    fn test_type_aliases_export_and_references_are_preserved() {
+        let src = indoc! { r#"
+            /// Stable user identifier.
+            type UserId = string
+            type UserIds = UserId[]
+            type _InternalId = string
+            type PublicInternalIds = _InternalId[]
+            type Profile = { nickname: string }
+            type Value = string | int
+
+            model Account {
+                type LocalId = uint
+                type _LocalSecret = string
+
+                id: UserId
+                related: UserIds
+                internal: _InternalId
+                public_internal_ids: PublicInternalIds
+                profile: Profile
+                value: Value
+                local: LocalId
+                secret: _LocalSecret
+            }
+        "# };
+
+        let output = gen_typescript(src);
+        assert!(
+            output.contains("/**\n * Stable user identifier.\n */\nexport type UserId = string;"),
+            "Expected documented type alias:\n{}",
+            output
+        );
+        assert!(output.contains("export type UserIds = UserId[];"), "Expected alias RHS to preserve alias refs:\n{}", output);
+        assert!(
+            !output.contains("export type InternalId") && !output.contains("export type _InternalId"),
+            "Expected private alias to be inlined instead of exported:\n{}",
+            output
+        );
+        assert!(
+            !output.contains("export type AccountLocalSecret") && !output.contains("export type Account_LocalSecret"),
+            "Expected nested private alias to be inlined instead of exported:\n{}",
+            output
+        );
+        assert!(
+            output.contains("export type PublicInternalIds = string[];"),
+            "Expected public alias referencing private alias to inline RHS:\n{}",
+            output
+        );
+        assert!(output.contains("export type Profile = { nickname: string };"), "Expected anonymous model alias:\n{}", output);
+        assert!(output.contains("export type Value = string | number;"), "Expected union type alias:\n{}", output);
+        assert!(output.contains("export type AccountLocalId = number;"), "Expected nested alias to be exported:\n{}", output);
+        assert!(output.contains("  id: UserId;\n"), "Expected field to use alias:\n{}", output);
+        assert!(output.contains("  related: UserIds;\n"), "Expected field to use array alias:\n{}", output);
+        assert!(output.contains("  internal: string;\n"), "Expected private alias field to inline:\n{}", output);
+        assert!(output.contains("  public_internal_ids: PublicInternalIds;\n"), "Expected public alias field to use alias:\n{}", output);
+        assert!(output.contains("  profile: Profile;\n"), "Expected field to use anonymous model alias:\n{}", output);
+        assert!(output.contains("  value: Value;\n"), "Expected field to use union alias:\n{}", output);
+        assert!(output.contains("  local: AccountLocalId;\n"), "Expected field to use nested alias:\n{}", output);
+        assert!(output.contains("  secret: string;\n"), "Expected nested private alias field to inline:\n{}", output);
+    }
+
+    #[test]
+    fn test_type_aliases_export_with_zod() {
+        let src = indoc! { r#"
+            type UserId = string
+
+            model Account {
+                id: UserId
+            }
+        "# };
+
+        let output = gen_typescript_with_zod(src, true);
+        assert!(output.contains("export type UserId = string;"), "Expected alias type export in zod mode:\n{}", output);
+        assert!(output.contains("id: z.string()"), "Expected zod schema to expand alias structurally:\n{}", output);
     }
 
     #[test]

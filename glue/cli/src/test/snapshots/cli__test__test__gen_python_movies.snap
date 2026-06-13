@@ -6,7 +6,13 @@ expression: generated_code
 from pydantic import BaseModel
 from pydantic import Field
 from enum import StrEnum
-from typing import Any, Annotated, Optional, Union
+from typing import Any, Annotated, Optional, TypeAlias, Union
+
+MovieId: TypeAlias = str
+
+
+MovieList: TypeAlias = list["Movie"]
+
 
 class Movie(BaseModel):
     """Represents a movie entry."""

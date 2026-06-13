@@ -1,6 +1,6 @@
 use config::{GlueConfigSchemaGeneration, GlueConfigSchemaGenerationPython, GlueConfigSchemaGenerationPythonDataModelLibrary};
 use convert_case::Case;
-use lang::{AnonModel, AstNode, ConstDef, ConstValue, Enum, Field, GlueIr, Model, PrimitiveType, SourceCodeMetadata, SymId, Type, TypeAtom};
+use lang::{AnonModel, AstNode, ConstDef, ConstValue, Enum, Field, GlueIr, Model, PrimitiveType, SourceCodeMetadata, SymId, Type, TypeAlias, TypeAtom};
 
 use crate::{
     CodeGenError, CodeGenerator,
@@ -32,8 +32,18 @@ impl PyModelLibrary {
         }
     }
 
-    fn preludes(&self, include_lint: bool) -> Vec<String> {
+    fn preludes(&self, include_lint: bool, include_type_alias: bool) -> Vec<String> {
         let lint = "# pylint: disable=missing-class-docstring, missing-function-docstring, missing-module-docstring".to_string();
+        let pydantic_typing = if include_type_alias {
+            "from typing import Any, Annotated, Optional, TypeAlias, Union"
+        } else {
+            "from typing import Any, Annotated, Optional, Union"
+        };
+        let standard_typing = if include_type_alias {
+            "from typing import Any, Optional, TypeAlias, Union"
+        } else {
+            "from typing import Any, Optional, Union"
+        };
         let mut lines = match self {
             Self::Pydantic { base_model } => {
                 let (module, class) = base_model.rsplit_once('.').unwrap();
@@ -41,24 +51,12 @@ impl PyModelLibrary {
                     format!("from {} import {}", module, class),
                     "from pydantic import Field".to_string(),
                     "from enum import StrEnum".to_string(),
-                    "from typing import Any, Annotated, Optional, Union".to_string(),
+                    pydantic_typing.to_string(),
                 ]
             }
-            Self::Dataclasses => vec![
-                "from dataclasses import dataclass".to_string(),
-                "from enum import StrEnum".to_string(),
-                "from typing import Any, Optional, Union".to_string(),
-            ],
-            Self::Attrs => vec![
-                "from attrs import define, field".to_string(),
-                "from enum import StrEnum".to_string(),
-                "from typing import Any, Optional, Union".to_string(),
-            ],
-            Self::Msgspec => vec![
-                "import msgspec".to_string(),
-                "from enum import StrEnum".to_string(),
-                "from typing import Any, Optional, Union".to_string(),
-            ],
+            Self::Dataclasses => vec!["from dataclasses import dataclass".to_string(), "from enum import StrEnum".to_string(), standard_typing.to_string()],
+            Self::Attrs => vec!["from attrs import define, field".to_string(), "from enum import StrEnum".to_string(), standard_typing.to_string()],
+            Self::Msgspec => vec!["import msgspec".to_string(), "from enum import StrEnum".to_string(), standard_typing.to_string()],
         };
 
         if include_lint {
@@ -138,6 +136,11 @@ impl<'a> PythonGenerator<'a> {
         for (const_def, scope) in self.ctx.scoped_consts() {
             self.emit_const(&const_def, scope)?;
         }
+        for (type_alias, scope) in self.ctx.scoped_type_aliases() {
+            if !type_alias.is_private() {
+                self.emit_type_alias(&type_alias, scope)?;
+            }
+        }
         for model in self.ctx.top_level_models().collect::<Vec<_>>() {
             self.emit_model(&model, None)?;
         }
@@ -146,7 +149,8 @@ impl<'a> PythonGenerator<'a> {
         }
         self.emit_pending_anon_models()?;
 
-        let preludes = self.fw.preludes(self.lint_suppressions).join("\n");
+        let include_type_alias = self.ctx.scoped_type_aliases().iter().any(|(type_alias, _)| !type_alias.is_private());
+        let preludes = self.fw.preludes(self.lint_suppressions, include_type_alias).join("\n");
         let body = self.output.trim_start_matches('\n');
         if body.is_empty() { Ok(preludes) } else { Ok(format!("{}\n\n{}", preludes, body)) }
     }
@@ -165,6 +169,26 @@ impl<'a> PythonGenerator<'a> {
         };
         self.output.push_str(&format!("{}: {} = {}\n", name, ty, literal));
         if let Some(docs) = const_def.docs() {
+            self.output.push_str(&DocEmitter::python_docstring(&docs));
+        }
+        Ok(())
+    }
+
+    fn emit_type_alias(&mut self, type_alias: &TypeAlias, scope: Option<SymId>) -> CodeGenResult<()> {
+        if !self.output.is_empty() && !self.output.ends_with("\n\n") {
+            self.output.push_str("\n\n");
+        }
+        let name = type_alias.qualified_name(&self.ctx, scope, Case::Pascal)?;
+        let type_node = type_alias
+            .type_node()
+            .ok_or_else(|| CodeGenContext::internal_error(format!("Type alias '{}' missing type expression", name)))?;
+        let alias_type = Type::cast(type_node).ok_or_else(|| CodeGenContext::internal_error("Expected Type node in type alias"))?;
+        let alias_scope_id = type_alias.scope_id(&self.ctx, scope)?;
+        let alias_path = self.ctx.symbol_path(alias_scope_id);
+        let alias_type_code = self.emit_type(&alias_type, scope, &alias_path)?;
+
+        self.output.push_str(&format!("{}: TypeAlias = {}\n", name, alias_type_code));
+        if let Some(docs) = type_alias.docs() {
             self.output.push_str(&DocEmitter::python_docstring(&docs));
         }
         Ok(())
@@ -604,16 +628,42 @@ mod tests {
         let src = indoc! { r#"
             type UserId = string
             type UserIds = UserId[]
+            type _InternalId = string
+            type PublicInternalIds = _InternalId[]
 
             model User {
                 id: UserId
                 related: UserIds
+                internal: _InternalId
+                public_internal_ids: PublicInternalIds
             }
         "# };
 
         let generated = gen_python(src);
+        assert!(
+            generated.contains("from typing import Any, Annotated, Optional, TypeAlias, Union"),
+            "Expected TypeAlias import when aliases are exported:\n{}",
+            generated
+        );
+        assert!(generated.contains("UserId: TypeAlias = str"), "Expected primitive alias export:\n{}", generated);
+        assert!(generated.contains("UserIds: TypeAlias = list[str]"), "Expected array alias export:\n{}", generated);
+        assert!(
+            !generated.contains("InternalId: TypeAlias") && !generated.contains("_InternalId: TypeAlias"),
+            "Expected private alias not to export:\n{}",
+            generated
+        );
+        assert!(
+            generated.contains("PublicInternalIds: TypeAlias = list[str]"),
+            "Expected public alias referencing private alias to inline RHS:\n{}",
+            generated
+        );
         assert!(generated.contains("id: Annotated[str, Field()]"), "Expected alias to primitive type to resolve to str annotation");
         assert!(generated.contains("related: Annotated[list[str], Field()]"), "Expected nested alias to array type to resolve");
+        assert!(generated.contains("internal: Annotated[str, Field()]"), "Expected private alias field to inline");
+        assert!(
+            generated.contains("public_internal_ids: Annotated[list[str], Field()]"),
+            "Expected public alias field to keep concrete Python annotation"
+        );
     }
 
     #[test]

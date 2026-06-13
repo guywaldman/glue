@@ -810,7 +810,7 @@ impl Lsp {
             TokenAtOffset::None => return None,
         };
 
-        if token.kind() != LSyntaxKind::IDENT {
+        if !matches!(token.kind(), LSyntaxKind::IDENT | LSyntaxKind::CONST_IDENT) {
             return None;
         }
 

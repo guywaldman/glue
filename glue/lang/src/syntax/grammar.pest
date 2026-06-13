@@ -33,7 +33,7 @@ literal = { string_literal | bool_literal | int_literal | list_literal }
 
 builtin_type = { "any" | "uint" | "int" | "u8" | "u16" | "u32" | "u64" | "i8" | "i16" | "i32" | "i64" | "float" | "string" | "bool" }
 type_atom_modifiers = { "[]"? ~ "?"? }
-type_ref = ${ ident ~ ("." ~ ident)* }
+type_ref = ${ const_ident ~ ("." ~ const_ident)* }
 type_atom = ${ (builtin_type | record | tuple | type_ref | anon_model) ~ type_atom_modifiers }
 type_expr = { type_atom ~ (WHITESPACE* ~ "|" ~ WHITESPACE* ~ type_atom)* }
 
@@ -65,7 +65,7 @@ model_body_item = _{ field | const_def | type_alias | model | enum_def }
 model_body = !{ (model_body_item ~ (","? ~ model_body_item)*)? }
 model = { doc_block? ~ decorator* ~ "model" ~ ident ~ "{" ~ model_body ~ "}" }
 anon_model = { "{" ~ model_body ~ "}" }
-type_alias = { doc_block? ~ "type" ~ ident ~ "=" ~ type_expr }
+type_alias = { doc_block? ~ "type" ~ const_ident ~ "=" ~ type_expr }
 const_def = { doc_block? ~ "const" ~ const_ident ~ (":" ~ type_expr)? ~ "=" ~ const_expr }
 
 endpoint = { doc_block? ~ decorator* ~ "endpoint" ~ string_literal ~ ident? ~ "{" ~ model_body ~ "}" }

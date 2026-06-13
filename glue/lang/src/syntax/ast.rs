@@ -269,15 +269,30 @@ impl ConstRef {
 
 impl TypeAlias {
     pub fn ident_token(&self) -> Option<LToken> {
-        self.0.children_with_tokens().filter_map(|e| e.into_token()).find(|t| t.kind() == LSyntaxKind::IDENT)
+        self.0
+            .children_with_tokens()
+            .filter_map(|e| e.into_token())
+            .find(|t| matches!(t.kind(), LSyntaxKind::IDENT | LSyntaxKind::CONST_IDENT))
     }
 
     pub fn ident(&self) -> Option<String> {
         self.ident_token().map(|t| t.text().to_string())
     }
 
+    pub fn is_private(&self) -> bool {
+        self.ident().is_some_and(|name| name.starts_with('_'))
+    }
+
     pub fn type_node(&self) -> Option<LNode> {
         self.0.children().find(|n| n.kind() == LSyntaxKind::TYPE)
+    }
+
+    pub fn docs(&self) -> Option<Vec<String>> {
+        self.0
+            .children_with_tokens()
+            .find(|t| t.kind() == LSyntaxKind::DOC_BLOCK)
+            .and_then(|doc_block_node| doc_block_node.into_token().map(|n| n.text().to_string()))
+            .map(|text| text.lines().map(|line| line.trim().trim_start_matches("///").trim().to_string()).collect())
     }
 }
 
@@ -1050,12 +1065,18 @@ impl TypeAtom {
 
     pub fn as_ref_token(&self) -> Option<LToken> {
         if let Some(type_ref) = self.0.children().find(|n| n.kind() == LSyntaxKind::TYPE_REF)
-            && let Some(token) = type_ref.children_with_tokens().find(|n| n.kind() == LSyntaxKind::IDENT).and_then(|ident_node| ident_node.into_token())
+            && let Some(token) = type_ref
+                .children_with_tokens()
+                .find(|n| matches!(n.kind(), LSyntaxKind::IDENT | LSyntaxKind::CONST_IDENT))
+                .and_then(|ident_node| ident_node.into_token())
         {
             return Some(token);
         }
 
-        self.0.children_with_tokens().find(|n| n.kind() == LSyntaxKind::IDENT).and_then(|ident_node| ident_node.into_token())
+        self.0
+            .children_with_tokens()
+            .find(|n| matches!(n.kind(), LSyntaxKind::IDENT | LSyntaxKind::CONST_IDENT))
+            .and_then(|ident_node| ident_node.into_token())
     }
 
     pub fn as_ref_name(&self) -> Option<String> {
@@ -1198,9 +1219,11 @@ mod tests {
     fn test_type_alias_declaration() {
         let src = indoc! { r#"
             type UserId = string
+            type _InternalId = string
 
             model User {
                 id: UserId
+                internal_id: _InternalId
             }
         "# };
 
@@ -1212,9 +1235,13 @@ mod tests {
         let parsed = Parser::new().parse(&metadata).expect("expected parser to accept type aliases");
         let root = RootNode::cast(parsed.ast_root).expect("expected RootNode");
         let aliases = root.top_level_type_aliases();
-        assert_eq!(aliases.len(), 1);
+        assert_eq!(aliases.len(), 2);
         assert_eq!(aliases[0].ident().as_deref(), Some("UserId"));
+        assert!(!aliases[0].is_private());
         assert!(aliases[0].type_node().is_some());
+        assert_eq!(aliases[1].ident().as_deref(), Some("_InternalId"));
+        assert!(aliases[1].is_private());
+        assert!(aliases[1].type_node().is_some());
     }
 
     #[test]

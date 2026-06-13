@@ -4,11 +4,15 @@ expression: generated_code
 ---
 #![allow(clippy::all, clippy::pedantic, clippy::nursery)]
 
+pub type MovieId = String;
+
+pub type MovieList = Vec<Movie>;
+
 /// Represents a movie entry.
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
 pub struct Movie {
     /// Unique identifier for the movie (GUIDv4).
-    pub id: String,
+    pub id: MovieId,
     /// Title of the movie.
     pub title: String,
     /// Year the movie was released.
