@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.0](https://github.com/guywaldman/glue/compare/v1.8.0...v1.9.0) (2026-06-13)
+
+
+### Features
+
+* add extended support for native integer types ([044d9b5](https://github.com/guywaldman/glue/commit/044d9b5b35cb882efabe68ec43749ae430342342))
+
 ## [1.8.0](https://github.com/guywaldman/glue/compare/v1.7.0...v1.8.0) (2026-06-13)
 
 
