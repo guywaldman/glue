@@ -268,10 +268,17 @@ impl CodeGeneratorImpl {
             tuple_obj.insert("minItems", arity.into());
             tuple_obj.insert("maxItems", arity.into());
             Ok(self.wrap_if_array(&type_atom, tuple_obj.into()))
+        } else if let Some(record) = type_atom.as_record_type() {
+            let value_type = record.dest_type_node().ok_or(CodeGenError::InternalError("Record missing destination type".into()))?;
+            let value_schema = self.visit_type(value_type, parent_sym)?;
+            let mut record_obj = json::object::Object::new();
+            record_obj.insert("type", "object".into());
+            record_obj.insert("additionalProperties", value_schema);
+            Ok(self.wrap_if_array(&type_atom, record_obj.into()))
         } else {
             let ref_name = type_atom
                 .as_ref_token()
-                .ok_or(CodeGenError::InternalError("Expected type atom to have ident token".into()))?
+                .ok_or_else(|| CodeGenError::GenerationError(self.diag.error(type_atom.syntax().text_range(), "Unsupported type in JSON Schema generation")))?
                 .text()
                 .to_string();
             if let Some(ref_sym) = self.syms.resolve(parent_sym, &ref_name)
@@ -470,6 +477,52 @@ mod tests {
         assert_eq!(pair["maxItems"], 2);
         assert_eq!(pair["prefixItems"][0]["type"], "string");
         assert_eq!(pair["prefixItems"][1]["type"], "integer");
+    }
+
+    #[test]
+    fn record_types_emit_additional_properties() {
+        let src = indoc! { r#"
+            type TicketId = string
+            type UserId = string
+            type IsoTimestamp = string
+
+            const DEFAULT_PRIORITY: u8 = 3
+
+            enum TicketStatus: "open" | "triaged" | "resolved" | "closed"
+
+            @root
+            model SupportTicket {
+                id: TicketId
+                @field(alias="requesterId")
+                requester_id: UserId
+                status: TicketStatus = "open"
+                priority: u8 = DEFAULT_PRIORITY
+                custom_fields?: Record<string, string>
+                resolved_at?: IsoTimestamp
+            }
+
+            model CreateTicketRequest {
+                requester_id: UserId
+                subject: string
+                body: string
+            }
+
+            endpoint "POST /tickets" CreateTicket {
+                body: CreateTicketRequest
+                responses: {
+                    201: SupportTicket
+                    4XX: { code: uint, message: string }
+                }
+            }
+        "# };
+
+        let output = gen_test(&CodeGenJsonSchema, src);
+        let schema: serde_json::Value = serde_json::from_str(&output).expect("schema should be valid JSON");
+        let custom_fields = &schema["properties"]["custom_fields"];
+        assert_eq!(custom_fields["type"], "object");
+        assert_eq!(custom_fields["additionalProperties"]["type"], "string");
+        assert_eq!(schema["properties"]["status"]["$ref"], "#/$defs/TicketStatus");
+        assert_eq!(schema["properties"]["priority"]["type"], "integer");
     }
 
     #[test]
