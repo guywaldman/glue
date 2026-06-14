@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.1](https://github.com/guywaldman/glue/compare/v1.12.0...v1.12.1) (2026-06-14)
+
+
+### Bug Fixes
+
+* **jsonschema:** fix JSON Schema codegen for Record fields ([e5f25dc](https://github.com/guywaldman/glue/commit/e5f25dcb496cb73a8156c9a9521a06cf23d55134))
+
 ## [1.12.0](https://github.com/guywaldman/glue/compare/v1.11.0...v1.12.0) (2026-06-14)
 
 
