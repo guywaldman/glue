@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.0](https://github.com/guywaldman/glue/compare/v1.11.0...v1.12.0) (2026-06-14)
+
+
+### Features
+
+* support Rust derives for type aliases ([39cc79d](https://github.com/guywaldman/glue/commit/39cc79d20078023d96cc087a7f8724f824a9425a))
+
 ## [1.11.0](https://github.com/guywaldman/glue/compare/v1.10.0...v1.11.0) (2026-06-13)
 
 
