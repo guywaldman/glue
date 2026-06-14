@@ -167,7 +167,7 @@
                 },
                 "serde_struct_derives": {
                     "type": "boolean",
-                    "description": "Whether to derive serde Serialize/Deserialize and emit serde attributes for generated structs, enums, and union enums. Defaults to true."
+                    "description": "Whether to derive serde Serialize/Deserialize and emit serde attributes for generated structs, enums, union enums, and type alias newtypes. Defaults to true."
                 }
             }
         },
@@ -184,6 +184,13 @@
                 "structs": {
                     "type": "array",
                     "description": "Additional derives for generated structs, including anonymous structs.",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "type_aliases": {
+                    "type": "array",
+                    "description": "Additional derives for generated Rust type alias newtypes.",
                     "items": {
                         "type": "string"
                     }

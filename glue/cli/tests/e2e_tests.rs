@@ -354,10 +354,12 @@ fn e2e_codegen_with_type_aliases() -> Result<()> {
         r#"
             type UserId = string
             type UserIds = UserId[]
+            type Point = (uint, uint)
 
             model User {
                 id: UserId
                 related: UserIds
+                point: Point
             }
         "#,
     )?;
@@ -368,7 +370,20 @@ fn e2e_codegen_with_type_aliases() -> Result<()> {
     assert!(generated.contains("id: Annotated[str, Field()]"));
     assert!(generated.contains("related: Annotated[list[str], Field()]"));
 
+    let rust_output_path = fixture.generate_rust()?;
+    let rust_generated = std::fs::read_to_string(&rust_output_path)?;
+
+    assert!(rust_generated.contains("pub struct UserId(pub String);"));
+    assert!(rust_generated.contains("pub struct UserIds(pub Vec<UserId>);"));
+    assert!(
+        rust_generated.contains("#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]\npub struct Point(pub (usize, usize));"),
+        "Expected Rust alias newtype derives:\n{}",
+        rust_generated
+    );
+    assert!(rust_generated.contains("pub point: Point,"));
+
     cleanup(&output_path);
+    cleanup(&rust_output_path);
     Ok(())
 }
 

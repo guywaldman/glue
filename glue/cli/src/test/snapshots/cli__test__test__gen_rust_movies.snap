@@ -4,9 +4,11 @@ expression: generated_code
 ---
 #![allow(clippy::all, clippy::pedantic, clippy::nursery)]
 
-pub type MovieId = String;
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub struct MovieId(pub String);
 
-pub type MovieList = Vec<Movie>;
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub struct MovieList(pub Vec<Movie>);
 
 /// Represents a movie entry.
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]

@@ -25,10 +25,11 @@ global:
 				structs: ["PartialEq"]
 				enums: ["Ord", "PartialOrd"]
 				unions: ["PartialEq"]
+				type_aliases: ["Ord", "PartialOrd"]
 ```
 
 When `include_yaml` is enabled, generated models include `from_yaml`/`to_yaml` helper methods.
-Set `serde_struct_derives: false` to omit serde `Serialize`/`Deserialize` derives and serde attributes from generated structs, enums, and union enums.
+Set `serde_struct_derives: false` to omit serde `Serialize`/`Deserialize` derives and serde attributes from generated structs, enums, union enums, and type alias newtypes.
 If both options are combined, provide serde impls yourself before using the YAML helpers.
 Use `extra_derives` to append additional Rust derive paths by generated shape. Entries must be Rust paths such as `Hash`, `serde::Serialize`, or `schemars::JsonSchema`.
 
@@ -85,7 +86,8 @@ pub enum Status {
 - `int` emits `isize`, `uint` emits `usize`, and fixed-width integers emit their Rust equivalents (`i8`, `u64`, etc.).
 - Tuples are emitted as native Rust tuples, e.g. `(String, isize)`.
 - `Record<K, V>` is emitted as `HashMap<K, V>`.
-- Glue `type` aliases are emitted as public Rust type aliases. Aliases starting with `_` are inlined instead.
+- Glue `type` aliases are emitted as public tuple newtype structs. Aliases starting with `_` are inlined instead.
+- Type alias newtypes derive `Copy`, `PartialEq`, `Eq`, and `Hash` by default only for conservative copy/hash-safe shapes such as integers, bools, regular enums, and tuples of safe members.
 - Regular enums derive `Copy` and `Hash` by default.
 - By default, unions are emitted as generated `#[serde(untagged)]` enums.
 - Anonymous structs are emitted as generated structs named from the owning field path.

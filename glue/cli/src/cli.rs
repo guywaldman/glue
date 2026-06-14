@@ -689,6 +689,7 @@ impl GlueCli {
                 structs: overrides.structs.or(base.structs),
                 enums: overrides.enums.or(base.enums),
                 unions: overrides.unions.or(base.unions),
+                type_aliases: overrides.type_aliases.or(base.type_aliases),
             }),
         }
     }
@@ -841,7 +842,7 @@ impl GlueCli {
             return;
         };
 
-        for key in ["structs", "enums", "unions"] {
+        for key in ["structs", "enums", "unions", "type_aliases"] {
             let Some(value) = extra_derives.get_mut(key) else {
                 continue;
             };
@@ -1031,6 +1032,7 @@ mod tests {
             "rust.extra_derives.structs=PartialEq,Eq,Hash".to_string(),
             "rust.extra_derives.enums=Ord,PartialOrd".to_string(),
             "rust.extra_derives.unions=PartialEq".to_string(),
+            "rust.extra_derives.type_aliases=Ord,PartialOrd".to_string(),
             "watermark=none".to_string(),
             "go.package_name=myapi".to_string(),
         ];
@@ -1048,6 +1050,7 @@ mod tests {
         assert_eq!(extra_derives.structs, Some(vec!["PartialEq".to_string(), "Eq".to_string(), "Hash".to_string()]));
         assert_eq!(extra_derives.enums, Some(vec!["Ord".to_string(), "PartialOrd".to_string()]));
         assert_eq!(extra_derives.unions, Some(vec!["PartialEq".to_string()]));
+        assert_eq!(extra_derives.type_aliases, Some(vec!["Ord".to_string(), "PartialOrd".to_string()]));
         assert_eq!(result.go.and_then(|go| go.package_name), Some("myapi".to_string()));
     }
 
@@ -1076,13 +1079,18 @@ mod tests {
                 extra_derives: Some(config::GlueConfigSchemaGenerationRustExtraDerives {
                     structs: Some(vec!["PartialEq".to_string()]),
                     enums: Some(vec!["Hash".to_string()]),
+                    type_aliases: Some(vec!["Clone".to_string()]),
                     ..Default::default()
                 }),
                 ..Default::default()
             }),
             ..Default::default()
         };
-        let set = vec!["watermark=none".to_string(), "rust.extra_derives.enums=Ord,PartialOrd".to_string()];
+        let set = vec![
+            "watermark=none".to_string(),
+            "rust.extra_derives.enums=Ord,PartialOrd".to_string(),
+            "rust.extra_derives.type_aliases=PartialEq".to_string(),
+        ];
         let cli_overrides = GlueCli::parse_cli_generation_overrides(&set, &[]).expect("overrides should parse");
         let merged = GlueCli::merge_generation_config(Some(base), cli_overrides).expect("merged config should exist");
 
@@ -1090,6 +1098,7 @@ mod tests {
         let extra_derives = merged.rust.and_then(|rust| rust.extra_derives).expect("merged extra derives should exist");
         assert_eq!(extra_derives.structs, Some(vec!["PartialEq".to_string()]));
         assert_eq!(extra_derives.enums, Some(vec!["Ord".to_string(), "PartialOrd".to_string()]));
+        assert_eq!(extra_derives.type_aliases, Some(vec!["PartialEq".to_string()]));
     }
 
     #[test]

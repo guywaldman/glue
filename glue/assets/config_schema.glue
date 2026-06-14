@@ -96,7 +96,7 @@ model GlueConfigSchema {
 		model Rust {
 			/// Include serde_yaml support in generated output
 			include_yaml?: bool
-			/// Whether to derive serde Serialize/Deserialize and emit serde attributes for generated structs, enums, and union enums. Defaults to true.
+			/// Whether to derive serde Serialize/Deserialize and emit serde attributes for generated structs, enums, union enums, and type alias newtypes. Defaults to true.
 			serde_struct_derives?: bool
 			/// Additional Rust derives to append by generated shape. Entries must be Rust derive paths such as `Hash`, `serde::Serialize`, or `schemars::JsonSchema`.
 			extra_derives?: ExtraDerives
@@ -107,6 +107,8 @@ model GlueConfigSchema {
 				enums?: string[]
 				/// Additional derives for generated union enums.
 				unions?: string[]
+				/// Additional derives for generated Rust type alias newtypes.
+				type_aliases?: string[]
 			}
 		}
 

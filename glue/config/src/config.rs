@@ -82,6 +82,9 @@ global:
           - PartialOrd
         unions:
           - PartialEq
+        type_aliases:
+          - Ord
+          - PartialOrd
 "#,
         )
         .expect("config should parse");
@@ -95,5 +98,6 @@ global:
         assert_eq!(extra_derives.structs, Some(vec!["PartialEq".to_string(), "Eq".to_string(), "Hash".to_string()]));
         assert_eq!(extra_derives.enums, Some(vec!["Ord".to_string(), "PartialOrd".to_string()]));
         assert_eq!(extra_derives.unions, Some(vec!["PartialEq".to_string()]));
+        assert_eq!(extra_derives.type_aliases, Some(vec!["Ord".to_string(), "PartialOrd".to_string()]));
     }
 }
