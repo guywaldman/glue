@@ -15,7 +15,7 @@ pretty_assertions = { workspace = true, features = ["unstable"] }
 pretty_env_logger = { workspace = true }
 rayon = { workspace = true }
 regex = { workspace = true }
-rowan = { version = "0.16.1" }
+rowan = { version = "0.17.0" }
 slotmap = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
