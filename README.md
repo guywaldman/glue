@@ -18,7 +18,7 @@ Glue is designed to be LLM-friendly. [/llms.txt](https://gluelang.dev/llms.txt) 
 
 Glue's syntax is concise and forgiving, making it easy for LLMs to work with while remaining unambiguous and easy to parse. It also has informative error messages to help guide you (or your agent nowadays) when you make a mistake.
 
-You can install the official Glue skill (defined [here](./skills/glue)) from this repository:
+You can install the official Glue skill (defined [here](./skills/glue/SKILL.md)) from this repository:
 
 ```shell
 npx skills add guywaldman/glue --skill glue
